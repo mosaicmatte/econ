@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { Evaluator, Brush, SUBTRACTION } from 'three-bvh-csg';
 import buildingData from './building-data.json';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import AirflowField from './AirflowField';
 
 // ========== CSG Helper (three-bvh-csg Evaluator/Brush API) ==========
 // three-bvh-csg has no static `CSG` helper; it exposes an Evaluator that
@@ -229,35 +230,40 @@ function FloorPlate({ floor, isActive, onClick, simState }) {
       </mesh>
 
       {/* Floating Live Data Label */}
-      <Html position={[-25, floor.height / 2, 20]} center zIndexRange={[100, 0]} style={{ transition: 'all 0.2s', opacity: isActive || hovered || hasAlert ? 1 : 0.2, pointerEvents: 'none' }}>
-        <div style={{ 
-          color: hasAlert ? '#ff3333' : (isActive ? '#fff' : hovered ? '#00ffff' : '#aaa'), 
-          background: hasAlert ? 'rgba(50,0,0,0.85)' : 'rgba(0,0,0,0.85)', 
-          border: `1px solid ${hasAlert ? '#ff0000' : (isActive ? '#fff' : hovered ? '#00ffff' : '#333')}`, 
-          padding: '6px 12px', fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'nowrap', 
-          textShadow: hasAlert ? '0 0 10px rgba(255,0,0,0.8)' : '0 0 5px rgba(0,229,255,0.5)',
-          transform: hasAlert ? 'scale(1.1)' : 'scale(1)',
-          transition: 'all 0.3s'
-        }}>
-          <strong style={{ fontSize: '12px' }}>{hasAlert ? '⚠️ ' : ''}[ L{floor.level} ]</strong><br/>
-          {floor.name}<br/>
-          <span style={{ color: hasAlert ? '#ff5555' : '#00e5ff' }}>
-            {hasAlert ? 'CRITICAL FAULT' : `ZONES: ${floor.zones.length}`}
-          </span>
-        </div>
-      </Html>
+      {(isActive || hovered || hasAlert) && (
+        <Html position={[-25, floor.height / 2, 20]} center zIndexRange={[100, 0]} style={{ transition: 'all 0.2s', pointerEvents: 'none' }}>
+          <div style={{ 
+            color: hasAlert ? '#ff3333' : (isActive ? '#fff' : '#00ffff'), 
+            background: hasAlert ? 'rgba(50,0,0,0.85)' : 'rgba(0,0,0,0.85)', 
+            border: `1px solid ${hasAlert ? '#ff0000' : (isActive ? '#fff' : '#00ffff')}`, 
+            padding: '6px 12px', fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'nowrap', 
+            textShadow: hasAlert ? '0 0 10px rgba(255,0,0,0.8)' : '0 0 5px rgba(0,229,255,0.5)',
+            transform: hasAlert ? 'scale(1.1)' : 'scale(1)',
+            transition: 'all 0.3s'
+          }}>
+            <strong style={{ fontSize: '12px' }}>{hasAlert ? '⚠️ ' : ''}[ L{floor.level} ]</strong><br/>
+            {floor.name}<br/>
+            <span style={{ color: hasAlert ? '#ff5555' : '#00e5ff' }}>
+              {hasAlert ? 'CRITICAL FAULT' : `ZONES: ${floor.zones.length}`}
+            </span>
+          </div>
+        </Html>
+      )}
     </group>
   );
 }
 
 // ========== STEP 4: Zone Renderer with Thermal Heatmap ==========
-function ZoneRenderer({ zone, simState }) {
+function ZoneRenderer({ zone, isActive, simState, isHovered, onHover }) {
+  const meshRef = useRef();
   const zoneSim = simState.zones[zone.zoneId];
   const temperature = zoneSim ? zoneSim.temp : zone.thermalProperties.setpoint;
   const setpoint = zone.thermalProperties.setpoint;
   const deadband = zone.thermalProperties.deadband;
 
   const thickness = 3.8;
+  const cx = zone.centroid.x - 20;
+  const cy = -(zone.centroid.y - 20);
 
   const geometry = useMemo(() => {
     const shape = new THREE.Shape();
@@ -275,21 +281,18 @@ function ZoneRenderer({ zone, simState }) {
       curveSegments: 12,
     });
 
-    // Bake the -90° X rotation into the vertices so the zone lies FLAT on the
-    // floor plate and extrudes upward. (Previously the rotation was set on a
-    // throwaway mesh and never baked, so zones rendered as vertical slabs.)
     geom.rotateX(-Math.PI / 2);
     geom.computeVertexNormals();
     return geom.toNonIndexed();
   }, [zone, thickness]);
 
-  // Shader to render heatmap
   const material = useMemo(() => {
     return new THREE.ShaderMaterial({
       uniforms: {
         temperature: { value: temperature },
         setpoint: { value: setpoint },
         deadband: { value: deadband },
+        opacity: { value: isActive ? (isHovered ? 0.9 : 0.65) : 0.15 }
       },
       vertexShader: `
         varying vec2 vUv;
@@ -302,12 +305,10 @@ function ZoneRenderer({ zone, simState }) {
         uniform float temperature;
         uniform float setpoint;
         uniform float deadband;
+        uniform float opacity;
         varying vec2 vUv;
         
         vec3 heatmap(float deviation) {
-          // deviation is 0 at setpoint.
-          // r fades in starting at 0.5 deviation, pure red at 1.5 deviation.
-          // b fades in starting at -0.5 deviation, pure blue at -1.5 deviation.
           float r = smoothstep(0.5, 1.5, deviation);
           float b = smoothstep(0.5, 1.5, -deviation);
           float g = 1.0 - max(r, b);
@@ -316,16 +317,15 @@ function ZoneRenderer({ zone, simState }) {
         
         void main() {
           float deviation = (temperature - setpoint) / deadband;
-          gl_FragColor = vec4(heatmap(deviation), 0.65); // High transparency for the volumetric block
+          gl_FragColor = vec4(heatmap(deviation), opacity);
         }
       `,
       transparent: true,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
-  }, []);
+  }, [isActive, isHovered]);
 
-  // Update uniform dynamically with lerp for smooth color transitions (removes sensor noise flicker)
   useFrame(() => {
     if (material && material.uniforms.temperature) {
       const liveTemp = simState.zones[zone.zoneId]?.temp || setpoint;
@@ -339,37 +339,52 @@ function ZoneRenderer({ zone, simState }) {
 
   return (
     <group position={[0, 0.01, 0]}>
-      <mesh geometry={geometry} material={material} />
+      <mesh 
+        ref={meshRef} 
+        geometry={geometry}
+        onPointerOver={(e) => {
+          if (isActive) {
+            e.stopPropagation();
+            onHover(zone.zoneId);
+            document.body.style.cursor = 'pointer';
+          }
+        }}
+        onPointerOut={(e) => {
+          if (isActive) {
+            onHover(null);
+            document.body.style.cursor = 'auto';
+          }
+        }}
+      >
+        <primitive object={material} attach="material" />
+        <Edges color={isHovered && isActive ? "#ffffff" : "#222222"} threshold={15} />
+      </mesh>
       
-      {/* Label for Zone */}
-      <Html position={[zone.centroid.x - 20, thickness + 0.2, -(zone.centroid.y - 20)]} center zIndexRange={[100, 0]} sprite>
-        <div style={{ color: '#fff', fontSize: '10px', fontFamily: 'monospace', whiteSpace: 'nowrap', userSelect: 'none', background: 'rgba(0,0,0,0.8)', padding: '4px 6px', border: '1px solid #333' }}>
-          {zone.name}<br/>
-          <span style={{ color: '#aaa' }}>{temperature.toFixed(1)}°C</span>
-        </div>
-      </Html>
+      {isActive && isHovered && (
+        <Html position={[cx, 2.5, cy]} center zIndexRange={[100, 0]}>
+          <div style={{
+            background: 'rgba(0,0,0,0.8)',
+            border: '1px solid #00e5ff',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            color: '#00e5ff',
+            fontFamily: 'monospace',
+            fontSize: '10px',
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap'
+          }}>
+            Asset: {zone.bim_asset_id}
+          </div>
+        </Html>
+      )}
     </group>
   );
 }
 
-function floorHeightFromType(type) {
-  if (type === 'mechanical') return 4.0;
-  if (type === 'lobby') return 4.5;
-  if (type === 'server-room') return 3.2;
-  return 2.8;
-}
-
 // ========== STEP 5: Complete Production Building Component ==========
-export default function BuildingModel({ simState, activeFloor, onFloorClick }) {
+export default function BuildingModel({ simState, activeFloor, onFloorClick, showAirflow }) {
+  const [hoveredZone, setHoveredZone] = useState(null);
   const floors = buildingData.floors;
-
-  // Calculate total height to center building
-  let totalHeight = 0;
-  const floorHeights = floors.map(f => {
-    const currentHeight = totalHeight;
-    totalHeight += f.height;
-    return currentHeight;
-  });
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
@@ -380,28 +395,49 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick }) {
         
         <OrbitControls target={[0, 15, 0]} />
 
-        <group position={[0, 0, 0]}>
-          {floors.map((floor, idx) => {
-            const isActive = activeFloor === floor.level;
-            const yPos = floorHeights[idx];
+        <group position={[-30, 0, -20]}>
+          {floors.map((floor) => {
+            const isActive = floor.level === activeFloor;
+            
+            let yOffset = 0;
+            if (floor.level > activeFloor) {
+                yOffset = 30.0;
+            } else if (floor.level === activeFloor) {
+                yOffset = 5.0;
+            }
+
+            const displayElevation = floor.elevation + yOffset;
 
             return (
-              <group key={floor.floorId} position={[0, yPos, 0]}>
+              <group 
+                key={`floor-${floor.level}`} 
+                position={[0, displayElevation, 0]}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFloorClick(floor.level);
+                }}
+              >
                 <FloorPlate floor={floor} isActive={isActive} onClick={onFloorClick} simState={simState} />
 
-                {/* Walls + interior zones only on the active floor: keeps the
-                    stacked dim plates as a clean tower silhouette while the
-                    selected floor reads clearly (also fewer draw calls). */}
                 {isActive && <ExteriorWalls floor={floor} isActive={isActive} />}
-                {isActive && floor.zones.map(zone => (
-                  <ZoneRenderer key={zone.zoneId} zone={zone} simState={simState} />
-                ))}
+                {isActive && showAirflow && <AirflowField floor={floor} />}
+                <group>
+                  {floor.zones.map((zone) => (
+                    <ZoneRenderer
+                      key={zone.zoneId}
+                      zone={zone}
+                      isActive={isActive}
+                      simState={simState}
+                      isHovered={hoveredZone === zone.zoneId}
+                      onHover={setHoveredZone}
+                    />
+                  ))}
+                </group>
               </group>
             );
           })}
         </group>
         
-        {/* Helper Grid */}
         <gridHelper args={[100, 100, '#333333', '#111111']} position={[0, -0.1, 0]} />
       </Canvas>
     </div>

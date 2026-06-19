@@ -1,3 +1,7 @@
+//go:build ignore
+
+// Standalone thermodynamics sanity check. Excluded from the normal build
+// (it declares its own main); run explicitly with: go run test_thermo.go
 package main
 
 import "fmt"

@@ -16,10 +16,12 @@ import (
 
 // Building Data structs
 type ThermalProps struct {
-	InternalHeatLoad float64 `json:"internalHeatLoad"`
-	Occupancy        int     `json:"occupancy"`
-	Setpoint         float64 `json:"setpoint"`
-	WallThickness    float64 `json:"wallThickness"`
+	BaseHeatLoad        float64 `json:"baseHeatLoad"`
+	Setpoint            float64 `json:"setpoint"`
+	Deadband            float64 `json:"deadband"`
+	SolarGainMultiplier float64 `json:"solarGainMultiplier"`
+	RWall               float64 `json:"rWall"`
+	CAir                float64 `json:"cAir"`
 }
 
 type HvacMap struct {
@@ -29,6 +31,7 @@ type HvacMap struct {
 type ZoneData struct {
 	ZoneId            string       `json:"zoneId"`
 	ZoneType          string       `json:"zoneType"`
+	BimAssetId        string       `json:"bim_asset_id"`
 	Volume            float64      `json:"volume"`
 	WallArea          float64      `json:"wallArea"`
 	ThermalProperties ThermalProps `json:"thermalProperties"`
@@ -48,13 +51,16 @@ type ZoneSim struct {
 	Temp              float64
 	WallTemp          float64
 	Type              string
+	BimAssetId        string
 	Occupancy         int
 	BaseHeatGain      float64
+	SolarGainMult     float64
 	CAir              float64
 	CWall             float64
 	RIn               float64
 	ROut              float64
 	Setpoint          float64
+	Deadband          float64
 	LastBroadcastTemp float64
 }
 
@@ -62,6 +68,7 @@ type VavSim struct {
 	TargetZone        string
 	Resistance        float64
 	Flow              float64
+	NominalFlow       float64 // flow at default resistance; cooling is sized against this
 	LastBroadcastFlow float64
 }
 
@@ -120,18 +127,27 @@ func NewEngine() *Engine {
 				Temp:         temp,
 				WallTemp:     temp,
 				Type:         z.ZoneType,
-				Occupancy:    z.ThermalProperties.Occupancy,
-				BaseHeatGain: z.ThermalProperties.InternalHeatLoad,
-				CAir:         1.202 * 1006 * z.Volume,
-				CWall:        2400 * 880 * z.WallArea * z.ThermalProperties.WallThickness,
-				RIn:          1.0 / (8.3 * z.WallArea),
-				ROut:         1.0 / (34.0 * z.WallArea),
-				Setpoint:     temp,
+				BimAssetId:   z.BimAssetId,
+				Occupancy:    rand.Intn(10),
+				BaseHeatGain: z.ThermalProperties.BaseHeatLoad,
+				SolarGainMult: z.ThermalProperties.SolarGainMultiplier,
+				CAir:         z.ThermalProperties.CAir,
+				CWall:        4000000.0,
+				RIn:          z.ThermalProperties.RWall / 2,
+				ROut:         z.ThermalProperties.RWall / 2 + 0.1,
+				Setpoint:     z.ThermalProperties.Setpoint,
+				Deadband:     z.ThermalProperties.Deadband,
+				LastBroadcastTemp: 24.0,
 			}
 		}
 	}
 
 	e.doHardyCross()
+	// Capture each VAV's nominal flow (at default resistance) so the cooling
+	// model can be normalized to it regardless of how many VAVs share the AHU.
+	for _, v := range e.Vavs {
+		v.NominalFlow = v.Flow
+	}
 	return e
 }
 
@@ -161,23 +177,24 @@ func (e *Engine) SetScenario(s string) {
 	defer e.mu.Unlock()
 	e.Scenario = s
 	
-	if s == "fault" {
-		if v, ok := e.Vavs["vav-server-6a"]; ok {
-			v.Resistance = 15.0
+	for _, v := range e.Vavs {
+		z := e.Zones[v.TargetZone]
+		// Modulate VAV
+		errorSignal := z.Temp - z.Setpoint
+		if errorSignal > z.Deadband/2 {
+			v.Resistance -= 0.05
+		} else if errorSignal < -z.Deadband/2 {
+			v.Resistance += 0.05
 		}
-	} else if s == "remediating" {
-		if v, ok := e.Vavs["vav-server-6a"]; ok {
-			v.Resistance = 0.01 // Massive airflow for rapid accurate cooling
+
+		if e.Scenario == "fault" && v.TargetZone == "zone-server-lvl8" {
+			v.Resistance = 50.0 // Damper stuck closed
+		} else if e.Scenario == "remediating" && (z.Type == "server-room" || z.Type == "core") {
+			v.Resistance = 0.01 // Maximum flow
 		}
-		for k, v := range e.Vavs {
-			if k != "vav-server-6a" {
-				v.Resistance = 10.0
-			}
-		}
-	} else {
-		for _, v := range e.Vavs {
-			v.Resistance = 1.0
-		}
+		
+		if v.Resistance < 0.01 { v.Resistance = 0.01 }
+		if v.Resistance > 100.0 { v.Resistance = 100.0 }
 	}
 	e.doHardyCross()
 }
@@ -235,9 +252,13 @@ func (e *Engine) tick(dt float64) {
 				continue
 			}
 
-			qInternal := z.BaseHeatGain
+			// Nominal (non-fault) internal load: base equipment + people + solar.
+			qSolar := z.SolarGainMult * 10000.0
+			qInternalNominal := z.BaseHeatGain + (float64(z.Occupancy) * 100.0) + qSolar
+
+			qInternal := qInternalNominal
 			if e.Scenario == "fault" && z.Type == "server-room" {
-				qInternal *= 5.0 // Server thermal runaway!
+				qInternal *= 5.0 // Thermal runaway (cooling is NOT sized for this -> red)
 			}
 
 			sp := z.Setpoint
@@ -245,17 +266,25 @@ func (e *Engine) tick(dt float64) {
 				sp = 24.0
 			}
 
-			// Nominal flow at Resistance = 1.0 is ~5.4 m3/s.
-			flowRatio := v.Flow / 5.4 
-
-			// Heat transfer formula:
 			tOutside := 30.0
 
-			// To guarantee the room stabilizes exactly at the Setpoint during nominal flow (flowRatio ~= 1.0),
-			// qCooling must equal the sum of internal heat and steady-state wall conduction.
+			// Size cooling so that at the VAV's NOMINAL flow the room holds setpoint:
+			// qCooling(Temp=sp, flow=nominal) must offset the full nominal internal
+			// load plus steady-state wall conduction. Normalizing by the VAV's own
+			// nominal flow (not a hard-coded 5.4 m3/s) keeps this correct no matter
+			// how many VAVs share the AHU.
 			qSteadyStateWall := (tOutside - sp) / (z.RIn + z.ROut)
-			qNominalTotal := z.BaseHeatGain + qSteadyStateWall
-			
+			qNominalTotal := qInternalNominal + qSteadyStateWall
+
+			nominalFlow := v.NominalFlow
+			if nominalFlow < 1e-6 {
+				nominalFlow = v.Flow
+			}
+			if nominalFlow < 1e-6 {
+				nominalFlow = 1.0
+			}
+			flowRatio := v.Flow / nominalFlow
+
 			qCooling := flowRatio * qNominalTotal * ((z.Temp - 12.0) / (sp - 12.0))
 			if qCooling < 0 { qCooling = 0 } // Cannot heat with cold air
 
@@ -268,6 +297,34 @@ func (e *Engine) tick(dt float64) {
 }
 
 func (e *Engine) broadcast() {
+		// ---- Live global metrics (computed from current zone state) ----
+		totalHeatW := 0.0
+		totalOccupants := 0
+		inBand := 0
+		for _, z := range e.Zones {
+			qSolar := z.SolarGainMult * 10000.0
+			qi := z.BaseHeatGain + float64(z.Occupancy)*100.0 + qSolar
+			if e.Scenario == "fault" && z.Type == "server-room" {
+				qi *= 5.0
+			}
+			totalHeatW += qi
+			totalOccupants += z.Occupancy
+			sp := z.Setpoint
+			if sp == 0 {
+				sp = 24.0
+			}
+			if math.Abs(z.Temp-sp) <= z.Deadband {
+				inBand++
+			}
+		}
+		// Electrical draw: cooling (heat / COP) + fixed base (lighting + plug loads).
+		coolingMW := (totalHeatW / 3.0) / 1e6
+		buildingLoadMW := coolingMW + 2.0
+		systemHealth := 100.0
+		if len(e.Zones) > 0 {
+			systemHealth = 100.0 * float64(inBand) / float64(len(e.Zones))
+		}
+
 		// FlatBuffers Serialization
 		builder := flatbuffers.NewBuilder(1024)
 
@@ -313,9 +370,9 @@ func (e *Engine) broadcast() {
 
 		// Create Global
 		Telemetry.GlobalDataStart(builder)
-		Telemetry.GlobalDataAddBuildingLoadMw(builder, 4.15)
-		Telemetry.GlobalDataAddSystemHealth(builder, 98.0)
-		Telemetry.GlobalDataAddTotalOccupants(builder, 412)
+		Telemetry.GlobalDataAddBuildingLoadMw(builder, float32(buildingLoadMW))
+		Telemetry.GlobalDataAddSystemHealth(builder, float32(systemHealth))
+		Telemetry.GlobalDataAddTotalOccupants(builder, int32(totalOccupants))
 		globalPos := Telemetry.GlobalDataEnd(builder)
 
 		// Build SimState

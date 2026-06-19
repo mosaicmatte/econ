@@ -3,7 +3,6 @@ import { Users, Wind, Box, Zap, AlertTriangle, Activity, Settings, Map } from 'l
 import { ReactFlow, Background, Controls, Handle, Position, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import BuildingModel from './BuildingModel';
-import WindSimulationCanvas from './WindSimulation';
 import buildingData from './building-data.json';
 import * as flatbuffers from 'flatbuffers';
 import { SimState } from './telemetry';
@@ -21,7 +20,7 @@ const INTEGRATION_BY_TYPE = {
 
 
 const getInitialSimData = () => {
-  const data = { scenario: 'peak', ahuPressure: 500, vavs: {}, zones: {}, logs: [] };
+  const data = { scenario: 'peak', ahuPressure: 500, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, vavs: {}, zones: {}, logs: [] };
   buildingData.floors.forEach(floor => {
     floor.zones.forEach(z => {
       // Use pre-calculated centroid from building-data.json if available
@@ -39,6 +38,7 @@ const getInitialSimData = () => {
         level: floor.level,
         label: z.name,
         type: z.zoneType,
+        bim_asset_id: z.bim_asset_id,
         temp: z.thermalProperties?.setpoint || 24.0,
         setpoint: z.thermalProperties?.setpoint || 24.0,
         deadband: z.thermalProperties?.deadband || 2.0,
@@ -83,6 +83,7 @@ const ThermalNode = ({ data, selected }) => {
       <div className="thermal-label">{data.label}</div>
       <div className="thermal-value">{data.temp}°C</div>
       <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>{data.occupancy} PAX</div>
+      <div style={{ fontSize: '7px', color: 'var(--accent-blue)', opacity: 0.8, marginTop: '2px', wordBreak: 'break-all', fontFamily: 'monospace' }}>BIM: {data.bim_asset_id?.split('-')[0]}</div>
       <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
     </div>
   );
@@ -119,83 +120,62 @@ const nodeTypes = {
   floorplan: FloorplanImageNode
 };
 
+// Auto-generates a clean AHU -> VAV -> Zone P&ID for the active floor from
+// whatever zones/VAVs exist in the loaded blueprint. Layout is structural (a
+// single evenly-spaced row of zone columns fanning out from the AHU) rather than
+// raw physical centroids, so it stays readable for any number of zones and any
+// building. Columns are ordered west->east by centroid so they still echo the
+// floor plan. Zones without a mapped VAV connect straight to the AHU.
+const COL_SPACING = 210;
 const buildTopologyFromSim = (simState, activeFloor) => {
   const nodes = [];
   const edges = [];
-  
-  nodes.push({ 
-    id: 'ahu-main', 
-    type: 'ahu', 
-    position: { x: 320, y: -250 }, 
-    data: { 
-      label: 'AHU-MAIN', 
-      status: simState.scenario === 'fault' ? 'FAULT' : 'NOMINAL',
-      pressure: simState.ahuPressure
-    } 
-  });
-  
-  const zScale = 25; // Increase scale to spread out nodes
-  
-  const activeZones = Object.values(simState.zones).filter(z => z.level === activeFloor);
 
-  activeZones.forEach(z => {
-    // The new BIM schema uses coordinates in [0, 40] meters
-    const cx = z.centroid.x - 20; // Center around 0
-    const cy = z.centroid.y - 20;
-    
+  const activeZones = Object.values(simState.zones)
+    .filter(z => z.level === activeFloor)
+    .sort((a, b) => (a.centroid.x - b.centroid.x) || (a.centroid.y - b.centroid.y));
+
+  const totalWidth = Math.max(0, activeZones.length - 1) * COL_SPACING;
+  const x0 = -totalWidth / 2;
+
+  // AHU root, centered above the fan-out
+  nodes.push({
+    id: 'ahu-main', type: 'ahu', position: { x: -45, y: -300 },
+    data: { label: 'AHU-MAIN', status: simState.scenario === 'fault' ? 'FAULT' : 'NOMINAL', pressure: simState.ahuPressure }
+  });
+
+  // Index VAVs by the zone they serve
+  const vavByZone = {};
+  Object.values(simState.vavs).forEach(v => { vavByZone[v.targetZone] = v; });
+
+  activeZones.forEach((z, i) => {
+    const x = x0 + i * COL_SPACING;
+    const isServerFault = simState.scenario === 'fault' && z.type === 'server-room';
+    const isRem = simState.scenario === 'remediating' && (z.type === 'server-room' || z.type === 'core');
+    const stroke = isServerFault ? 'var(--accent-red)' : (isRem ? 'var(--accent-yellow)' : 'var(--accent-blue)');
+    const edgeStyle = { stroke, strokeWidth: 1.5, strokeDasharray: isServerFault ? '4 4' : 'none' };
+
     nodes.push({
-      id: z.id,
-      type: 'zone',
-      position: { x: cx * zScale, y: cy * zScale },
-      draggable: false,
+      id: z.id, type: 'zone', position: { x, y: 120 }, draggable: false,
       data: {
-        label: z.label,
-        temp: z.temp,
-        setpoint: z.setpoint,
-        deadband: z.deadband,
-        occupancy: z.occupancy,
-        alert: z.alert,
-        integration_score: z.integration_score
+        label: z.label, temp: z.temp, setpoint: z.setpoint, deadband: z.deadband,
+        occupancy: z.occupancy, alert: z.alert, integration_score: z.integration_score,
+        bim_asset_id: z.bim_asset_id
       }
     });
-  });
 
-  Object.values(simState.vavs).forEach(v => {
-    const z = simState.zones[v.targetZone];
-    if (!z || z.level !== activeFloor) return; // Only process VAVs on active floor
-
-    const cx = z.centroid.x - 20;
-    const cy = z.centroid.y - 20;
-
-    nodes.push({
-      id: v.id,
-      type: 'vav',
-      position: { x: cx * zScale, y: cy * zScale - 60 },
-      draggable: false,
-      data: { label: v.id.toUpperCase(), flow: v.flow.toFixed(1) + ' m³/m' }
-    });
-
-    const isHighFlow = v.resistance < 1;
-    const isFault = simState.scenario === 'fault' && v.id === 'vav-server-6a';
-    const isRem = simState.scenario === 'remediating' && isHighFlow;
-
-    edges.push({
-      id: `e-ahu-${v.id}`,
-      source: 'ahu-main',
-      target: v.id,
-      type: 'step',
-      animated: !isFault,
-      style: { stroke: isFault ? 'var(--accent-red)' : (isRem ? 'var(--accent-yellow)' : 'var(--accent-blue)'), strokeWidth: isHighFlow ? 2 : 1, strokeDasharray: isFault ? '4 4' : 'none' }
-    });
-
-    edges.push({
-      id: `e-${v.id}-${z.id}`,
-      source: v.id,
-      target: z.id,
-      type: 'step',
-      animated: !isFault,
-      style: { stroke: isFault ? 'var(--accent-red)' : (isRem ? 'var(--accent-yellow)' : 'var(--accent-blue)'), strokeWidth: isHighFlow ? 2 : 1, strokeDasharray: isFault ? '4 4' : 'none' }
-    });
+    const v = vavByZone[z.id];
+    if (v) {
+      nodes.push({
+        id: v.id, type: 'vav', position: { x: x + 20, y: -50 }, draggable: false,
+        data: { label: v.id.toUpperCase(), flow: (v.flow || 0).toFixed(1) + ' m³/m' }
+      });
+      edges.push({ id: `e-ahu-${v.id}`, source: 'ahu-main', target: v.id, type: 'step', animated: !isServerFault, style: edgeStyle });
+      edges.push({ id: `e-${v.id}-${z.id}`, source: v.id, target: z.id, type: 'step', animated: !isServerFault, style: edgeStyle });
+    } else {
+      // No dedicated VAV in this blueprint -> hang the zone directly off the AHU
+      edges.push({ id: `e-ahu-${z.id}`, source: 'ahu-main', target: z.id, type: 'step', animated: !isServerFault, style: edgeStyle });
+    }
   });
 
   return { nodes, edges };
@@ -256,9 +236,6 @@ function App() {
       avgTemp: zones.length ? (tempSum / zones.length).toFixed(1) : 0
     };
   }, [simData]);
-
-  // TEMP debug hook: drive floor changes from the preview console
-  useEffect(() => { if (typeof window !== 'undefined') window.__setFloor = setActiveFloor; }, []);
 
   const selectedNode = nodes.find(n => n.selected);
 
@@ -335,7 +312,9 @@ function App() {
 
       const g = state.global();
       if (g) {
-        newSimData.ahuPressure = g.pressure ? g.pressure() : 500;
+        newSimData.buildingLoadMw = g.buildingLoadMw();
+        newSimData.systemHealth = g.systemHealth();
+        newSimData.totalOccupants = g.totalOccupants();
       }
 
       simDataRef.current = newSimData;
@@ -374,7 +353,7 @@ function App() {
     <div className="hud-container">
       
       {/* LAYER 0: The Full 3D Node-Graph Engine */}
-      <BuildingModel simState={simData} activeFloor={activeFloor} onFloorClick={setActiveFloor} />
+      <BuildingModel simState={simData} activeFloor={activeFloor} onFloorClick={setActiveFloor} showAirflow={showWindSim} />
 
       {/* AI INTERACTIVE MODAL OVERLAY */}
       {/* AI INTERACTIVE MODAL (Non-blocking so user can watch the building fail) */}
@@ -423,34 +402,28 @@ function App() {
                    pointerEvents: 'auto'
                  }}
               >
-                 {showWindSim ? 'VIEW 2D P&ID' : 'VIEW 3D WIND'}
+                 {showWindSim ? '⏸ HIDE AIRFLOW' : '🌬 SHOW AIRFLOW'}
               </button>
               <span style={{ fontSize: '10px', color: 'var(--accent-blue)' }}>{nodes.length - 1} ACTIVE NODES</span>
             </div>
           </div>
 
-          {showWindSim ? (
-             <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 5, background: '#0a0a0a', pointerEvents: 'auto' }}>
-               <WindSimulationCanvas simState={simData} />
-             </div>
-          ) : (
-             <ReactFlow 
-               nodes={nodes} 
-               edges={edges} 
-               onNodesChange={onNodesChange}
-               onEdgesChange={onEdgesChange}
-               nodeTypes={nodeTypes}
-               fitView
-               fitViewOptions={{ padding: 0.1 }}
-               proOptions={{ hideAttribution: true }}
-               minZoom={0.1}
-               maxZoom={1.5}
-               translateExtent={[[-800, -800], [800, 800]]}
-               nodesDraggable={false}
-             >
-               <Background gap={40} size={1} color="rgba(255,255,255,0.05)" />
-             </ReactFlow>
-          )}
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            nodeTypes={nodeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.15 }}
+            proOptions={{ hideAttribution: true }}
+            minZoom={0.1}
+            maxZoom={1.5}
+            translateExtent={[[-1600, -800], [1600, 800]]}
+            nodesDraggable={false}
+          >
+            <Background gap={40} size={1} color="rgba(255,255,255,0.05)" />
+          </ReactFlow>
         </div>
       </div>
 
@@ -526,14 +499,14 @@ function App() {
                </div>
                <div className="data-row">
                   <span className="data-label">Sys Health</span>
-                  <span className="data-value mono" style={{ color: activeScenario === 'fault' ? 'var(--accent-red)' : activeScenario === 'remediating' ? 'var(--accent-yellow)' : 'var(--accent-green)' }}>
-                    {activeScenario === 'fault' ? '42%' : activeScenario === 'remediating' ? '68%' : '98%'}
+                  <span className="data-value mono" style={{ color: (simData.systemHealth ?? 100) < 70 ? 'var(--accent-red)' : (simData.systemHealth ?? 100) < 90 ? 'var(--accent-yellow)' : 'var(--accent-green)' }}>
+                    {Math.round(simData.systemHealth ?? 100)}%
                   </span>
                </div>
             </div>
 
             <div className="gauge-cluster" style={{ border: 'none', margin: '0', padding: '1rem 0' }}>
-              <CircularGauge value={globalMetrics.occupants} max={600} label="Occupants" unit="pax" color="var(--accent-blue)" />
+              <CircularGauge value={simData.totalOccupants ?? 0} max={800} label="Occupants" unit="pax" color="var(--accent-blue)" />
               <CircularGauge value={globalMetrics.avgTemp} max={35} label="Avg Temp" unit="°C" color="var(--accent-yellow)" />
             </div>
           </>
@@ -573,7 +546,7 @@ function App() {
         <Activity size={18} color="var(--accent-blue)" />
         <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Bldg Load</span>
         <span className="mono" style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-          {activeScenario === 'fault' ? '1.92' : activeScenario === 'remediating' ? '2.84' : '4.15'} MW
+          {(simData.buildingLoadMw ?? 0).toFixed(2)} MW
         </span>
       </div>
 
