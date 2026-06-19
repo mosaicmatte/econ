@@ -1,4 +1,4 @@
-module ecosync
+module econ
 
 go 1.22.12
 

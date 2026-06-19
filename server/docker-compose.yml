@@ -4,9 +4,9 @@ services:
   db:
     image: timescale/timescaledb:latest-pg14
     environment:
-      - POSTGRES_PASSWORD=ecosync
-      - POSTGRES_USER=ecosync
-      - POSTGRES_DB=ecosync
+      - POSTGRES_PASSWORD=econ
+      - POSTGRES_USER=econ
+      - POSTGRES_DB=econ
     ports:
       - "5432:5432"
     volumes:
@@ -18,7 +18,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - DB_URL=postgres://ecosync:ecosync@db:5432/ecosync?sslmode=disable
+      - DB_URL=postgres://econ:econ@db:5432/econ?sslmode=disable
     depends_on:
       - db
 

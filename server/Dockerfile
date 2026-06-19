@@ -3,11 +3,11 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o ecosync-server .
+RUN go build -o econ-server .
 
 FROM alpine:latest
 WORKDIR /app
-COPY --from=builder /app/ecosync-server .
+COPY --from=builder /app/econ-server .
 COPY data/ ./data/
 EXPOSE 8080
-CMD ["./ecosync-server"]
+CMD ["./econ-server"]

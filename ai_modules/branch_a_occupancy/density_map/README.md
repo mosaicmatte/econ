@@ -2,5 +2,5 @@
 
 This module estimates crowd density in highly congested areas (lobbies, auditoriums).
 
-## Role in EcoSync
+## Role in ECON
 - Generates density maps when standard detection fails due to overlap.

@@ -2,5 +2,5 @@
 
 This module detects electrical symbols within engineering drawings.
 
-## Role in EcoSync
+## Role in ECON
 - Identifies lights, outlets, AC units, and breaker panels in the floor plan to build the device inventory.

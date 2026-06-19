@@ -2,6 +2,6 @@
 
 This directory contains Python scripts for the Raspberry Pi edge gateways.
 
-## Role in EcoSync
+## Role in ECON
 - Acts as a local aggregator for sensor nodes if necessary.
 - Bridges camera streams to the Branch A processing layer.

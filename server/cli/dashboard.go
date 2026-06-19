@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"ecosync/schema/Telemetry"
+	"econ/schema/Telemetry"
 	"github.com/gorilla/websocket"
 )
 
@@ -90,7 +90,7 @@ func main() {
 
 	u := "ws://localhost:8080/ws"
 	
-	fmt.Printf("%sConnecting to EcoSync Backend at %s...%s\n", Cyan, u, Reset)
+	fmt.Printf("%sConnecting to ECON Backend at %s...%s\n", Cyan, u, Reset)
 
 	c, _, err := websocket.DefaultDialer.Dial(u, nil)
 	if err != nil {
@@ -167,7 +167,7 @@ func main() {
 
 func renderDashboard(global Telemetry.GlobalData, zones []ZoneInfo, zCount, vCount int) {
 	fmt.Print(Clear)
-	fmt.Printf("%s=== ECOSYNC TERMINAL DASHBOARD ===%s\n\n", Blue, Reset)
+	fmt.Printf("%s=== ECON TERMINAL DASHBOARD ===%s\n\n", Blue, Reset)
 	
 	// 1. ASCII Floorplan Radar (Level 6)
 	// Create a 40x10 grid (X scaled by 0.66, Y scaled by 0.25) to fit a 24-row terminal

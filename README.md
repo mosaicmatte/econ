@@ -1,6 +1,6 @@
-# EcoSync Enterprise Digital Twin
+# ECON Enterprise Digital Twin
 
-EcoSync is a high-performance Digital Twin platform designed to bridge Building Information Modeling (BIM) data with real-time SCADA/HVAC telemetry. It features a lightweight React/Three.js frontend and a heavy-duty Go backend that runs physical thermodynamic simulations and streams state via WebSockets.
+ECON is a high-performance Digital Twin platform designed to bridge Building Information Modeling (BIM) data with real-time SCADA/HVAC telemetry. It features a lightweight React/Three.js frontend and a heavy-duty Go backend that runs physical thermodynamic simulations and streams state via WebSockets.
 
 ## 🚀 Development Process & Architecture
 
@@ -36,8 +36,14 @@ During **Sprint 1 (Core Architecture & Simulation)**, we built a robust and high
 
 7. **Mobile UI Adaptation (Tesla-Style)**
    - Designed a responsive `MobileApp.jsx` interface imitating the Tesla app layout for rapid macro-level facility monitoring.
-   - Implemented `100dvh` (Dynamic Viewport Height) logic for iOS Safari support to ensure smooth native scrolling and safe-area padding underneath the browser's dynamic address bar.
+   - Implemented an immersive top-down isometric camera angle for the 3D map, locking the view from the highest floor down to prevent horizon clipping.
+   - Generated and applied a seamless, zero-margin vector sky gradient with a crescent moon, eliminating the hard 2D horizon line to merge perfectly with the 3D viewport's dark background.
    - Built bottom-drawer drill-downs to allow tapping on zones and revealing live telemetry metrics without leaving the 3D map context.
+
+8. **Edge Hardware Integration (ESP32 & Raspberry Pi)**
+   - **ESP32 Edge Node (`C++`):** Developed firmware to simulate and publish physical sensor data (PIR/Occupancy, Temp, CO2) over MQTT, and listen for physical actuator commands (Relays, IR emitters).
+   - **Raspberry Pi Gateway (`Python`):** Built a local edge server to host the MQTT broker and run local automation logic. E.g., automatically dispatching a `LIGHTS_OFF` MQTT payload back to the ESP32 the moment occupancy drops to 0.
+   - **Live WebSocket Feed:** The Raspberry Pi bridges the MQTT hardware layer with a local WebSocket server, streaming physical state directly into the React dashboard.
 
 ## 🚧 Current Limitations & Challenges
 

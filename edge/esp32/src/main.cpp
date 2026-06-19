@@ -36,7 +36,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.println(message);
 
   // Parse command from Backend Optimization Engine
-  if (String(topic) == "ecosync/control/zone_a/lights") {
+  if (String(topic) == "econ/control/zone_a/lights") {
     if (message == "ON") {
       digitalWrite(RELAY_PIN, HIGH);
     } else {
@@ -50,7 +50,7 @@ void reconnect() {
     Serial.print("Attempting MQTT connection...");
     if (client.connect("ESP32Client")) {
       Serial.println("connected");
-      client.subscribe("ecosync/control/zone_a/#");
+      client.subscribe("econ/control/zone_a/#");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -74,5 +74,5 @@ void loop() {
   client.loop();
   
   // Here we would also read from the MLX90640 IR sensor array
-  // and publish to "ecosync/occupancy/zone_a"
+  // and publish to "econ/occupancy/zone_a"
 }

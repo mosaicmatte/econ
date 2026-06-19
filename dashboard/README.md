@@ -2,7 +2,7 @@
 
 This is the Web UI for Facility Managers.
 
-## Role in EcoSync
+## Role in ECON
 - Displays Real-time Occupancy and Energy usage.
 - Shows Predicted Peak Demand (from Forecasting module).
 - Visualizes CO2 reduction and ROI.

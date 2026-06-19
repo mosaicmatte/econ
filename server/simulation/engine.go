@@ -1,7 +1,7 @@
 package simulation
 
 import (
-	"ecosync/schema/Telemetry"
+	"econ/schema/Telemetry"
 	"encoding/json"
 	"log"
 	"math"

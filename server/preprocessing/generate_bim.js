@@ -11,7 +11,7 @@ const BUILDING_DEPTH = 40; // Y axis
 
 // Generate the 15-story building layout
 const building = {
-    buildingId: "bldg-ecosync-hq",
+    buildingId: "bldg-econ-hq",
     floors: []
 };
 
@@ -191,7 +191,7 @@ for (let i = 1; i <= TOTAL_FLOORS; i++) {
 }
 
 // Ensure the data directory exists
-const targetDir = '/Users/nguyenhoangkhoi/Downloads/bki_project/ecosync/server/data';
+const targetDir = '/Users/nguyenhoangkhoi/Downloads/bki_project/econ/server/data';
 if (!fs.existsSync(targetDir)){
     fs.mkdirSync(targetDir, { recursive: true });
 }

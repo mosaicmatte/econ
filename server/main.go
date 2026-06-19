@@ -1,7 +1,7 @@
 package main
 
 import (
-	"ecosync/simulation"
+	"econ/simulation"
 	"log"
 	"net/http"
 	"os"
@@ -51,7 +51,7 @@ func main() {
 
 	// Start server
 	port := "8080"
-	log.Printf("EcoSync Enterprise Backend running on port %s...\n", port)
+	log.Printf("ECON Enterprise Backend running on port %s...\n", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}

@@ -2,6 +2,6 @@
 
 This module builds the electrical netlist from the blueprint.
 
-## Role in EcoSync
+## Role in ECON
 - Uses OCR (PaddleOCR) to read labels.
 - Uses Hough transforms and graph search to connect devices to electrical circuits (which breaker controls which zone).

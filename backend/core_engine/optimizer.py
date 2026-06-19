@@ -32,6 +32,6 @@ class OptimizationEngine:
         db.refresh(zone)
         
         # Here we would typically dispatch MQTT messages to Edge devices
-        # mqtt_client.publish(f"ecosync/control/{zone.name}/hvac", zone.target_temp)
+        # mqtt_client.publish(f"econ/control/{zone.name}/hvac", zone.target_temp)
         
         return zone
