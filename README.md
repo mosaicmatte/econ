@@ -154,7 +154,11 @@ ECON is currently in an incredibly advanced and polished prototype state. The fo
   - **Branch A (Occupancy Tracking):** We have implemented a fully functional YOLOv11 and ByteTrack computer vision pipeline tailored for Apple Silicon (`device="mps"`). It captures webcam feeds, tracks humans, and streams live occupancy data to the dashboard via MQTT.
   - **Branch B (Digitization):** OpenCV topological extraction is functional, but deep semantic segmentation is pending model training.
 - **Forecasting & ML:** 🔴 **0% Complete**
-  - Predictive time-series modeling (LSTM/TFT) for energy loads has not yet been implemented.# ECON: An Occupancy-Aware Digital Twin for Autonomous HVAC Optimization
+  - Predictive time-series modeling (LSTM/TFT) for energy loads has not yet been implemented.
+
+---
+
+# ECON: An Occupancy-Aware Digital Twin for Autonomous HVAC Optimization
 **Authors:** [Your Name / Team Engineer Boys]
 
 ## Abstract
@@ -179,9 +183,9 @@ To achieve fine-grained control and capture the proven 10-20% energy savings of 
 We utilize **YOLOv11** deployed natively on Edge hardware (Apple Silicon MPS, Raspberry Pi) to run inference on localized camera feeds. To strictly preserve occupant privacy, the architecture adheres to a zero-cloud-video policy: frames are captured via local CSI/USB, processed entirely in volatile RAM during inference, and immediately discarded. The system extracts only scalar telemetry (e.g., `room_id`, `occupancy_count`, `timestamp`), which is published over an MQTT stream.
 
 ### 2.2 Tracking-by-Detection (ByteTrack)
-To ensure individuals are accurately tracked without double-counting, we employ **ByteTrack** for Multi-Object Tracking. 
+To ensure individuals are accurately tracked without double-counting, we employ **ByteTrack** for Multi-Object Tracking ([GitHub Repository](https://github.com/ifzhang/ByteTrack)). 
 
-In dense indoor office environments (e.g., lobbies), simple centroid tracking fails rapidly when people overlap or change scale, leading to identity switches. Conversely, algorithms like DeepSORT rely heavily on appearance embeddings, which degrade under indoor lighting variations, partial occlusion, or when workers wear visually similar clothing. 
+In dense indoor office environments (e.g., lobbies), simple centroid tracking fails rapidly when people overlap or change scale, leading to identity switches. Conversely, algorithms like DeepSORT ([GitHub Repository](https://github.com/nwojke/deep_sort)) rely heavily on appearance embeddings, which degrade under indoor lighting variations, partial occlusion, or when workers wear visually similar clothing. 
 
 ByteTrack mathematically outperforms both by associating *every* detection box—including low-confidence detections—using motion and box association. Let the high-confidence detection boxes be $\mathcal{D}_{high}$ and low-confidence boxes be $\mathcal{D}_{low}$. ByteTrack first utilizes a Kalman Filter to predict the tracklet locations $\mathcal{T}$ in the current frame, and computes an Intersection over Union (IoU) distance matrix $C$ between $\mathcal{T}$ and $\mathcal{D}_{high}$:
 
@@ -195,10 +199,10 @@ After using the Hungarian algorithm to match high-confidence boxes, the remainin
 Manually mapping the electrical and HVAC topology of a building into a Digital Twin is cost-prohibitive. ECON automates this via a three-step Computer Vision pipeline applied directly to architectural PDFs.
 
 ### 3.1 Semantic Room Segmentation
-Instead of relying on legacy networks, ECON utilizes a modern PyTorch implementation based on **CubiCasa5K** for robust floorplan segmentation. This multi-task backbone accurately extracts wall boundaries and room polygons directly into binary raster masks ($R_i$), ensuring spatial mapping scales dynamically across various office layouts.
+Instead of relying on legacy networks like DeepFloorplan ([GitHub Repository](https://github.com/zlzeng/DeepFloorplan)), ECON utilizes a modern PyTorch implementation based on **CubiCasa5K** ([GitHub Repository](https://github.com/cubicasa/cubicasa5k)) for robust floorplan segmentation. This multi-task backbone accurately extracts wall boundaries and room polygons directly into binary raster masks ($R_i$), ensuring spatial mapping scales dynamically across various office layouts.
 
 ### 3.2 Symbol Detection via Synthetic Data
-Electrical symbols (lights, VAV boxes, thermostats) are isolated using a **YOLOv11** object detector. Because CAD symbols vary widely across architectural firms, the model is trained using a massive synthetic dataset. Vector symbol templates (SVG/PNG) are randomly augmented (scale, rotation, scan noise, faded ink) and superimposed onto empty floorplans to achieve high generalizability across real-world blueprints.
+Electrical symbols (lights, VAV boxes, thermostats) are isolated using a **YOLOv11** object detector, inspired by approaches like SkeySpot ([GitHub Repository](https://github.com/HAIx-Lab/Skeyspot)). Because CAD symbols vary widely across architectural firms, the model is trained using a massive synthetic dataset. Vector symbol templates (SVG/PNG) are randomly augmented (scale, rotation, scan noise, faded ink) and superimposed onto empty floorplans to achieve high generalizability across real-world blueprints.
 
 ### 3.3 Geometry Reconciliation & Graph Output
 To automatically connect the detected HVAC/lighting symbols (Section 3.2) to their respective thermal zones (Section 3.1), we implement a geometric overlap algorithm. 
@@ -300,12 +304,12 @@ Real-world field testing of occupancy-presence sensing has validated up to 17.6%
 
 ## 7. References
 1. Bai, Z., et al. (2023). *Long-term field testing of the accuracy and HVAC energy savings potential of occupancy presence sensors in a single-family home*. U.S. Department of Energy OSTI.
-2. Zhang, Y., et al. (2022). *ByteTrack: Multi-Object Tracking by Associating Every Detection Box*. ECCV 2022.
+2. Zhang, Y., et al. (2022). *ByteTrack: Multi-Object Tracking by Associating Every Detection Box*. ECCV 2022. [GitHub: ifzhang/ByteTrack](https://github.com/ifzhang/ByteTrack)
 3. Akhtar, T., Mahmood, A., & Khatoon, S. (2024). *Occupancy detection for HVAC systems using IoT edge computing and vision-based image processing*. University of East London.
-4. Wojke, N., Bewley, A., & Paulus, D. (2017). *Simple online and realtime tracking with a deep association metric (DeepSORT)*.
-5. Kalervo, A., et al. (2019). *CubiCasa5k: A Dataset and an Improved Multi-Task Model for Floorplan Image Analysis*. 
-6. Zeng, Z., et al. (2019). *DeepFloorplan: ICCV 2019 multi-task floorplan recognition*.
-7. HAIx Lab. (2025). *SkeySpot: Automating Service Key Detection for Digital Electrical Layout Plans in the Construction Industry*. IEEE SMC 2025.
+4. Wojke, N., Bewley, A., & Paulus, D. (2017). *Simple online and realtime tracking with a deep association metric (DeepSORT)*. [GitHub: nwojke/deep_sort](https://github.com/nwojke/deep_sort)
+5. Kalervo, A., et al. (2019). *CubiCasa5k: A Dataset and an Improved Multi-Task Model for Floorplan Image Analysis*. [GitHub: cubicasa/cubicasa5k](https://github.com/cubicasa/cubicasa5k)
+6. Zeng, Z., et al. (2019). *DeepFloorplan: ICCV 2019 multi-task floorplan recognition*. [GitHub: zlzeng/DeepFloorplan](https://github.com/zlzeng/DeepFloorplan)
+7. HAIx Lab. (2025). *SkeySpot: Automating Service Key Detection for Digital Electrical Layout Plans in the Construction Industry*. IEEE SMC 2025. [GitHub: HAIx-Lab/Skeyspot](https://github.com/HAIx-Lab/Skeyspot)
 8. Chen, Y., et al. (2020). *Nationwide HVAC energy-saving potential quantification for office buildings with occupant-centric controls in various climates*. Energy and Buildings.
 9. Abade, A., et al. (2021). *Quantifying the nationwide HVAC energy savings in large hotels: the role of occupant-centric controls*.
 10. Louisiana State University Repository. (2023). *Field testing of the energy-saving potential of an occupancy presence sensing system in an apartment unit*.
