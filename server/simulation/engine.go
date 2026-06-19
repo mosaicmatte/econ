@@ -81,6 +81,7 @@ type Engine struct {
 	PMax        float64
 	KFan        float64
 	Scenario    string
+	FaultTarget string
 }
 
 func NewEngine() *Engine {
@@ -175,8 +176,14 @@ func (e *Engine) AddClient(conn *websocket.Conn) {
 func (e *Engine) SetScenario(s string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.Scenario = s
-	
+
+	if len(s) > 6 && s[:6] == "fault:" {
+		e.Scenario = "fault"
+		e.FaultTarget = s[6:]
+	} else {
+		e.Scenario = s
+	}
+
 	for _, v := range e.Vavs {
 		z := e.Zones[v.TargetZone]
 		// Modulate VAV
@@ -187,10 +194,10 @@ func (e *Engine) SetScenario(s string) {
 			v.Resistance += 0.05
 		}
 
-		if e.Scenario == "fault" && v.TargetZone == "zone-server-lvl8" {
+		if e.Scenario == "fault" && v.TargetZone == e.FaultTarget {
 			v.Resistance = 50.0 // Damper stuck closed
-		} else if e.Scenario == "remediating" && (z.Type == "server-room" || z.Type == "core") {
-			v.Resistance = 0.01 // Maximum flow
+		} else if e.Scenario == "remediating" && (v.TargetZone == e.FaultTarget || z.Type == "core") {
+			v.Resistance = 0.01 // Maximum flow to faulty zone and core
 		}
 		
 		if v.Resistance < 0.01 { v.Resistance = 0.01 }

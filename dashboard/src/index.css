@@ -459,3 +459,40 @@ body {
   from { opacity: 0; transform: translateY(5px); }
   to { opacity: 0.8; transform: translateY(0); }
 }
+
+/* -------------------------------------
+   NEW: SPRINT 3 FAULT & AIRFLOW ANIMATIONS
+------------------------------------- */
+
+.pulse-red-node {
+  animation: pulseRedNode 0.8s infinite alternate;
+  border-width: 3px !important;
+  box-shadow: 0 0 20px rgba(255, 0, 0, 0.6);
+  z-index: 100 !important;
+}
+
+@keyframes pulseRedNode {
+  from { 
+    background: rgba(255,0,0,0.2); 
+    border-color: #ff0000;
+  }
+  to { 
+    background: rgba(255,0,0,0.6); 
+    border-color: #ff5555;
+    transform: scale(1.05);
+  }
+}
+
+.edge-flow-vector {
+  animation: flowVector 1.5s linear infinite;
+}
+
+.edge-flow-vector-fast {
+  animation: flowVector 0.5s linear infinite;
+}
+
+@keyframes flowVector {
+  to {
+    stroke-dashoffset: -20;
+  }
+}

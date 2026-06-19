@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Users, Wind, Box, Zap, AlertTriangle, Activity, Settings, Map } from 'lucide-react';
-import { ReactFlow, Background, Controls, Handle, Position, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
+import { ReactFlow, Background, Controls, Handle, Position, applyNodeChanges, applyEdgeChanges, MarkerType } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import BuildingModel from './BuildingModel';
 import buildingData from './building-data.json';
@@ -78,7 +78,7 @@ const ThermalNode = ({ data, selected }) => {
   const bgColor = `rgba(${r}, ${g}, ${b}, 0.1)`;
 
   return (
-    <div className={`thermal-node ${selected ? 'selected' : ''}`} style={{ borderColor, backgroundColor: bgColor, transition: 'all 0.5s ease' }}>
+    <div className={`thermal-node ${selected ? 'selected' : ''} ${data.alert ? 'pulse-red-node' : ''}`} style={{ borderColor, backgroundColor: bgColor, transition: 'all 0.5s ease' }}>
       <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
       <div className="thermal-label">{data.label}</div>
       <div className="thermal-value">{data.temp}°C</div>
@@ -153,7 +153,9 @@ const buildTopologyFromSim = (simState, activeFloor) => {
     const isServerFault = simState.scenario === 'fault' && z.type === 'server-room';
     const isRem = simState.scenario === 'remediating' && (z.type === 'server-room' || z.type === 'core');
     const stroke = isServerFault ? 'var(--accent-red)' : (isRem ? 'var(--accent-yellow)' : 'var(--accent-blue)');
-    const edgeStyle = { stroke, strokeWidth: 1.5, strokeDasharray: isServerFault ? '4 4' : 'none' };
+    const edgeStyle = { stroke, strokeWidth: 1.5, strokeDasharray: isServerFault ? '4 4' : '5 5' };
+    const markerEnd = { type: MarkerType.ArrowClosed, color: stroke };
+    const className = !isServerFault ? 'edge-flow-vector-fast' : 'edge-flow-vector';
 
     nodes.push({
       id: z.id, type: 'zone', position: { x, y: 120 }, draggable: false,
@@ -170,11 +172,11 @@ const buildTopologyFromSim = (simState, activeFloor) => {
         id: v.id, type: 'vav', position: { x: x + 20, y: -50 }, draggable: false,
         data: { label: v.id.toUpperCase(), flow: (v.flow || 0).toFixed(1) + ' m³/m' }
       });
-      edges.push({ id: `e-ahu-${v.id}`, source: 'ahu-main', target: v.id, type: 'step', animated: !isServerFault, style: edgeStyle });
-      edges.push({ id: `e-${v.id}-${z.id}`, source: v.id, target: z.id, type: 'step', animated: !isServerFault, style: edgeStyle });
+      edges.push({ id: `e-ahu-${v.id}`, source: 'ahu-main', target: v.id, type: 'step', animated: true, className, style: edgeStyle, markerEnd });
+      edges.push({ id: `e-${v.id}-${z.id}`, source: v.id, target: z.id, type: 'step', animated: true, className, style: edgeStyle, markerEnd });
     } else {
       // No dedicated VAV in this blueprint -> hang the zone directly off the AHU
-      edges.push({ id: `e-ahu-${z.id}`, source: 'ahu-main', target: z.id, type: 'step', animated: !isServerFault, style: edgeStyle });
+      edges.push({ id: `e-ahu-${z.id}`, source: 'ahu-main', target: z.id, type: 'step', animated: true, className, style: edgeStyle, markerEnd });
     }
   });
 
@@ -205,6 +207,8 @@ function App() {
   const [activeScenario, setActiveScenario] = useState('peak');
   const [autoPilot, setAutoPilot] = useState(true);
   const [activeFloor, setActiveFloor] = useState(6);
+  const [selectedZone, setSelectedZone] = useState(null);
+  const [faultTarget, setFaultTarget] = useState('zone-server-lvl8');
   const [showAiModal, setShowAiModal] = useState(false);
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(false);
   const [showWindSim, setShowWindSim] = useState(false);
@@ -243,9 +247,10 @@ function App() {
   const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
 
   const loadScenario = (key) => {
-    setActiveScenario(key);
-    activeScenarioRef.current = key;
-    if (key === 'fault' && autoPilot) {
+    const baseScenario = key.startsWith('fault:') ? 'fault' : key;
+    setActiveScenario(baseScenario);
+    activeScenarioRef.current = baseScenario;
+    if (baseScenario === 'fault' && autoPilot) {
       setShowAiModal(true);
     } else {
       setShowAiModal(false);
@@ -294,7 +299,8 @@ function App() {
             const temp = z.temp();
             const type = newSimData.zones[id].type || newSimData.zones[id].zoneType;
             let alert = false;
-            if (type === 'server-room' && temp > 25.0) {
+            const isHot = (type === 'server-room' && temp > 25.0) || (type !== 'server-room' && temp > 28.0);
+            if (isHot && (activeScenarioRef.current === 'fault' || activeScenarioRef.current === 'remediating')) {
                 alert = activeScenarioRef.current === 'remediating' ? 'REMEDIATING' : true;
             }
             newSimData.zones[id] = { ...newSimData.zones[id], temp, load: z.load(), alert };
@@ -349,13 +355,25 @@ function App() {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [liveLogs]);
 
+  const failingZone = Object.values(simData.zones).find(z => z.alert === true || z.alert === 'REMEDIATING');
+
   return (
     <div className="hud-container">
       
-      {/* LAYER 0: The Full 3D Node-Graph Engine */}
-      <BuildingModel simState={simData} activeFloor={activeFloor} onFloorClick={setActiveFloor} showAirflow={showWindSim} />
+      <div className="three-d-canvas-wrapper">
+        <BuildingModel 
+          simState={simData} 
+          activeFloor={activeFloor} 
+          onFloorClick={(level) => {
+            setActiveFloor(level);
+            setSelectedZone(null);
+          }}
+          showAirflow={showWindSim}
+          selectedZone={selectedZone}
+          setSelectedZone={setSelectedZone}
+        />
+      </div>
 
-      {/* AI INTERACTIVE MODAL OVERLAY */}
       {/* AI INTERACTIVE MODAL (Non-blocking so user can watch the building fail) */}
       {showAiModal && (
         <div style={{ position: 'absolute', top: '24px', left: '24px', zIndex: 50 }}>
@@ -364,19 +382,64 @@ function App() {
               <AlertTriangle size={24} /> ALARM DETECTED
             </h2>
             <p style={{ color: 'var(--text-primary)', lineHeight: 1.5, fontFamily: 'monospace' }}>
-              ERR: SERVER_ROOM_THERMAL_RUNAWAY<br/>
-              d/dt(T) = +1.44 C/sec
+              ERR: THERMAL_RUNAWAY<br/>
+              LOCATION: {failingZone ? failingZone.label : 'Unknown Zone'}<br/>
+              ASSET: {failingZone ? failingZone.bim_asset_id : '---'}
             </p>
             <div style={{ background: '#000', padding: '1rem', margin: '1.5rem 0', border: '1px solid var(--border-glass)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--accent-blue)', textTransform: 'uppercase', letterSpacing: '1px' }}>SCADA Override Script</span>
-              <p style={{ margin: '0.5rem 0 0 0', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
-                SET VAV_NORTH_RESISTANCE = 10.0<br/>
-                SET VAV_CORE_RESISTANCE = 0.01
+              <span style={{ fontSize: '0.75rem', color: 'var(--accent-blue)', textTransform: 'uppercase', letterSpacing: '1px' }}>AI Override Recommendation</span>
+              <p style={{ margin: '0.5rem 0 0 0', color: 'var(--text-secondary)', fontFamily: 'monospace', lineHeight: 1.4 }}>
+                The system detects critical thermal runaway.<br/>
+                Would you like AI Auto-Pilot to automatically alleviate the problem by routing 100% cooling capacity to {failingZone ? failingZone.label : 'this specific room'}?
               </p>
             </div>
             <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
               <button className="cmd-btn" onClick={() => setShowAiModal(false)}>IGNORE</button>
               <button className="cmd-btn active-fault" onClick={executeRemediation} style={{ background: 'var(--accent-red)' }}>EXECUTE RECOMMENDATION</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LAYER 5: Micro-HUD for Drill-down */}
+      {selectedZone && simData.zones[selectedZone] && (
+        <div style={{
+          position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+          width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: 40
+        }}>
+          {/* Cinematic Overlay gradient */}
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'radial-gradient(circle, transparent 30%, rgba(0,0,0,0.85) 100%)' }} />
+          
+          <div style={{
+            position: 'absolute', top: '25%', right: '25%',
+            background: 'rgba(10,10,10,0.95)', border: '1px solid var(--accent-blue)',
+            padding: '1.5rem', borderRadius: '12px', width: '320px', pointerEvents: 'auto',
+            boxShadow: '0 0 40px rgba(0, 163, 224, 0.15)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
+              <h3 style={{ margin: 0, fontSize: '12px', color: 'var(--text-primary)', letterSpacing: '1px' }}>MICRO-TELEMETRY: {simData.zones[selectedZone].label.toUpperCase()}</h3>
+              <button onClick={() => setSelectedZone(null)} style={{ background: 'transparent', border: '1px solid var(--accent-red)', borderRadius: '4px', padding: '4px 8px', color: 'var(--accent-red)', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}>EXIT [X]</button>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><Users size={14}/> Est. CO₂ Level</span>
+                <span style={{ color: 'var(--accent-green)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '14px' }}>
+                  {(simData.zones[selectedZone].occupancy * 15) + 400} ppm
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><Activity size={14}/> Thermostat</span>
+                <span style={{ color: 'var(--accent-blue)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '14px' }}>
+                  {simData.zones[selectedZone].temp.toFixed(1)}°C / {simData.zones[selectedZone].setpoint.toFixed(1)}°C
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><Zap size={14}/> Est. Cost Rate</span>
+                <span style={{ color: 'var(--accent-yellow)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '14px' }}>
+                  ${(simData.zones[selectedZone].load * 0.12).toFixed(2)} / hr
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -413,6 +476,9 @@ function App() {
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+            onNodeClick={(e, node) => {
+              if (node.type === 'zone') setSelectedZone(node.id);
+            }}
             nodeTypes={nodeTypes}
             fitView
             fitViewOptions={{ padding: 0.15 }}
@@ -557,12 +623,28 @@ function App() {
         >
           <Zap size={16} /> Peak Load Scenario
         </button>
-        <button 
-          className={`cmd-btn ${activeScenario === 'fault' ? 'active-fault' : ''}`} 
-          onClick={() => loadScenario('fault')}
-        >
-          <AlertTriangle size={16} /> Critical Fault
-        </button>
+
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', background: 'rgba(0,0,0,0.3)', padding: '0 0.5rem', borderRadius: '12px' }}>
+          <select 
+            value={faultTarget}
+            onChange={(e) => setFaultTarget(e.target.value)}
+            style={{ background: 'transparent', color: 'var(--text-secondary)', border: 'none', padding: '0.75rem', outline: 'none', fontFamily: 'Inter', fontSize: '14px', cursor: 'pointer' }}
+          >
+            <option value="zone-server-lvl8">L8 Server Room</option>
+            <option value="zone-server-lvl12">L12 Server Room</option>
+            <option value="zone-south-lvl3">L3 South Perimeter</option>
+            <option value="zone-open-a-lvl6">L6 Open Office A</option>
+            <option value="zone-core-lvl10">L10 Core Lobby</option>
+          </select>
+          <button 
+            className={`cmd-btn ${activeScenario === 'fault' ? 'active-fault' : ''}`} 
+            onClick={() => loadScenario(`fault:${faultTarget}`)}
+            style={{ paddingLeft: '0.5rem' }}
+          >
+            <AlertTriangle size={16} /> Inject Fault
+          </button>
+        </div>
+
         <button 
           className={`cmd-btn ${autoPilot ? 'active-auto' : ''}`} 
           onClick={() => setAutoPilot(!autoPilot)}

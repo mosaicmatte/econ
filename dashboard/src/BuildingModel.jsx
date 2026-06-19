@@ -1,5 +1,5 @@
 import React, { useRef, useMemo, useState } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html, Edges } from '@react-three/drei';
 import * as THREE from 'three';
 import { Evaluator, Brush, SUBTRACTION } from 'three-bvh-csg';
@@ -254,9 +254,10 @@ function FloorPlate({ floor, isActive, onClick, simState }) {
 }
 
 // ========== STEP 4: Zone Renderer with Thermal Heatmap ==========
-function ZoneRenderer({ zone, isActive, simState, isHovered, onHover }) {
+function ZoneRenderer({ zone, isActive, simState, isHovered, onHover, isSelected, onSelect }) {
   const meshRef = useRef();
   const zoneSim = simState.zones[zone.zoneId];
+  const alertState = zoneSim?.alert;
   const temperature = zoneSim ? zoneSim.temp : zone.thermalProperties.setpoint;
   const setpoint = zone.thermalProperties.setpoint;
   const deadband = zone.thermalProperties.deadband;
@@ -342,6 +343,12 @@ function ZoneRenderer({ zone, isActive, simState, isHovered, onHover }) {
       <mesh 
         ref={meshRef} 
         geometry={geometry}
+        onClick={(e) => {
+          if (isActive) {
+            e.stopPropagation();
+            onSelect(zone.zoneId);
+          }
+        }}
         onPointerOver={(e) => {
           if (isActive) {
             e.stopPropagation();
@@ -357,8 +364,44 @@ function ZoneRenderer({ zone, isActive, simState, isHovered, onHover }) {
         }}
       >
         <primitive object={material} attach="material" />
-        <Edges color={isHovered && isActive ? "#ffffff" : "#222222"} threshold={15} />
+        <Edges color={(isHovered || isSelected) && isActive ? "#ffffff" : "#222222"} threshold={15} />
       </mesh>
+
+      {/* VIRTUAL IOT SENSORS (Only visible when drilled down into the room) */}
+      {isActive && isSelected && (
+        <group position={[cx, 1.5, cy]}>
+          {/* Smart Thermostat */}
+          <mesh position={[-1.5, 0, 0]}>
+            <boxGeometry args={[0.3, 0.5, 0.1]} />
+            <meshBasicMaterial color="#00e5ff" />
+            <pointLight distance={3} intensity={0.5} color="#00e5ff" />
+          </mesh>
+          {/* Air Quality / CO2 Monitor */}
+          <mesh position={[1.5, 0, 0]}>
+            <boxGeometry args={[0.4, 0.3, 0.1]} />
+            <meshBasicMaterial color="#00ff00" />
+            <pointLight distance={3} intensity={0.5} color="#00ff00" />
+          </mesh>
+          {/* Ceiling Occupancy Camera */}
+          <mesh position={[0, 2.0, 0]}>
+            <sphereGeometry args={[0.2, 16, 16]} />
+            <meshBasicMaterial color="#ff00ff" />
+          </mesh>
+        </group>
+      )}
+
+      {isActive && alertState && (
+        <mesh position={[cx, 15, cy]}>
+          <cylinderGeometry args={[1, 1, 30, 16]} />
+          <meshBasicMaterial 
+            color={alertState === 'REMEDIATING' ? "#ffff00" : "#ff0000"} 
+            transparent 
+            opacity={0.3} 
+            blending={THREE.AdditiveBlending} 
+            depthWrite={false} 
+          />
+        </mesh>
+      )}
       
       {isActive && isHovered && (
         <Html position={[cx, 2.5, cy]} center zIndexRange={[100, 0]}>
@@ -381,10 +424,45 @@ function ZoneRenderer({ zone, isActive, simState, isHovered, onHover }) {
   );
 }
 
+function DynamicControls({ targetX, targetY, targetZ, isZoomed }) {
+  const controlsRef = useRef();
+  const { camera } = useThree();
+  
+  useFrame(() => {
+    if (controlsRef.current) {
+      if (isZoomed) {
+        controlsRef.current.target.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.06);
+        camera.position.lerp(new THREE.Vector3(targetX + 8, targetY + 6, targetZ + 8), 0.06);
+      } else {
+        controlsRef.current.target.lerp(new THREE.Vector3(0, 15, 0), 0.06);
+      }
+      controlsRef.current.update();
+    }
+  });
+
+  return <OrbitControls ref={controlsRef} />;
+}
+
 // ========== STEP 5: Complete Production Building Component ==========
-export default function BuildingModel({ simState, activeFloor, onFloorClick, showAirflow }) {
+export default function BuildingModel({ simState, activeFloor, onFloorClick, showAirflow, selectedZone, setSelectedZone }) {
   const [hoveredZone, setHoveredZone] = useState(null);
   const floors = buildingData.floors;
+
+  const targetCoords = useMemo(() => {
+    if (!selectedZone) return { x: 0, y: 0, z: 0 };
+    for (const f of floors) {
+      const z = f.zones.find(zone => zone.zoneId === selectedZone);
+      if (z) {
+        let yOffset = f.level > activeFloor ? 30.0 : (f.level === activeFloor ? 5.0 : 0.0);
+        return {
+          x: z.centroid.x - 30,
+          y: f.elevation + yOffset + 1.5,
+          z: z.centroid.y - 20
+        };
+      }
+    }
+    return { x: 0, y: 0, z: 0 };
+  }, [selectedZone, activeFloor, floors]);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
@@ -393,7 +471,12 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
         <ambientLight intensity={0.4} />
         <directionalLight position={[10, 20, 10]} intensity={1.2} />
         
-        <OrbitControls target={[0, 15, 0]} />
+        <DynamicControls 
+          targetX={targetCoords.x} 
+          targetY={targetCoords.y} 
+          targetZ={targetCoords.z} 
+          isZoomed={!!selectedZone} 
+        />
 
         <group position={[-30, 0, -20]}>
           {floors.map((floor) => {
@@ -430,6 +513,8 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
                       simState={simState}
                       isHovered={hoveredZone === zone.zoneId}
                       onHover={setHoveredZone}
+                      isSelected={selectedZone === zone.zoneId}
+                      onSelect={setSelectedZone}
                     />
                   ))}
                 </group>

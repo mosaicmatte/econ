@@ -27,7 +27,7 @@ function makeNoise() {
 // (x,z in [-20,20], y in [0, floorHeight]).
 export default function AirflowField({ floor, intensity = 1.0 }) {
   const ref = useRef();
-  const COUNT = 480;
+  const COUNT = 1500;
   const noise = useMemo(() => makeNoise(), []);
 
   const { bounds, positions, colors } = useMemo(() => {
@@ -90,8 +90,8 @@ export default function AirflowField({ floor, intensity = 1.0 }) {
 
       // Colour by speed: slow = deep blue supply, fast = bright cyan/white
       const speed = Math.min(1, Math.hypot(vx, vy, vz) / 6);
-      col[ix] = THREE.MathUtils.lerp(0.05, 0.75, speed);
-      col[ix + 1] = THREE.MathUtils.lerp(0.55, 0.95, speed);
+      col[ix] = THREE.MathUtils.lerp(0.0, 0.85, speed);
+      col[ix + 1] = THREE.MathUtils.lerp(0.7, 1.0, speed);
       col[ix + 2] = 1.0;
     }
 
@@ -104,7 +104,7 @@ export default function AirflowField({ floor, intensity = 1.0 }) {
   return (
     <points ref={ref} geometry={geometry} frustumCulled={false}>
       <pointsMaterial
-        size={0.45}
+        size={0.85}
         vertexColors
         transparent
         opacity={0.9}
