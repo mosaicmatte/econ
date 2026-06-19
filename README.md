@@ -112,7 +112,9 @@ npm run dev
 ```
 
 ### 3. Accessing the Application
-- Open your web browser and navigate to `http://localhost:5173` (or the port Vite provides in your terminal).
+- **Desktop:** Open your web browser and navigate to `http://localhost:5173` (or the port Vite provides in your terminal).
+- **Mobile Device (Local Network):** To access the mobile dashboard from your phone, start the frontend server using `npm run dev -- --host`. Ensure your phone is on the same Wi-Fi network, and navigate to the `Network` URL provided in the terminal (e.g., `http://192.168.1.X:5173`).
+- **Mobile Simulator:** You can also right-click -> Inspect on the desktop browser and toggle the "Device Emulation" icon to see the mobile layout instantly.
 - You should immediately see the 3D building render and the topology map populate with live temperature data streaming from the Go backend.
 
 ### 4. Testing the Backend via CLI Dashboard
