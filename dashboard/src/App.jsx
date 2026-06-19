@@ -1,21 +1,84 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Users, Wind, Box, Zap, AlertTriangle, Activity, Settings, Map } from 'lucide-react';
 import { ReactFlow, Background, Controls, Handle, Position, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import BuildingModel from './BuildingModel';
 import WindSimulationCanvas from './WindSimulation';
-import { physicsEngine } from './simulationEngine';
+import buildingData from './building-data.json';
+import * as flatbuffers from 'flatbuffers';
+import { SimState } from './telemetry';
+
+const INTEGRATION_BY_TYPE = {
+  'server-room': 1.05,
+  'corridor': 0.95,
+  'lobby': 0.90,
+  'mechanical': 0.85,
+  'retail': 0.75,
+  'conference': 0.70,
+  'office': 0.55,
+};
+
+
+
+const getInitialSimData = () => {
+  const data = { scenario: 'peak', ahuPressure: 500, vavs: {}, zones: {}, logs: [] };
+  buildingData.floors.forEach(floor => {
+    floor.zones.forEach(z => {
+      // Use pre-calculated centroid from building-data.json if available
+      let cx = 20, cy = 20;
+      if (z.centroid) {
+        cx = z.centroid.x;
+        cy = z.centroid.y;
+      }
+      
+      if (z.hvacMapping) {
+        data.vavs[z.hvacMapping.vavId] = { id: z.hvacMapping.vavId, targetZone: z.zoneId, flow: 0 };
+      }
+      data.zones[z.zoneId] = {
+        id: z.zoneId,
+        level: floor.level,
+        label: z.name,
+        type: z.zoneType,
+        temp: z.thermalProperties?.setpoint || 24.0,
+        setpoint: z.thermalProperties?.setpoint || 24.0,
+        deadband: z.thermalProperties?.deadband || 2.0,
+        alert: false,
+        occupancy: z.thermalProperties?.occupancy || 0,
+        integration_score: INTEGRATION_BY_TYPE[z.zoneType] || 0.6,
+        baseHeatGain: z.thermalProperties?.internalHeatLoad || 0,
+        centroid: { x: cx, y: cy }
+      };
+    });
+  });
+  return data;
+};
 
 // --- P&ID ENGINEERING CUSTOM NODES ---
+// Custom smoothstep implementation for heatmap color
+const smoothstep = (min, max, value) => {
+  const x = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  return x * x * (3 - 2 * x);
+};
+
 const ThermalNode = ({ data, selected }) => {
-  let stateClass = 'glow-blue'; 
-  if (data.alert === true || data.alert === 'FAULT') stateClass = 'glow-red';
-  else if (data.alert === 'REMEDIATING') stateClass = 'glow-yellow';
-  else if (data.integration_score > 1.0) stateClass = 'glow-red'; 
-  else if (data.integration_score > 0.8) stateClass = 'glow-green';
+  const setpoint = data.setpoint || 24.0;
+  const deadband = data.deadband || 2.0;
+  
+  const deviation = (parseFloat(data.temp) - setpoint) / deadband;
+  
+  const rFloat = smoothstep(0.5, 1.5, deviation);
+  const bFloat = smoothstep(0.5, 1.5, -deviation);
+  const gFloat = 1.0 - Math.max(rFloat, bFloat);
+
+  const r = Math.round(rFloat * 255);
+  const g = Math.round(gFloat * 255);
+  const b = Math.round(bFloat * 255);
+
+  const borderColor = `rgb(${r}, ${g}, ${b})`;
+  const bgColor = `rgba(${r}, ${g}, ${b}, 0.1)`;
 
   return (
-    <div className={`thermal-node ${selected ? 'selected' : ''} ${stateClass}`}>
+    <div className={`thermal-node ${selected ? 'selected' : ''}`} style={{ borderColor, backgroundColor: bgColor, transition: 'all 0.5s ease' }}>
       <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
       <div className="thermal-label">{data.label}</div>
       <div className="thermal-value">{data.temp}°C</div>
@@ -88,6 +151,8 @@ const buildTopologyFromSim = (simState, activeFloor) => {
       data: {
         label: z.label,
         temp: z.temp,
+        setpoint: z.setpoint,
+        deadband: z.deadband,
         occupancy: z.occupancy,
         alert: z.alert,
         integration_score: z.integration_score
@@ -165,13 +230,32 @@ function App() {
   const [showWindSim, setShowWindSim] = useState(false);
   
   // Initial topology
-  const initialTopo = buildTopologyFromSim(physicsEngine.getState(), 6);
+  const initialData = useMemo(() => getInitialSimData(), []);
+  const initialTopo = useMemo(() => buildTopologyFromSim(initialData, 6), [initialData]);
   const [nodes, setNodes] = useState(initialTopo.nodes);
   const [edges, setEdges] = useState(initialTopo.edges);
   const [liveLogs, setLiveLogs] = useState([]);
-  const [simData, setSimData] = useState(physicsEngine.getState());
-  
+  const [simData, setSimData] = useState(initialData);
+  const wsRef = useRef(null);
   const logEndRef = useRef(null);
+  const activeFloorRef = useRef(activeFloor);
+  const activeScenarioRef = useRef(activeScenario);
+  const simDataRef = useRef(initialData);
+
+  const globalMetrics = useMemo(() => {
+    if (!simData || !simData.zones) return { occupants: 0, avgTemp: 0 };
+    let occupants = 0;
+    let tempSum = 0;
+    const zones = Object.values(simData.zones);
+    zones.forEach(z => {
+      occupants += (z.occupancy || 0);
+      tempSum += parseFloat(z.temp) || 24.0;
+    });
+    return {
+      occupants,
+      avgTemp: zones.length ? (tempSum / zones.length).toFixed(1) : 0
+    };
+  }, [simData]);
 
   // TEMP debug hook: drive floor changes from the preview console
   useEffect(() => { if (typeof window !== 'undefined') window.__setFloor = setActiveFloor; }, []);
@@ -183,16 +267,16 @@ function App() {
 
   const loadScenario = (key) => {
     setActiveScenario(key);
-    physicsEngine.setScenario(key);
-  };
-
-  useEffect(() => {
-    if (activeScenario === 'fault' && autoPilot) {
+    activeScenarioRef.current = key;
+    if (key === 'fault' && autoPilot) {
       setShowAiModal(true);
     } else {
       setShowAiModal(false);
     }
-  }, [activeScenario, autoPilot]);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(key);
+    }
+  };
 
   const executeRemediation = () => {
     setShowAiModal(false);
@@ -204,46 +288,83 @@ function App() {
 
   // When activeFloor changes, completely rebuild the topology
   useEffect(() => {
-    const topo = buildTopologyFromSim(physicsEngine.getState(), activeFloor);
+    activeFloorRef.current = activeFloor;
+    const topo = buildTopologyFromSim(simDataRef.current, activeFloor);
     setNodes(topo.nodes);
     setEdges(topo.edges);
   }, [activeFloor]);
 
-  // Physics Engine Loop
+  // Physics Engine Loop (WebSocket FlatBuffers Stream)
   useEffect(() => {
-    let lastTime = performance.now();
-    const interval = setInterval(() => {
-      const now = performance.now();
-      const dt = (now - lastTime) / 1000; // seconds
-      lastTime = now;
+    const ws = new WebSocket('ws://localhost:8080/ws');
+    ws.binaryType = 'arraybuffer';
+    wsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      const buf = new flatbuffers.ByteBuffer(new Uint8Array(event.data));
+      const state = SimState.getRootAsSimState(buf);
       
-      physicsEngine.tick(dt);
-      const state = physicsEngine.getState();
-      
-      setSimData(state);
-      setLiveLogs(state.logs);
-      
-      // We don't overwrite the selected state, we carefully update the node data
-      setNodes(nds => nds.map(n => {
-        if (n.type === 'zone' && state.zones[n.id]) {
-            return { ...n, data: { ...n.data, temp: state.zones[n.id].temp.toFixed(2), alert: state.zones[n.id].alert } };
+      const prevData = simDataRef.current;
+      const newSimData = { ...prevData, logs: liveLogs };
+      newSimData.zones = { ...prevData.zones };
+      newSimData.vavs = { ...prevData.vavs };
+
+      const zonesLen = state.zonesLength();
+      for(let i = 0; i < zonesLen; i++) {
+        const z = state.zones(i);
+        const id = z.id();
+        if (newSimData.zones[id]) {
+            const temp = z.temp();
+            const type = newSimData.zones[id].type || newSimData.zones[id].zoneType;
+            let alert = false;
+            if (type === 'server-room' && temp > 25.0) {
+                alert = activeScenarioRef.current === 'remediating' ? 'REMEDIATING' : true;
+            }
+            newSimData.zones[id] = { ...newSimData.zones[id], temp, load: z.load(), alert };
         }
-        if (n.type === 'vav' && state.vavs[n.id]) {
-            return { ...n, data: { ...n.data, flow: state.vavs[n.id].flow.toFixed(1) + ' m³/m' } };
+      }
+
+      const vavsLen = state.vavsLength();
+      for(let i = 0; i < vavsLen; i++) {
+        const v = state.vavs(i);
+        const id = v.id();
+        if (newSimData.vavs[id]) {
+            newSimData.vavs[id] = { ...newSimData.vavs[id], flow: v.airflow() };
+        }
+      }
+
+      const g = state.global();
+      if (g) {
+        newSimData.ahuPressure = g.pressure ? g.pressure() : 500;
+      }
+
+      simDataRef.current = newSimData;
+      setSimData(newSimData);
+
+      // Carefully update React Flow nodes
+      setNodes(nds => nds.map(n => {
+        if (n.type === 'zone' && newSimData.zones[n.id]) {
+            return { ...n, data: { ...n.data, temp: newSimData.zones[n.id].temp.toFixed(1), alert: newSimData.zones[n.id].alert } };
+        }
+        if (n.type === 'vav' && newSimData.vavs[n.id]) {
+            return { ...n, data: { ...n.data, flow: newSimData.vavs[n.id].flow.toFixed(1) + ' m³/m' } };
         }
         if (n.type === 'ahu') {
-            return { ...n, data: { ...n.data, pressure: state.ahuPressure } };
+            return { ...n, data: { ...n.data, pressure: newSimData.ahuPressure } };
         }
         return n;
       }));
-      
-      // Update edge styles based on faults/flow
-      const newTopo = buildTopologyFromSim(state, activeFloor);
+
+      // Update edge styles based on flow
+      const newTopo = buildTopologyFromSim(newSimData, activeFloorRef.current);
       setEdges(newTopo.edges);
-      
-    }, 100);
-    return () => clearInterval(interval);
-  }, [activeFloor]);
+    };
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -256,25 +377,26 @@ function App() {
       <BuildingModel simState={simData} activeFloor={activeFloor} onFloorClick={setActiveFloor} />
 
       {/* AI INTERACTIVE MODAL OVERLAY */}
+      {/* AI INTERACTIVE MODAL (Non-blocking so user can watch the building fail) */}
       {showAiModal && (
-        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 50, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--accent-red)', padding: '2rem', width: '500px' }}>
+        <div style={{ position: 'absolute', top: '24px', left: '24px', zIndex: 50 }}>
+          <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--accent-red)', padding: '2rem', width: '450px', boxShadow: '0 10px 30px rgba(255,0,0,0.2)' }}>
             <h2 style={{ color: 'var(--accent-red)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: 0 }}>
               <AlertTriangle size={24} /> ALARM DETECTED
             </h2>
             <p style={{ color: 'var(--text-primary)', lineHeight: 1.5, fontFamily: 'monospace' }}>
               ERR: SERVER_ROOM_THERMAL_RUNAWAY<br/>
-              d/dt(T) = +1.2 C/min
+              d/dt(T) = +1.44 C/sec
             </p>
             <div style={{ background: '#000', padding: '1rem', margin: '1.5rem 0', border: '1px solid var(--border-glass)' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--accent-blue)', textTransform: 'uppercase', letterSpacing: '1px' }}>SCADA Override Script</span>
               <p style={{ margin: '0.5rem 0 0 0', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
                 SET VAV_NORTH_RESISTANCE = 10.0<br/>
-                SET VAV_CORE_RESISTANCE = 0.1
+                SET VAV_CORE_RESISTANCE = 0.01
               </p>
             </div>
             <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-              <button className="cmd-btn" onClick={() => loadScenario('peak')}>IGNORE</button>
+              <button className="cmd-btn" onClick={() => setShowAiModal(false)}>IGNORE</button>
               <button className="cmd-btn active-fault" onClick={executeRemediation} style={{ background: 'var(--accent-red)' }}>EXECUTE RECOMMENDATION</button>
             </div>
           </div>
@@ -411,8 +533,8 @@ function App() {
             </div>
 
             <div className="gauge-cluster" style={{ border: 'none', margin: '0', padding: '1rem 0' }}>
-              <CircularGauge value={412} max={500} label="Occupants" unit="pax" color="var(--accent-blue)" />
-              <CircularGauge value={activeScenario === 'fault' ? 29.4 : activeScenario === 'remediating' ? 26.1 : 24.1} max={35} label="Avg Temp" unit="°C" color="var(--accent-yellow)" />
+              <CircularGauge value={globalMetrics.occupants} max={600} label="Occupants" unit="pax" color="var(--accent-blue)" />
+              <CircularGauge value={globalMetrics.avgTemp} max={35} label="Avg Temp" unit="°C" color="var(--accent-yellow)" />
             </div>
           </>
         ) : selectedNode?.type === 'zone' ? (

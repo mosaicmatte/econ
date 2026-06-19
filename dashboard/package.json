@@ -12,6 +12,7 @@
     "@react-three/drei": "^9.106.0",
     "@react-three/fiber": "^8.17.10",
     "@xyflow/react": "^12.11.0",
+    "flatbuffers": "^25.9.23",
     "lucide-react": "^0.294.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

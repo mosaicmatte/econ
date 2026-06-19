@@ -1,7 +1,6 @@
 import React, { useRef, useMemo, useEffect } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { physicsEngine } from './simulationEngine';
 
 // --- PingPong FBO Manager ---
 class PingPongFBO {
@@ -173,7 +172,7 @@ const displayShader = `
 
 
 // --- Simulation Component ---
-function FluidSolver() {
+const FluidSolver = ({ simState }) => {
   const { gl } = useThree();
   const resolution = 256;
   
@@ -232,9 +231,8 @@ function FluidSolver() {
 
   useFrame((state, delta) => {
     // 1. Fetch simulation state (HVAC flow & Server Heat)
-    const simState = physicsEngine.getState();
-    const serverVavFlow = simState.vavs['vav-server-6a']?.flow || 0;
-    const serverTemp = simState.zones['zone-server-6a']?.temp || 24.0;
+    const serverVavFlow = simState?.vavs?.['vav-server-6a']?.flow || 0;
+    const serverTemp = simState?.zones?.['zone-server-6a']?.temp || 24.0;
     
     const dt = Math.min(delta, 0.033);
     this._t = (this._t || 0) + dt;
@@ -319,11 +317,11 @@ function FluidSolver() {
   );
 }
 
-export default function WindSimulationCanvas() {
+export default function WindSimulationCanvas({ simState }) {
   return (
     <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 5, overflow: 'hidden' }}>
       <Canvas orthographic camera={{ zoom: 15, position: [0, 50, 0] }}>
-        <FluidSolver />
+        <FluidSolver simState={simState} />
       </Canvas>
     </div>
   );

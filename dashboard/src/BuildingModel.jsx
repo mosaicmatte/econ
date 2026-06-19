@@ -4,6 +4,7 @@ import { OrbitControls, Html, Edges } from '@react-three/drei';
 import * as THREE from 'three';
 import { Evaluator, Brush, SUBTRACTION } from 'three-bvh-csg';
 import buildingData from './building-data.json';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // ========== CSG Helper (three-bvh-csg Evaluator/Brush API) ==========
 // three-bvh-csg has no static `CSG` helper; it exposes an Evaluator that
@@ -32,7 +33,10 @@ function csgSubtract(baseMesh, toolMeshes) {
   toolMeshes.forEach((tool) => {
     result = csgEvaluator.evaluate(result, meshToBrush(tool), SUBTRACTION);
   });
-  return result.geometry;
+  let resultGeom = result.geometry;
+  resultGeom = BufferGeometryUtils.mergeVertices(resultGeom, 1e-4);
+  resultGeom.computeVertexNormals();
+  return resultGeom;
 }
 
 // ========== Module-level CSG geometry cache ==========
@@ -86,12 +90,9 @@ function WallWithWindows({ position: [x, y, z], width, height, depth, rotation, 
         color={isActive ? "#888888" : "#222222"}
         roughness={0.8}
         metalness={0.2}
-        transparent={!isActive}
-        opacity={isActive ? 1.0 : 0.15}
-        polygonOffset={true}
-        polygonOffsetFactor={1}
+        transparent={true}
+        opacity={isActive ? 0.2 : 0.05}
       />
-      <Edges color={isActive ? "#ffffff" : "#444444"} threshold={15} />
     </mesh>
   );
 }
@@ -160,8 +161,16 @@ function ExteriorWalls({ floor, isActive }) {
 }
 
 // ========== STEP 3: Floor Plate with Core Cutout ==========
-function FloorPlate({ floor, isActive, onClick }) {
+function FloorPlate({ floor, isActive, onClick, simState }) {
   const [hovered, setHovered] = useState(false);
+
+  const hasAlert = useMemo(() => {
+    if (!simState || !simState.zones) return false;
+    return floor.zones.some(z => {
+        const alertState = simState.zones[z.zoneId]?.alert;
+        return alertState === true || alertState === 'REMEDIATING';
+    });
+  }, [floor.zones, simState]);
 
   const geometry = useMemo(() => {
     const g = floor.geometry;
@@ -209,22 +218,32 @@ function FloorPlate({ floor, isActive, onClick }) {
         onPointerOut={() => { setHovered(false); document.body.style.cursor = 'auto'; }}
       >
         <meshStandardMaterial 
-          color={isActive ? "#dddddd" : hovered ? "#555555" : "#333333"}
+          color={hasAlert ? "#aa0000" : (isActive ? "#dddddd" : hovered ? "#555555" : "#333333")}
           roughness={0.9}
-          transparent={!isActive}
-          opacity={isActive ? 1.0 : hovered ? 0.6 : 0.3}
+          transparent={true}
+          opacity={hasAlert ? 0.6 : (isActive ? 0.4 : hovered ? 0.6 : 0.3)}
           polygonOffset={true}
           polygonOffsetFactor={2}
         />
-        <Edges color={isActive ? "#ffffff" : hovered ? "#00ffff" : "#444444"} threshold={15} />
+        <Edges color={hasAlert ? "#ff0000" : (isActive ? "#ffffff" : hovered ? "#00ffff" : "#444444")} threshold={15} />
       </mesh>
 
       {/* Floating Live Data Label */}
-      <Html position={[-25, floor.height / 2, 20]} center zIndexRange={[100, 0]} style={{ transition: 'opacity 0.2s', opacity: isActive || hovered ? 1 : 0.2, pointerEvents: 'none' }}>
-        <div style={{ color: isActive ? '#fff' : hovered ? '#00ffff' : '#aaa', background: 'rgba(0,0,0,0.85)', border: `1px solid ${isActive ? '#fff' : hovered ? '#00ffff' : '#333'}`, padding: '6px 12px', fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'nowrap', textShadow: '0 0 5px rgba(0,229,255,0.5)' }}>
-          <strong style={{ fontSize: '12px' }}>[ L{floor.level} ]</strong><br/>
+      <Html position={[-25, floor.height / 2, 20]} center zIndexRange={[100, 0]} style={{ transition: 'all 0.2s', opacity: isActive || hovered || hasAlert ? 1 : 0.2, pointerEvents: 'none' }}>
+        <div style={{ 
+          color: hasAlert ? '#ff3333' : (isActive ? '#fff' : hovered ? '#00ffff' : '#aaa'), 
+          background: hasAlert ? 'rgba(50,0,0,0.85)' : 'rgba(0,0,0,0.85)', 
+          border: `1px solid ${hasAlert ? '#ff0000' : (isActive ? '#fff' : hovered ? '#00ffff' : '#333')}`, 
+          padding: '6px 12px', fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'nowrap', 
+          textShadow: hasAlert ? '0 0 10px rgba(255,0,0,0.8)' : '0 0 5px rgba(0,229,255,0.5)',
+          transform: hasAlert ? 'scale(1.1)' : 'scale(1)',
+          transition: 'all 0.3s'
+        }}>
+          <strong style={{ fontSize: '12px' }}>{hasAlert ? '⚠️ ' : ''}[ L{floor.level} ]</strong><br/>
           {floor.name}<br/>
-          <span style={{ color: '#00e5ff' }}>ZONES: {floor.zones.length}</span>
+          <span style={{ color: hasAlert ? '#ff5555' : '#00e5ff' }}>
+            {hasAlert ? 'CRITICAL FAULT' : `ZONES: ${floor.zones.length}`}
+          </span>
         </div>
       </Html>
     </group>
@@ -238,12 +257,7 @@ function ZoneRenderer({ zone, simState }) {
   const setpoint = zone.thermalProperties.setpoint;
   const deadband = zone.thermalProperties.deadband;
 
-  // Height by footprint so overlapping/nested zones don't z-fight: large
-  // "container" zones (e.g. a cold-aisle corridor spanning the whole floor)
-  // become a low wash, while smaller rooms step up and read as distinct volumes.
-  const area = zone.area || 400;
-  const baseH = zone.zoneType === 'corridor' ? 0.4 : 2.0;
-  const zoneHeight = baseH + Math.max(0, 1 - Math.min(area, 1000) / 1000) * 2.0;
+  const thickness = 3.8;
 
   const geometry = useMemo(() => {
     const shape = new THREE.Shape();
@@ -254,7 +268,7 @@ function ZoneRenderer({ zone, simState }) {
     shape.lineTo(zone.polygon[0][0] - 20, zone.polygon[0][1] - 20);
     
     const geom = new THREE.ExtrudeGeometry(shape, {
-      depth: zoneHeight,
+      depth: thickness,
       bevelThickness: 0.05,
       bevelSize: 0.05,
       bevelSegments: 3,
@@ -267,7 +281,7 @@ function ZoneRenderer({ zone, simState }) {
     geom.rotateX(-Math.PI / 2);
     geom.computeVertexNormals();
     return geom.toNonIndexed();
-  }, [zone, zoneHeight]);
+  }, [zone, thickness]);
 
   // Shader to render heatmap
   const material = useMemo(() => {
@@ -290,43 +304,45 @@ function ZoneRenderer({ zone, simState }) {
         uniform float deadband;
         varying vec2 vUv;
         
-        vec3 heatmap(float value) {
-          // Blue -> Cyan -> Green -> Yellow -> Red
-          float r = clamp(2.0 * value - 1.0, 0.0, 1.0);
-          float g = clamp(2.0 - 2.0 * abs(value - 0.5), 0.0, 1.0);
-          float b = clamp(1.0 - 2.0 * value, 0.0, 1.0);
+        vec3 heatmap(float deviation) {
+          // deviation is 0 at setpoint.
+          // r fades in starting at 0.5 deviation, pure red at 1.5 deviation.
+          // b fades in starting at -0.5 deviation, pure blue at -1.5 deviation.
+          float r = smoothstep(0.5, 1.5, deviation);
+          float b = smoothstep(0.5, 1.5, -deviation);
+          float g = 1.0 - max(r, b);
           return vec3(r, g, b);
         }
         
         void main() {
           float deviation = (temperature - setpoint) / deadband;
-          // Map -2 (too cold) to 0, +2 (too hot) to 1. 0 deviation is 0.5 (green)
-          float normalized = clamp((deviation / 4.0) + 0.5, 0.0, 1.0);
-          gl_FragColor = vec4(heatmap(normalized), 0.85); // slight transparency
+          gl_FragColor = vec4(heatmap(deviation), 0.65); // High transparency for the volumetric block
         }
       `,
       transparent: true,
       side: THREE.DoubleSide,
       depthWrite: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
     });
   }, []);
 
-  // Update uniform dynamically without recreating material
+  // Update uniform dynamically with lerp for smooth color transitions (removes sensor noise flicker)
   useFrame(() => {
     if (material && material.uniforms.temperature) {
       const liveTemp = simState.zones[zone.zoneId]?.temp || setpoint;
-      material.uniforms.temperature.value = liveTemp;
+      material.uniforms.temperature.value = THREE.MathUtils.lerp(
+        material.uniforms.temperature.value,
+        liveTemp,
+        0.05
+      );
     }
   });
 
   return (
-    <group>
+    <group position={[0, 0.01, 0]}>
       <mesh geometry={geometry} material={material} />
       
       {/* Label for Zone */}
-      <Html position={[zone.centroid.x - 20, zoneHeight + 0.2, -(zone.centroid.y - 20)]} center zIndexRange={[100, 0]} sprite>
+      <Html position={[zone.centroid.x - 20, thickness + 0.2, -(zone.centroid.y - 20)]} center zIndexRange={[100, 0]} sprite>
         <div style={{ color: '#fff', fontSize: '10px', fontFamily: 'monospace', whiteSpace: 'nowrap', userSelect: 'none', background: 'rgba(0,0,0,0.8)', padding: '4px 6px', border: '1px solid #333' }}>
           {zone.name}<br/>
           <span style={{ color: '#aaa' }}>{temperature.toFixed(1)}°C</span>
@@ -371,7 +387,7 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick }) {
 
             return (
               <group key={floor.floorId} position={[0, yPos, 0]}>
-                <FloorPlate floor={floor} isActive={isActive} onClick={onFloorClick} />
+                <FloorPlate floor={floor} isActive={isActive} onClick={onFloorClick} simState={simState} />
 
                 {/* Walls + interior zones only on the active floor: keeps the
                     stacked dim plates as a clean tower silhouette while the
