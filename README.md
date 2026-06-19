@@ -102,10 +102,11 @@ The frontend connects to the local Go backend to render the 3D map and interacti
 
 ```bash
 # Open a new terminal and navigate to the dashboard directory
-cd dashboard
+# 🚨 CRITICAL: Ensure you are inside the econ/dashboard folder before running this!
+cd econ/dashboard
 
-# Install all Node.js dependencies
-npm install
+# Install all Node.js dependencies (use --legacy-peer-deps to bypass Three.js peer conflicts)
+npm install --legacy-peer-deps
 
 # Start the Vite development server
 npm run dev
@@ -124,8 +125,9 @@ docker-compose up -d --build
 **Step 2: Start the React Frontend with Network Access**
 By default, Vite only allows access from the computer it's running on. You need to use the `--host` flag to open it up to your local Wi-Fi network.
 ```bash
-cd dashboard
-npm install
+# 🚨 CRITICAL: Make sure you are in the dashboard folder!
+cd econ/dashboard
+npm install --legacy-peer-deps
 npm run dev -- --host
 ```
 
