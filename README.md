@@ -111,11 +111,36 @@ npm install
 npm run dev
 ```
 
-### 3. Accessing the Application
-- **Desktop:** Open your web browser and navigate to `http://localhost:5173` (or the port Vite provides in your terminal).
-- **Mobile Device (Local Network):** To access the mobile dashboard from your phone, start the frontend server using `npm run dev -- --host`. Ensure your phone is on the same Wi-Fi network, and navigate to the `Network` URL provided in the terminal (e.g., `http://192.168.1.X:5173`).
-- **Mobile Simulator:** You can also right-click -> Inspect on the desktop browser and toggle the "Device Emulation" icon to see the mobile layout instantly.
-- You should immediately see the 3D building render and the topology map populate with live temperature data streaming from the Go backend.
+### 3. Accessing the Mobile Dashboard
+To allow the frontend server to be accessible from a mobile device on your local network:
+
+**Step 1: Start the Go Backend**
+Since the backend sends the live data to your frontend, it needs to be running.
+```bash
+cd server
+docker-compose up -d --build
+```
+
+**Step 2: Start the React Frontend with Network Access**
+By default, Vite only allows access from the computer it's running on. You need to use the `--host` flag to open it up to your local Wi-Fi network.
+```bash
+cd dashboard
+npm install
+npm run dev -- --host
+```
+
+**Step 3: Open it on your Mobile Phone**
+1. Make sure your mobile phone is connected to the **same Wi-Fi network** as your computer.
+2. Look at the terminal where you ran `npm run dev -- --host`. Vite will output something like this:
+   ```text
+   ➜  Local:   http://localhost:5173/
+   ➜  Network: http://192.168.x.x:5173/   <--- Use this one!
+   ```
+3. Open Safari or Chrome on your phone, and type in that exact **Network URL** (e.g., `http://192.168.1.5:5173`).
+
+The site will load and automatically switch to the `MobileApp` Tesla-style layout because it detects your phone's screen size!
+
+*(Note: You can also simulate the mobile view on your desktop browser by right-clicking -> Inspect and toggling the "Device Emulation" icon).*
 
 ### 4. Testing the Backend via CLI Dashboard
 For backend testing and telemetry debugging, you can use the standalone Go CLI Dashboard (htop-style).
