@@ -3,6 +3,7 @@ package simulation
 import (
 	"econ/schema/Telemetry"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math"
 	"math/rand"
@@ -60,8 +61,14 @@ type ZoneSim struct {
 	RIn               float64
 	ROut              float64
 	Setpoint          float64
+	BaseSetpoint      float64 // occupied setpoint; we set back from this when vacant
 	Deadband          float64
 	LastBroadcastTemp float64
+	// Occupancy-driven control (real data arrives over MQTT from the CV/edge layer)
+	Live        bool   // true once real occupancy has been received for this zone
+	VacantTicks int    // consecutive ticks at 0 occupancy (safety delay before setback)
+	LightsOn    bool   // last actuated lighting state
+	MqttTopic   string // telemetry suffix this zone was seen on (commands route back here)
 }
 
 type VavSim struct {
@@ -82,6 +89,9 @@ type Engine struct {
 	KFan        float64
 	Scenario    string
 	FaultTarget string
+	// Actuation: set by main.go to the MQTT publisher; nil when no broker is up.
+	Publish func(topic, payload string)
+	lastCmd map[string]string // zoneId -> last command published (dedupe)
 }
 
 func NewEngine() *Engine {
@@ -92,6 +102,7 @@ func NewEngine() *Engine {
 		PMax:     600.0,
 		KFan:     0.01,
 		Scenario: "peak",
+		lastCmd:  make(map[string]string),
 	}
 
 	data, err := os.ReadFile("./data/building-data.json")
@@ -124,6 +135,10 @@ func NewEngine() *Engine {
 				}
 			}
 
+			baseSp := z.ThermalProperties.Setpoint
+			if baseSp == 0 {
+				baseSp = temp
+			}
 			e.Zones[z.ZoneId] = &ZoneSim{
 				Temp:         temp,
 				WallTemp:     temp,
@@ -137,8 +152,10 @@ func NewEngine() *Engine {
 				RIn:          z.ThermalProperties.RWall / 2,
 				ROut:         z.ThermalProperties.RWall / 2 + 0.1,
 				Setpoint:     z.ThermalProperties.Setpoint,
+				BaseSetpoint: baseSp,
 				Deadband:     z.ThermalProperties.Deadband,
 				LastBroadcastTemp: 24.0,
+				LightsOn:     true,
 			}
 		}
 	}
@@ -164,6 +181,89 @@ func (e *Engine) doHardyCross() {
 
 	for _, v := range e.Vavs {
 		v.Flow = math.Sqrt(math.Max(0, e.AhuPressure) / v.Resistance)
+	}
+}
+
+// demoZoneAlias maps inbound MQTT identifiers (demo node names / aliases) to a real
+// building zone. In a full deployment the payload would carry the actual zoneId.
+var demoZoneAlias = map[string]string{
+	"zone_1":  "zone-open-a-lvl4",
+	"Level 4": "zone-open-a-lvl4",
+}
+
+// SetZoneOccupancy ingests a real occupancy reading from the CV/edge layer (MQTT) and
+// marks the zone "live" so the physics + optimizer use real data instead of the random
+// seed. This is what makes the twin genuinely occupancy-driven.
+func (e *Engine) SetZoneOccupancy(zoneRef, topicSuffix string, count int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	z := e.resolveZone(zoneRef)
+	if z == nil {
+		log.Printf("[occupancy] no zone matches %q; ignoring", zoneRef)
+		return
+	}
+	z.Occupancy = count
+	z.Live = true
+	if topicSuffix != "" {
+		z.MqttTopic = topicSuffix
+	}
+}
+
+// resolveZone maps an inbound identifier (real zoneId or demo alias) to a zone. Lock held.
+func (e *Engine) resolveZone(ref string) *ZoneSim {
+	if z, ok := e.Zones[ref]; ok {
+		return z
+	}
+	if id, ok := demoZoneAlias[ref]; ok {
+		if z, ok := e.Zones[id]; ok {
+			return z
+		}
+	}
+	return nil
+}
+
+const vacancyDelayTicks = 90 // ~3s at 30 FPS — stand-in for the real safety time-delay
+
+// actuate runs the occupancy-driven optimizer for every live (instrumented) zone: a zone
+// that has been empty past the safety delay is set back (warmer setpoint, which lowers
+// cooling load and shows up as a drop on the dashboard) and its lights are commanded off;
+// a reoccupied zone is restored. Commands publish to the edge (ESP32) only on change.
+func (e *Engine) actuate() {
+	for id, z := range e.Zones {
+		if !z.Live {
+			continue
+		}
+		if z.Occupancy <= 0 {
+			z.VacantTicks++
+		} else {
+			z.VacantTicks = 0
+		}
+		vacant := z.Occupancy <= 0 && z.VacantTicks >= vacancyDelayTicks
+
+		desiredLights := !vacant
+		desiredSp := z.BaseSetpoint
+		if vacant {
+			desiredSp = z.BaseSetpoint + 4.0 // energy-saving setback
+		}
+		z.Setpoint = desiredSp
+		z.LightsOn = desiredLights
+
+		lightStr := "OFF"
+		if desiredLights {
+			lightStr = "ON"
+		}
+		cmd := fmt.Sprintf("LIGHTS_%s;SETPOINT=%.1f", lightStr, desiredSp)
+		if e.lastCmd[id] != cmd {
+			e.lastCmd[id] = cmd
+			topic := z.MqttTopic
+			if topic == "" {
+				topic = id
+			}
+			log.Printf("[actuate] zone=%s occ=%d -> %s", id, z.Occupancy, cmd)
+			if e.Publish != nil {
+				e.Publish("econ/commands/"+topic, cmd)
+			}
+		}
 	}
 }
 
@@ -248,6 +348,12 @@ func (e *Engine) Start() {
 		e.mu.Unlock()
 
 		e.tick(dt)
+
+		// Occupancy-driven optimizer + edge actuation (publishes only on state change).
+		e.mu.Lock()
+		e.actuate()
+		e.mu.Unlock()
+
 		e.broadcast()
 	}
 }
@@ -304,10 +410,13 @@ func (e *Engine) tick(dt float64) {
 }
 
 func (e *Engine) broadcast() {
-		// ---- Live global metrics (computed from current zone state) ----
-		totalHeatW := 0.0
+		// ---- Live global metrics (all derived from current zone state) ----
+		totalHeatW := 0.0    // total thermal load the plant must remove (W)
 		totalOccupants := 0
 		inBand := 0
+		strainSum := 0.0       // sum of how far zones sit above setpoint (drives plant COP)
+		savedLightingW := 0.0  // lighting cut on vacant (set-back) zones
+		savedThermalW := 0.0   // cooling demand avoided on vacant (set-back) zones
 		for id, z := range e.Zones {
 			qSolar := z.SolarGainMult * 10000.0
 			qi := z.BaseHeatGain + float64(z.Occupancy)*100.0 + qSolar
@@ -320,13 +429,32 @@ func (e *Engine) broadcast() {
 			if sp == 0 {
 				sp = 24.0
 			}
+			strainSum += math.Max(0, z.Temp-sp)
 			if math.Abs(z.Temp-sp) <= z.Deadband {
 				inBand++
 			}
+			// Occupancy-driven savings: a live zone in setback (lights off) avoids its
+			// lighting load and a chunk of its internal-gain cooling.
+			if z.Live && z.Setpoint > z.BaseSetpoint+0.01 {
+				savedLightingW += 2000.0
+				savedThermalW += z.BaseHeatGain * 0.25
+			}
 		}
-		// Electrical draw: cooling (heat / COP) + fixed base (lighting + plug loads).
-		coolingMW := (totalHeatW / 3.0) / 1e6
-		buildingLoadMW := coolingMW + 2.0
+
+		// Plant coefficient of performance degrades as the building is strained (chillers
+		// run harder at higher lift), so efficiency, cooling, and load are all coupled.
+		avgStrain := 0.0
+		if len(e.Zones) > 0 {
+			avgStrain = strainSum / float64(len(e.Zones))
+		}
+		plantCop := math.Max(2.2, math.Min(3.8, 3.6-0.35*avgStrain))
+
+		coolingOutputMW := totalHeatW / 1e6      // thermal cooling delivered (MW)
+		coolingElectricalMW := coolingOutputMW / plantCop
+		const baseElectricalMW = 2.0             // lighting + plug + fans baseline
+		buildingLoadMW := coolingElectricalMW + baseElectricalMW
+		energySavedMW := (savedLightingW + savedThermalW/plantCop) / 1e6
+
 		systemHealth := 100.0
 		if len(e.Zones) > 0 {
 			systemHealth = 100.0 * float64(inBand) / float64(len(e.Zones))
@@ -380,6 +508,9 @@ func (e *Engine) broadcast() {
 		Telemetry.GlobalDataAddBuildingLoadMw(builder, float32(buildingLoadMW))
 		Telemetry.GlobalDataAddSystemHealth(builder, float32(systemHealth))
 		Telemetry.GlobalDataAddTotalOccupants(builder, int32(totalOccupants))
+		Telemetry.GlobalDataAddCoolingOutputMw(builder, float32(coolingOutputMW))
+		Telemetry.GlobalDataAddPlantCop(builder, float32(plantCop))
+		Telemetry.GlobalDataAddEnergySavedMw(builder, float32(energySavedMW))
 		globalPos := Telemetry.GlobalDataEnd(builder)
 
 		// Build SimState

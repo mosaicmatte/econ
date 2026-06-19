@@ -25,6 +25,9 @@ table GlobalData {
   buildingLoadMw: float;
   systemHealth: float;
   totalOccupants: int;
+  coolingOutputMw: float;
+  plantCop: float;
+  energySavedMw: float;
 }
 
 table SimState {

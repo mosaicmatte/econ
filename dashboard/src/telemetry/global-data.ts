@@ -37,8 +37,23 @@ totalOccupants():number {
   return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
 }
 
+coolingOutputMw():number {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
+plantCop():number {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
+energySavedMw():number {
+  const offset = this.bb!.__offset(this.bb_pos, 14);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
 static startGlobalData(builder:flatbuffers.Builder) {
-  builder.startObject(3);
+  builder.startObject(6);
 }
 
 static addBuildingLoadMw(builder:flatbuffers.Builder, buildingLoadMw:number) {

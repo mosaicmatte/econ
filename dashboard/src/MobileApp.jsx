@@ -109,7 +109,7 @@ export default function MobileApp() {
             {/* HVAC Load (Top Left) */}
             {/* Total HVAC Load (Top Left) */}
             <div style={{ position: 'absolute', top: '100px', left: '20px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', zIndex: 10, pointerEvents: 'none' }}>
-               <div style={{ color: '#ffffff', fontSize: '28px', fontWeight: '600', lineHeight: 1, marginBottom: '4px' }}>{(globalMetrics?.coolingLoadMw * 1000 || 0).toFixed(0)} <span style={{fontSize: '14px', color:'rgba(255,255,255,0.55)'}}>kW</span></div>
+               <div style={{ color: '#ffffff', fontSize: '28px', fontWeight: '600', lineHeight: 1, marginBottom: '4px' }}>{(globalMetrics?.buildingLoadMw * 1000 || 0).toFixed(0)} <span style={{fontSize: '14px', color:'rgba(255,255,255,0.55)'}}>kW</span></div>
                <div style={{ color: 'rgba(255,255,255,0.68)', fontSize: '11px', fontWeight: '600', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Total HVAC Load</div>
                {/* Tesla-Style Vertical Drop */}
                <div style={{ width: '1px', height: '35px', backgroundColor: 'rgba(245, 194, 66, 0.4)', marginLeft: '16px', marginTop: '8px' }} />
@@ -118,7 +118,7 @@ export default function MobileApp() {
 
             {/* Cooling Output (Top Right) */}
             <div style={{ position: 'absolute', top: '100px', right: '20px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', zIndex: 10, pointerEvents: 'none' }}>
-               <div style={{ color: '#ffffff', fontSize: '28px', fontWeight: '600', lineHeight: 1, marginBottom: '4px' }}>{((globalMetrics?.coolingLoadMw * 1000) / 3.517 || 0).toFixed(0)} <span style={{fontSize: '14px', color:'rgba(255,255,255,0.55)'}}>Tons</span></div>
+               <div style={{ color: '#ffffff', fontSize: '28px', fontWeight: '600', lineHeight: 1, marginBottom: '4px' }}>{((globalMetrics?.coolingOutputMw * 1000) / 3.517 || 0).toFixed(0)} <span style={{fontSize: '14px', color:'rgba(255,255,255,0.55)'}}>Tons</span></div>
                <div style={{ color: 'rgba(255,255,255,0.68)', fontSize: '11px', fontWeight: '600', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Cooling Output</div>
                {/* Tesla-Style Vertical Drop */}
                <div style={{ width: '1px', height: '35px', backgroundColor: 'rgba(74, 144, 226, 0.4)', marginRight: '16px', marginTop: '8px' }} />
@@ -130,7 +130,7 @@ export default function MobileApp() {
                {/* Tesla-Style Vertical Shoot-Up */}
                <div style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: '#3DDC84', marginLeft: '14px', boxShadow: '0 0 8px #3DDC84' }} />
                <div style={{ width: '1px', height: '35px', backgroundColor: 'rgba(61, 220, 132, 0.4)', marginLeft: '16px', marginBottom: '8px' }} />
-               <div style={{ color: '#ffffff', fontSize: '28px', fontWeight: '600', lineHeight: 1, marginBottom: '4px' }}>4.2 <span style={{fontSize: '14px', color:'rgba(255,255,255,0.55)'}}>COP</span></div>
+               <div style={{ color: '#ffffff', fontSize: '28px', fontWeight: '600', lineHeight: 1, marginBottom: '4px' }}>{(globalMetrics?.plantCop || 0).toFixed(1)} <span style={{fontSize: '14px', color:'rgba(255,255,255,0.55)'}}>COP</span></div>
                <div style={{ color: 'rgba(255,255,255,0.68)', fontSize: '11px', fontWeight: '600', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Plant Efficiency</div>
             </div>
 
@@ -139,7 +139,7 @@ export default function MobileApp() {
                {/* Tesla-Style Vertical Shoot-Up */}
                <div style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: '#B8B8B8', marginRight: '14px', boxShadow: '0 0 8px rgba(255,255,255,0.5)' }} />
                <div style={{ width: '1px', height: '35px', backgroundColor: 'rgba(184, 184, 184, 0.4)', marginRight: '16px', marginBottom: '8px' }} />
-               <div style={{ color: '#ffffff', fontSize: '28px', fontWeight: '600', lineHeight: 1, marginBottom: '4px' }}>{(globalMetrics?.gridLoadMw || 0).toFixed(1)} <span style={{fontSize: '14px', color:'rgba(255,255,255,0.55)'}}>MW</span></div>
+               <div style={{ color: '#ffffff', fontSize: '28px', fontWeight: '600', lineHeight: 1, marginBottom: '4px' }}>{(globalMetrics?.gridPowerMw || 0).toFixed(1)} <span style={{fontSize: '14px', color:'rgba(255,255,255,0.55)'}}>MW</span></div>
                <div style={{ color: 'rgba(255,255,255,0.68)', fontSize: '11px', fontWeight: '600', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Grid Power</div>
             </div>
           </>

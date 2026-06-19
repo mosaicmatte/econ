@@ -77,8 +77,44 @@ func (rcv *GlobalData) MutateTotalOccupants(n int32) bool {
 	return rcv._tab.MutateInt32Slot(8, n)
 }
 
+func (rcv *GlobalData) CoolingOutputMw() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *GlobalData) MutateCoolingOutputMw(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(10, n)
+}
+
+func (rcv *GlobalData) PlantCop() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *GlobalData) MutatePlantCop(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(12, n)
+}
+
+func (rcv *GlobalData) EnergySavedMw() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *GlobalData) MutateEnergySavedMw(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(14, n)
+}
+
 func GlobalDataStart(builder *flatbuffers.Builder) {
-	builder.StartObject(3)
+	builder.StartObject(6)
 }
 func GlobalDataAddBuildingLoadMw(builder *flatbuffers.Builder, buildingLoadMw float32) {
 	builder.PrependFloat32Slot(0, buildingLoadMw, 0.0)
@@ -88,6 +124,15 @@ func GlobalDataAddSystemHealth(builder *flatbuffers.Builder, systemHealth float3
 }
 func GlobalDataAddTotalOccupants(builder *flatbuffers.Builder, totalOccupants int32) {
 	builder.PrependInt32Slot(2, totalOccupants, 0)
+}
+func GlobalDataAddCoolingOutputMw(builder *flatbuffers.Builder, coolingOutputMw float32) {
+	builder.PrependFloat32Slot(3, coolingOutputMw, 0.0)
+}
+func GlobalDataAddPlantCop(builder *flatbuffers.Builder, plantCop float32) {
+	builder.PrependFloat32Slot(4, plantCop, 0.0)
+}
+func GlobalDataAddEnergySavedMw(builder *flatbuffers.Builder, energySavedMw float32) {
+	builder.PrependFloat32Slot(5, energySavedMw, 0.0)
 }
 func GlobalDataEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

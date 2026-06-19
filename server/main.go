@@ -42,6 +42,11 @@ func main() {
 
 	// Initialize simulation engine
 	engine := simulation.NewEngine()
+
+	// Connect to the MQTT broker: ingest real occupancy from the CV/edge layer and
+	// publish actuation commands to the ESP32. Non-blocking; the sim runs regardless.
+	startMQTT(engine)
+
 	go engine.Start()
 
 	// 2. WebSocket endpoint for telemetry streaming
