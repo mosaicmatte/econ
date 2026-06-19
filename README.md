@@ -52,6 +52,27 @@ The core decision-making of EcoSync is grounded in empirical research. Instead o
 - **Dashboard UI**: The Vite+React application is set up with states managed by Zustand. Components for 3D Building Modeling and Wind Simulation are actively integrated.
 - **Overall Architecture**: The project is successfully structured into discrete, functional modules (AI, Backend, Edge, Dashboard) and version control has been initialized.
 
+## 🚀 How to Run the Dashboard Locally (Windows)
+Since the EcoSync Dashboard is built using React and Vite, you **cannot** simply double-click the `index.html` file to open it. It requires a local development server.
+
+### Prerequisites
+1. Install [Node.js](https://nodejs.org/) (LTS version recommended).
+
+### Steps
+1. Open **PowerShell** or **Command Prompt** and navigate to the `dashboard` directory:
+   ```cmd
+   cd path\to\ecosync\dashboard
+   ```
+2. Install the necessary dependencies (React, Three.js, etc.):
+   ```cmd
+   npm install
+   ```
+3. Start the local development server:
+   ```cmd
+   npm run dev
+   ```
+4. Open your web browser and navigate to `http://localhost:5173/`. The dashboard will automatically reload whenever you make changes to the code!
+
 ## 🚧 Digital Twin: Project Analysis & Limitations
 
 This section provides an exhaustive analysis of the EcoSync project's current state, achievements, and technical limitations. It is designed to be used as a prompt/context file for advanced research tools (like Perplexity or architectural research agents) to help source production-grade algorithms, real-world data, and architectural blueprints for the next iteration of the project.
