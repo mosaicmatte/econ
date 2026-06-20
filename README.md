@@ -2,11 +2,41 @@
 
 ECON is a high-performance Digital Twin platform designed to bridge Building Information Modeling (BIM) data with real-time SCADA/HVAC telemetry. It features a lightweight React/Three.js frontend and a heavy-duty Go backend that runs physical thermodynamic simulations and streams state via WebSockets.
 
-> **🆕 Latest Update (June 20, 2026, 06:23 AM ICT - Occupancy-Driven MQTT Loop)**
-> - The Go engine is now wired directly to the Mosquitto MQTT broker, acting as the single brain for both physics simulation and IoT actuation.
-> - Closed the occupancy → physics → actuation loop: The Go backend subscribes to real telemetry (`econ/telemetry/+`), dynamically updates internal thermal loads, and dictates physical actuations (e.g., publishing `LIGHTS_OFF` to `econ/commands/` when zones are unoccupied).
-> - Deprecated the redundant Python bridge (`raspberry_backend`) in favor of this unified Go architecture.
-> - Added an `eclipse-mosquitto` broker directly to `docker-compose.yml`.
+> **🆕 Latest Updates**
+>
+> **Occupancy-Driven MQTT Loop.** The Go engine is wired directly to the Mosquitto broker as the
+> single brain for both physics and IoT actuation. It subscribes to real telemetry
+> (`econ/telemetry/+`), feeds occupancy into the thermal model, and publishes actuation commands
+> (`LIGHTS_OFF;SETPOINT=…` to `econ/commands/<zone>`) when zones go vacant past a safety delay. An
+> `eclipse-mosquitto` broker was added to `docker-compose.yml`.
+>
+> **Real metrics — nothing hard-coded.** `GlobalData` now also streams `coolingOutputMw`,
+> `plantCop` (a *dynamic* coefficient of performance that degrades with plant strain), and
+> `energySavedMw` (from occupancy setback); the engine reads real per-zone occupancy from the
+> stream. The dashboard (desktop overview + Tesla-style mobile corners) shows only these
+> engine-computed values — the old fabricated solar/grid/COP ratios and random seeds are gone.
+> *Verified live:* injecting a fault drops COP and system health; a vacancy makes `energySavedMw` > 0.
+>
+> **Edge devices, real contract.** The ESP32 firmware now parses the engine's *combined* command
+> `LIGHTS_ON|OFF;SETPOINT=<c>` (earlier sketches only matched a literal `"LIGHTS_ON"` and never
+> fired) and publishes the telemetry JSON the engine expects. The Raspberry Pi runs an **autonomous
+> failsafe gateway** (`edge/raspberry_pi/gateway.py`) — it hosts the broker and only cuts lights
+> *when the engine is unreachable* and a zone stays vacant (defers to the engine otherwise),
+> replacing the old MQTT↔WebSocket bridge.
+>
+> **Branch B digitization bridge.** `ai_modules/branch_b_digitization/floorplan_to_buildingdata.py`
+> turns a 2D floorplan into the exact `building-data.json` schema the engine + twin consume
+> (DeepFloorplan adapter as the upgrade segmenter, OpenCV working today). *Verified:* a real
+> floorplan → 15 floors / 210 zones with full thermal properties + HVAC mapping.
+>
+> **WebGL blackout fix.** Every `<Canvas>` is wrapped in an auto-recovering `CanvasErrorBoundary`,
+> so a transient render error self-heals instead of permanently blanking the 3D view.
+
+> **📚 Deep specs:** [`BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md) (engine internals, the
+> FlatBuffers + MQTT wire contracts, how to add a streamed metric, build/run with no local
+> `go`/`flatc`) · [`ai_modules/branch_b_digitization/LAYOUT_SCHEMA.md`](ai_modules/branch_b_digitization/LAYOUT_SCHEMA.md)
+> (the building-data schema + DeepFloorplan ingestion) · [`edge/raspberry_pi/README.md`](edge/raspberry_pi/README.md)
+> (broker + failsafe setup) · [`CONTINUE_HERE.md`](CONTINUE_HERE.md) (current status & next tasks).
 
 ## 🚀 Development Process & Architecture
 

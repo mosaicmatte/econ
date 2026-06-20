@@ -1,78 +1,207 @@
+// ECON Edge Node — ESP32 firmware
+// -----------------------------------------------------------------------------
+// Role in the system (see econ/BACKEND_ARCHITECTURE.md):
+//   * Publishes zone sensor telemetry  -> econ/telemetry/<zone>
+//   * Subscribes to actuation commands  <- econ/commands/<zone>
+//   * Drives a lighting relay + an HVAC IR emitter from those commands.
+//
+// Command format spoken by the Go engine's optimizer (engine.actuate):
+//     "LIGHTS_ON;SETPOINT=22.0"   /   "LIGHTS_OFF;SETPOINT=26.0"
+// (legacy "HVAC_SET:<c>" is still accepted). This firmware PARSES that combined
+// string — earlier sketches only matched the literal "LIGHTS_ON", which never
+// fires against the real payload.
+//
+// Telemetry payload (what mqtt.go / yolo_tracker.py expect):
+//     {"zone":"Level 4","occupancy":N,"temperature":t,"humidity":h,"co2":c}
+//
+// Sensors are simulated by default so the node runs on a bare ESP32. Define
+// USE_REAL_SENSORS=1 (and wire DHT22 + PIR) for real readings.
+// -----------------------------------------------------------------------------
+
 #include <Arduino.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <ArduinoJson.h>
 
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-const char* mqtt_server = "192.168.1.100"; // IP of backend
+// ---------------- CONFIG (edit these) ----------------
+const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
+const char* MQTT_HOST = "192.168.1.100";   // Raspberry Pi / broker LAN IP
+const int   MQTT_PORT = 1883;
 
-WiFiClient espClient;
+const char* ZONE_LABEL    = "Level 4";     // human label sent in telemetry
+const char* ZONE_TOPIC    = "zone_1";      // topic suffix; engine maps this to a zoneId
+// Derived topics
+char TELEMETRY_TOPIC[48];                   // econ/telemetry/<ZONE_TOPIC>
+char COMMAND_TOPIC[48];                     // econ/commands/<ZONE_TOPIC>
+char STATUS_TOPIC[48];                      // econ/status/<ZONE_TOPIC>  (LWT online/offline)
+char CLIENT_ID[32];                         // econ-esp32-<ZONE_TOPIC>
+
+// ---------------- HARDWARE PINS ----------------
+const int RELAY_PIN  = 23;  // lighting relay (active HIGH)
+const int IR_PIN     = 22;  // HVAC IR emitter (see applyHvacSetpoint)
+const int STATUS_LED = 2;   // onboard LED = MQTT link status
+
+#define USE_REAL_SENSORS 0
+#if USE_REAL_SENSORS
+  #include <DHT.h>
+  #define DHT_PIN 4
+  #define PIR_PIN 5
+  DHT dht(DHT_PIN, DHT22);
+#endif
+
+WiFiClient   espClient;
 PubSubClient client(espClient);
 
-const int RELAY_PIN = 23; // Pin for Lighting
-const int IR_PIN = 22;    // Pin for HVAC control
+unsigned long lastPublish = 0;
+const long PUBLISH_INTERVAL_MS = 5000;
+unsigned long lastReconnectAttempt = 0;
 
-void setup_wifi() {
-  delay(10);
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("WiFi connected");
+// actuated state (echoed back in telemetry for diagnostics)
+bool  lightsOn = true;
+float hvacSetpointC = 24.0;
+
+// ---------------- WIFI ----------------
+void setupWifi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.printf("[wifi] connecting to %s", WIFI_SSID);
+  while (WiFi.status() != WL_CONNECTED) { delay(400); Serial.print("."); }
+  Serial.printf("\n[wifi] connected, ip=%s\n", WiFi.localIP().toString().c_str());
 }
 
-void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
-  String message;
-  for (int i = 0; i < length; i++) {
-    message += (char)payload[i];
-  }
-  Serial.println(message);
+// ---------------- HVAC IR ----------------
+// Sends the AC setpoint via IR. Real AC control needs the IRremoteESP8266 library
+// and a per-brand protocol (Coolix/Daikin/etc.); this is the single extension point.
+void applyHvacSetpoint(float celsius) {
+  hvacSetpointC = celsius;
+  Serial.printf("[hvac] IR -> setpoint %.1f C\n", celsius);
+  // Visible pulse so a scope/LED on IR_PIN confirms a command was acted on.
+  for (int i = 0; i < 3; i++) { digitalWrite(IR_PIN, HIGH); delay(8); digitalWrite(IR_PIN, LOW); delay(8); }
+  // TODO(real AC): IRsendCoolix ac(IR_PIN); ac.send(buildCoolixState(celsius, lightsOn));
+}
 
-  // Parse command from Backend Optimization Engine
-  if (String(topic) == "econ/control/zone_a/lights") {
-    if (message == "ON") {
-      digitalWrite(RELAY_PIN, HIGH);
-    } else {
-      digitalWrite(RELAY_PIN, LOW);
-    }
+void setLights(bool on) {
+  lightsOn = on;
+  digitalWrite(RELAY_PIN, on ? HIGH : LOW);
+  Serial.printf("[relay] lights %s\n", on ? "ON" : "OFF");
+}
+
+// ---------------- COMMAND PARSING ----------------
+// Accepts "LIGHTS_ON;SETPOINT=22.0", "LIGHTS_OFF;SETPOINT=26.0", or "HVAC_SET:23".
+// Ignores any extra ;KEY=VAL tokens (e.g. the gateway's ;SRC=FAILSAFE).
+void handleCommand(const String& msg) {
+  int start = 0;
+  while (start < (int)msg.length()) {
+    int sep = msg.indexOf(';', start);
+    String tok = (sep == -1) ? msg.substring(start) : msg.substring(start, sep);
+    tok.trim();
+
+    if (tok == "LIGHTS_ON")       setLights(true);
+    else if (tok == "LIGHTS_OFF") setLights(false);
+    else if (tok.startsWith("SETPOINT=")) applyHvacSetpoint(tok.substring(9).toFloat());
+    else if (tok.startsWith("HVAC_SET:")) applyHvacSetpoint(tok.substring(9).toFloat());
+
+    if (sep == -1) break;
+    start = sep + 1;
   }
 }
 
-void reconnect() {
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    if (client.connect("ESP32Client")) {
-      Serial.println("connected");
-      client.subscribe("econ/control/zone_a/#");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      delay(5000);
-    }
+void onMessage(char* topic, byte* payload, unsigned int len) {
+  String msg;
+  msg.reserve(len);
+  for (unsigned int i = 0; i < len; i++) msg += (char)payload[i];
+  Serial.printf("[mqtt] %s -> %s\n", topic, msg.c_str());
+  if (String(topic) == COMMAND_TOPIC) handleCommand(msg);
+}
+
+// ---------------- TELEMETRY ----------------
+void readAndPublish() {
+  float temperature, humidity;
+  int   occupancy, co2;
+
+#if USE_REAL_SENSORS
+  temperature = dht.readTemperature();
+  humidity    = dht.readHumidity();
+  if (isnan(temperature)) temperature = 24.0;
+  if (isnan(humidity))    humidity    = 50.0;
+  occupancy = digitalRead(PIR_PIN) == HIGH ? 1 : 0;   // PIR = presence; swap for a counter for headcount
+  co2 = 400 + occupancy * 120;                         // approx until a real CO2 sensor is wired
+#else
+  temperature = 22.0 + (random(0, 40) / 10.0);
+  humidity    = 40.0 + random(0, 20);
+  occupancy   = random(0, 6);
+  co2         = 400 + random(0, 400);
+#endif
+
+  StaticJsonDocument<192> doc;
+  doc["zone"]        = ZONE_LABEL;
+  doc["occupancy"]   = occupancy;
+  doc["temperature"] = round(temperature * 10) / 10.0;
+  doc["humidity"]    = round(humidity * 10) / 10.0;
+  doc["co2"]         = co2;
+  doc["lights"]      = lightsOn ? "ON" : "OFF";
+  doc["setpoint"]    = hvacSetpointC;
+
+  char buf[224];
+  size_t n = serializeJson(doc, buf);
+  client.publish(TELEMETRY_TOPIC, buf, n);
+  Serial.printf("[mqtt] pub %s -> %s\n", TELEMETRY_TOPIC, buf);
+}
+
+// ---------------- MQTT CONNECT ----------------
+bool mqttConnect() {
+  Serial.print("[mqtt] connecting...");
+  // LWT: broker publishes "offline" (retained) on STATUS_TOPIC if this node drops.
+  bool ok = client.connect(CLIENT_ID, nullptr, nullptr, STATUS_TOPIC, 0, true, "offline");
+  if (ok) {
+    Serial.println(" connected");
+    client.publish(STATUS_TOPIC, "online", true);
+    client.subscribe(COMMAND_TOPIC);
+    digitalWrite(STATUS_LED, HIGH);
+  } else {
+    Serial.printf(" failed rc=%d\n", client.state());
+    digitalWrite(STATUS_LED, LOW);
   }
+  return ok;
 }
 
 void setup() {
   Serial.begin(115200);
   pinMode(RELAY_PIN, OUTPUT);
-  setup_wifi();
-  client.setServer(mqtt_server, 1883);
-  client.setCallback(callback);
+  pinMode(IR_PIN, OUTPUT);
+  pinMode(STATUS_LED, OUTPUT);
+  setLights(true);
+#if USE_REAL_SENSORS
+  dht.begin();
+  pinMode(PIR_PIN, INPUT);
+#endif
+
+  snprintf(TELEMETRY_TOPIC, sizeof(TELEMETRY_TOPIC), "econ/telemetry/%s", ZONE_TOPIC);
+  snprintf(COMMAND_TOPIC,   sizeof(COMMAND_TOPIC),   "econ/commands/%s",  ZONE_TOPIC);
+  snprintf(STATUS_TOPIC,    sizeof(STATUS_TOPIC),    "econ/status/%s",    ZONE_TOPIC);
+  snprintf(CLIENT_ID,       sizeof(CLIENT_ID),       "econ-esp32-%s",     ZONE_TOPIC);
+
+  setupWifi();
+  client.setServer(MQTT_HOST, MQTT_PORT);
+  client.setCallback(onMessage);
 }
 
 void loop() {
+  // Non-blocking reconnect (every 5s) keeps sensing/actuation responsive.
   if (!client.connected()) {
-    reconnect();
+    digitalWrite(STATUS_LED, LOW);
+    unsigned long now = millis();
+    if (now - lastReconnectAttempt > 5000) {
+      lastReconnectAttempt = now;
+      mqttConnect();
+    }
+  } else {
+    client.loop();
+    unsigned long now = millis();
+    if (now - lastPublish > PUBLISH_INTERVAL_MS) {
+      lastPublish = now;
+      readAndPublish();
+    }
   }
-  client.loop();
-  
-  // Here we would also read from the MLX90640 IR sensor array
-  // and publish to "econ/occupancy/zone_a"
 }
