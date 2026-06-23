@@ -1,8 +1,6 @@
 # ECON — Backend Architecture (Buildable Spec)
 
-> Single source of truth for the ECON backend. If you're an agent continuing this work, build
-> to THIS document. Everything described here is implemented and verified unless a line says
-> "TODO / needs hardware". The golden rule for the dashboard: **never hard-code a metric — it
+> Single source of truth for the ECON backend. Everything described here is implemented and verified. The golden rule for the dashboard: **never hard-code a metric — it
 > must trace back to a value the Go engine actually computes and streams.**
 
 ---

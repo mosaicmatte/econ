@@ -43,7 +43,7 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 > FlatBuffers + MQTT wire contracts, how to add a streamed metric, build/run with no local
 > `go`/`flatc`) · [`ai_modules/branch_b_digitization/LAYOUT_SCHEMA.md`](ai_modules/branch_b_digitization/LAYOUT_SCHEMA.md)
 > (the building-data schema + DeepFloorplan ingestion) · [`edge/raspberry_pi/README.md`](edge/raspberry_pi/README.md)
-> (broker + failsafe setup) · [`CONTINUE_HERE.md`](CONTINUE_HERE.md) (current status & next tasks).
+> (broker + failsafe setup).
 
 ## 🚀 Development Process & Architecture
 
