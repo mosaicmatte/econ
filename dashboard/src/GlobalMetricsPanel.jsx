@@ -57,7 +57,7 @@ function DeltaCard({ title, icon: Icon, value, unit, delta, isGood, historyData,
   );
 }
 
-export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory, activeFloor, selectedNode }) {
+export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory, activeFloor, selectedNode, width = 320, setWidth }) {
   
   const bldgLoad = simData.buildingLoadMw ?? 0;
   const sysHealth = simData.systemHealth ?? 100;
@@ -78,7 +78,24 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
   const occDelta = Math.floor(Math.random() * 15);
   
   return (
-    <aside className="hud-dock-right" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '320px', padding: '1rem' }}>
+    <aside className="hud-dock-right" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width, padding: '1rem', position: 'absolute' }}>
+      {setWidth && (
+        <div
+          className="resize-handle"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            const startW = width, startX = e.clientX;
+            const onMove = (m) => setWidth(Math.max(280, Math.min(startW + (startX - m.clientX), window.innerWidth * 0.5)));
+            const onUp = () => {
+              document.removeEventListener('pointermove', onMove);
+              document.removeEventListener('pointerup', onUp);
+            };
+            document.addEventListener('pointermove', onMove);
+            document.addEventListener('pointerup', onUp);
+          }}
+          style={{ position: 'absolute', top: '50%', left: 0, transform: 'translateY(-50%)', width: 10, height: 40, cursor: 'ew-resize', zIndex: 100 }}
+        />
+      )}
       <div style={{ paddingBottom: '0.5rem', borderBottom: '1px solid var(--border-glass)' }}>
         <h2 style={{ fontSize: '14px', color: 'var(--text-primary)', margin: 0, letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <BarChart2 size={16} color="var(--accent-blue)" />

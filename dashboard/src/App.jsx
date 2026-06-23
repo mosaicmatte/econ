@@ -13,8 +13,8 @@ import * as flatbuffers from 'flatbuffers';
 import MobileImpactScreen from './MobileImpactScreen';
 import UIErrorBoundary from './UIErrorBoundary';
 import { SimState } from './telemetry';
-import { useDigitalTwin, FAULT_ZONES } from './useDigitalTwin';
-import AirflowVectorField from './AirflowVectorField';
+import { useDigitalTwin, FAULT_ZONES, DEFAULT_FAULT_TARGET } from './useDigitalTwin';
+import AirflowWindow from './AirflowWindow';
 import CanvasErrorBoundary from './CanvasErrorBoundary';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Canvas } from '@react-three/fiber';
@@ -236,11 +236,21 @@ const buildTopologyFromSim = (simState, activeFloor, ontology) => {
 
 
 
+// The floor that "needs attention" when the dashboard opens: the one holding the default
+// critical asset (a server room, via DEFAULT_FAULT_TARGET). Data-driven so a regenerated
+// building-data.json just works — no hard-coded level.
+const ATTENTION_FLOOR = (() => {
+  const f = buildingData.floors.find(fl => fl.zones.some(z => z.zoneId === DEFAULT_FAULT_TARGET));
+  return f ? f.level : (buildingData.floors[Math.floor(buildingData.floors.length / 2)]?.level || 1);
+})();
+
 function App() {
-  const [activeFloor, setActiveFloor] = useState(6);
+  const [activeFloor, setActiveFloor] = useState(ATTENTION_FLOOR);
   const [selectedZone, setSelectedZone] = useState(null);
   const [showAiModal, setShowAiModal] = useState(false);
   const [panelSize, setPanelSize] = useState({ w: 600, h: 400 });
+  const [airflowSize, setAirflowSize] = useState({ w: 560, h: 380 });
+  const [rightPanelWidth, setRightPanelWidth] = useState(360);
   const [activeLeftTab, setActiveLeftTab] = useState('ai');
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
   const [leftPanelSize, setLeftPanelSize] = useState({ w: 360 });
@@ -261,6 +271,15 @@ function App() {
       .then(res => res.json())
       .then(data => { setOntology(data); ontologyRef.current = data; })
       .catch(err => console.error("Failed to load Brick ontology:", err));
+  }, []);
+
+  // Kick the 3D canvas after mount so it paints on load. The main building <Canvas> fills a
+  // 100vw/vh wrapper that can measure 0 during initial layout, leaving R3F's render loop idle
+  // until something forces a re-measure (previously: toggling airflow). A couple of resize
+  // pulses make it size + start drawing without any interaction.
+  useEffect(() => {
+    const ids = [60, 250, 600].map(ms => setTimeout(() => window.dispatchEvent(new Event('resize')), ms));
+    return () => ids.forEach(clearTimeout);
   }, []);
 
   const onSimUpdate = useCallback((newSimData, currentScenario) => {
@@ -531,9 +550,20 @@ function App() {
         </div>
       </div>
 
-      {/* Airflow now renders inside the main building canvas (see BuildingModel), toggled by the
-          "SHOW/HIDE AIRFLOW" control in the topology header. This removes the fragile second
-          WebGL context that could fail to allocate and blank out. */}
+      {/* Standalone, resizable airflow window (its own WebGL canvas), toggled by the
+          "SHOW/HIDE AIRFLOW" control in the topology header. */}
+      {showWindSim && (
+        <AirflowWindow
+          floor={buildingData.floors.find(f => f.level === activeFloor)}
+          activeFloor={activeFloor}
+          simState={simData}
+          size={airflowSize}
+          setSize={setAirflowSize}
+          onClose={() => setShowWindSim(false)}
+          right={24}
+          bottom={90 + panelSize.h + 12}
+        />
+      )}
 
       {/* LAYER 4: AI & TELEMETRY (Left Dock) */}
       <div style={{ position: 'absolute', top: '1.5rem', left: '1.5rem', zIndex: 50, display: 'flex', gap: '8px', maxHeight: 'calc(100vh - 3rem)' }}>
@@ -617,32 +647,25 @@ function App() {
         )}
       </div>
 
-      {/* LAYER 2: Global Metrics Top Right */}
-      <GlobalMetricsPanel 
-        simData={simData} 
+      {/* LAYER 2: Global Metrics (Right Dock) */}
+      <GlobalMetricsPanel
+        simData={simData}
         globalMetrics={globalMetrics}
         loadHistory={loadHistory}
         activeScenario={activeScenario}
         selectedNode={selectedNode}
         activeFloor={activeFloor}
+        width={rightPanelWidth}
+        setWidth={setRightPanelWidth}
       />
 
       {maintenanceTarget && (
-        <MaintenanceDrawer 
-          zoneId={maintenanceTarget} 
-          simData={simData} 
-          onClose={() => setMaintenanceTarget(null)} 
+        <MaintenanceDrawer
+          zoneId={maintenanceTarget}
+          simData={simData}
+          onClose={() => setMaintenanceTarget(null)}
         />
       )}
-
-      {/* LAYER 2: Global Metrics (Right Dock) */}
-      <GlobalMetricsPanel 
-        simData={simData} 
-        globalMetrics={globalMetrics} 
-        loadHistory={loadHistory} 
-        activeFloor={activeFloor} 
-        selectedNode={selectedNode} 
-      />
 
       {/* VIEW MODE TOGGLE (Floating Top Center-Left) */}
       <div style={{
@@ -698,9 +721,9 @@ function App() {
               <option key={z.id} value={z.id}>{z.label}</option>
             ))}
           </select>
-          <button 
-            className={`cmd-btn ${activeScenario === 'fault' ? 'active-fault' : ''}`} 
-            onClick={() => loadScenario(`fault:${faultTarget}`)}
+          <button
+            className={`cmd-btn ${activeScenario === 'fault' ? 'active-fault' : ''}`}
+            onClick={() => loadScenario(`fault:${faultTarget}`, (level) => setActiveFloor(level))}
             style={{ paddingLeft: '0.5rem' }}
           >
             <AlertTriangle size={16} /> Inject

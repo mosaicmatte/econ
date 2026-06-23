@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { Evaluator, Brush, SUBTRACTION } from 'three-bvh-csg';
 import buildingData from './building-data.json';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import AirflowVectorField from './AirflowVectorField';
+import FloorInfrastructure from './FloorInfrastructure';
 
 // ========== CSG Helper (three-bvh-csg Evaluator/Brush API) ==========
 // three-bvh-csg has no static `CSG` helper; it exposes an Evaluator that
@@ -384,19 +384,23 @@ function ZoneRenderer({ zone, isActive, simState, isHovered, onHover, isSelected
     });
   }, [isActive, isHovered, isPhysical]);
 
+  // Per-frame work is the dominant CPU cost (126 zones × 60 fps). Only the active floor and
+  // alarmed zones need the smooth lerp + pulse every frame; the ~110 faded inactive zones
+  // (opacity 0.15) just snap their uniform when the live temp actually moves, so the bulk of
+  // the loop early-returns. No element is removed — only the redundant updates are.
+  const lastLive = useRef(null);
   useFrame((state) => {
-    if (material && material.uniforms.temperature) {
-      const liveTemp = simState.zones[zone.zoneId]?.temp || setpoint;
-      material.uniforms.temperature.value = THREE.MathUtils.lerp(
-        material.uniforms.temperature.value,
-        liveTemp,
-        0.05
-      );
-      if (alertState === true) {
-        material.uniforms.opacity.value = 0.65 + 0.3 * Math.sin(state.clock.elapsedTime * 8);
-      } else {
-        material.uniforms.opacity.value = isActive ? (isHovered ? 0.9 : 0.65) : 0.15;
-      }
+    if (!material || !material.uniforms.temperature) return;
+    const liveTemp = simState.zones[zone.zoneId]?.temp || setpoint;
+    if (isActive || alertState === true) {
+      material.uniforms.temperature.value = THREE.MathUtils.lerp(material.uniforms.temperature.value, liveTemp, 0.05);
+      material.uniforms.opacity.value = alertState === true
+        ? 0.65 + 0.3 * Math.sin(state.clock.elapsedTime * 8)
+        : (isHovered ? 0.9 : 0.65);
+    } else if (lastLive.current === null || Math.abs(lastLive.current - liveTemp) > 0.05) {
+      material.uniforms.temperature.value = liveTemp;
+      material.uniforms.opacity.value = 0.15;
+      lastLive.current = liveTemp;
     }
   });
 
@@ -486,51 +490,77 @@ function ZoneRenderer({ zone, isActive, simState, isHovered, onHover, isSelected
   );
 }
 
-function DynamicControls({ targetX, targetY, targetZ, isZoomed }) {
+// The FIXED hero angle for the building: a front-left 3/4 view, moderately elevated.
+// Azimuth 45° puts the camera in the +x/+z octant; elevation 26° looks gently down so the
+// exploded active floor's top reads. Distance is aspect-aware so the WHOLE exploded tower
+// fits the viewport at any shape (wide desktop or tall mobile/portrait) without cropping.
+const VIEW_AZ = THREE.MathUtils.degToRad(45);
+const VIEW_EL = THREE.MathUtils.degToRad(26);
+const VIEW_DIR = new THREE.Vector3(
+  Math.cos(VIEW_EL) * Math.sin(VIEW_AZ),
+  Math.sin(VIEW_EL),
+  Math.cos(VIEW_EL) * Math.cos(VIEW_AZ),
+);
+
+export function towerFraming(activeFloor, aspect = 1.6) {
+  const floors = buildingData.floors;
+  const dispElev = (f) => f.elevation + (f.level > activeFloor ? 30 : (f.level === activeFloor ? 5 : 0));
+  let topY = -Infinity, botY = Infinity, activeY = 0;
+  floors.forEach((f) => {
+    const e = dispElev(f);
+    topY = Math.max(topY, e + (f.height || 4));
+    botY = Math.min(botY, e);
+    if (f.level === activeFloor) activeY = e + (f.height || 4) / 2;
+  });
+  // World-space footprint centre: a point (px,py) renders at (px-50, E, -py); the
+  // 60×40 plate therefore centres on x=-20, z=-20.
+  const center = { x: -20, z: -20 };
+  const span = Math.max(topY - botY, 30);
+
+  // Bounding sphere of the exploded tower (half-extents: 30 in x, span/2 in y, 20 in z),
+  // then the distance that fits it inside whichever fov dimension is tighter.
+  const R = Math.hypot(30, span / 2, 20);
+  const vFov = (45 * Math.PI) / 180;
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(0.3, aspect));
+  const fitFov = Math.min(vFov, hFov);
+  const dist = (R / Math.sin(fitFov / 2)) * 0.95; // fit the whole exploded tower, top-to-bottom
+
+  const target = new THREE.Vector3(center.x, botY + span * 0.46, center.z);
+  const position = target.clone().add(VIEW_DIR.clone().multiplyScalar(dist));
+  return { position, target, span, topY, botY, activeY };
+}
+
+function DynamicControls({ targetX, targetY, targetZ, isZoomed, activeFloor }) {
   const controlsRef = useRef();
-  const { camera } = useThree();
-  
-  // Detect mobile vs desktop to adjust default framing and visual center
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-  
-  // The building footprint is at [-30, 0, -20], so its true center is [-15, 0, -10].
-  // Desktop target should be very close to true center to match screenshot perfectly.
-  const visualCenterX = isMobile ? -15 : -12; 
-  
-  // Focus on the base of the building by default
-  const defaultTarget = useMemo(() => new THREE.Vector3(visualCenterX, 5, -10), [visualCenterX]);
-  
-  // Camera height is fixed at the highest floor (y=50) looking down
-  const defaultPosition = useMemo(() => new THREE.Vector3(
-    isMobile ? 45 : 55, 
-    50, // Always position at highest floor height
-    isMobile ? 45 : 55
-  ), [isMobile]);
+  const { camera, size } = useThree();
+  const aspect = size.width / Math.max(1, size.height);
+
+  // The fixed hero overview, recomputed when the attention floor OR the viewport shape
+  // changes (so it stays correctly framed across desktop/mobile and on rotate/resize).
+  const overview = useMemo(() => towerFraming(activeFloor, aspect), [activeFloor, aspect]);
 
   const [animating, setAnimating] = useState(false);
-  const [targetCameraPos, setTargetCameraPos] = useState(defaultPosition);
-  const [targetLookAt, setTargetLookAt] = useState(defaultTarget);
+  const [targetCameraPos, setTargetCameraPos] = useState(overview.position);
+  const [targetLookAt, setTargetLookAt] = useState(overview.target);
 
   useEffect(() => {
     if (isZoomed) {
-      // Keep the zoomed target shifted on desktop to maintain visual centering
-      const xOffset = isMobile ? 0 : 3;
-      // Camera always stays at highest floor height (y=50) looking down at the current floor
-      setTargetCameraPos(new THREE.Vector3(targetX + 15 + xOffset, 50, targetZ + 15));
-      setTargetLookAt(new THREE.Vector3(targetX + xOffset, targetY, targetZ));
+      // Drill-down: rise above and look down at the selected zone on the active floor.
+      setTargetCameraPos(new THREE.Vector3(targetX + 15, targetY + 28, targetZ + 15));
+      setTargetLookAt(new THREE.Vector3(targetX, targetY, targetZ));
       setAnimating(true);
     } else {
-      setTargetCameraPos(defaultPosition);
-      setTargetLookAt(defaultTarget);
+      setTargetCameraPos(overview.position);
+      setTargetLookAt(overview.target);
       setAnimating(true);
     }
-  }, [isZoomed, targetX, targetY, targetZ, defaultPosition, defaultTarget, isMobile]);
-  
+  }, [isZoomed, targetX, targetY, targetZ, overview]);
+
   useFrame(() => {
     if (controlsRef.current && animating) {
       controlsRef.current.target.lerp(targetLookAt, 0.08);
       camera.position.lerp(targetCameraPos, 0.08);
-      
+
       if (camera.position.distanceTo(targetCameraPos) < 1.5) {
         setAnimating(false);
       }
@@ -538,58 +568,20 @@ function DynamicControls({ targetX, targetY, targetZ, isZoomed }) {
     }
   });
 
-  // Explicitly set the initial target so it never points into the void on load
-  return <OrbitControls ref={controlsRef} target={[visualCenterX, 22, -10]} makeDefault />;
-}
-
-// ========== STEP 4.5: Physical Infrastructure Layer ==========
-function InfrastructureLayer({ floor, viewMode }) {
-  // Only render physical infrastructure in 'physical' or 'hybrid' modes
-  // If 'logical', we might want to fade them, but user asked for semantic transparency:
-  // "Physical mode: opaque geometry... Logical mode: geometry becomes semi-transparent or wireframed"
-  const isLogical = viewMode === 'logical';
-  const isHybrid = viewMode === 'hybrid';
-  
-  const opacity = isLogical ? 0.15 : (isHybrid ? 0.4 : 1.0);
-  const wireframe = isLogical;
-
+  // Rotation is LOCKED so the building stays at the fixed hero angle (per request); zoom
+  // stays enabled for inspection, pan disabled to keep it centred. Drill-down still works
+  // because we drive the camera position/target directly.
   return (
-    <group position={[-20, 0.05, -20]}>
-      {/* Procedural Server Racks in Server Rooms */}
-      {floor.zones.filter(z => z.type === 'server_room').map(zone => {
-        const racks = [];
-        // Place a few racks based on zone centroid
-        for(let i=0; i<4; i++) {
-          racks.push(
-            <mesh key={`rack-${i}`} position={[zone.centroid.x - 2 + i*1.2, 1, zone.centroid.y]}>
-              <boxGeometry args={[0.8, 2, 1.2]} />
-              <meshStandardMaterial color="#333355" transparent opacity={opacity} wireframe={wireframe} />
-              {!isLogical && <Edges color="#111122" threshold={15} />}
-            </mesh>
-          );
-        }
-        return <group key={zone.zoneId}>{racks}</group>;
-      })}
-
-      {/* Procedural HVAC Main Trunk */}
-      <mesh position={[20, 3.5, 20]}>
-        <boxGeometry args={[30, 0.4, 0.8]} />
-        <meshStandardMaterial color="#00e5ff" transparent opacity={opacity * 0.8} wireframe={wireframe} />
-      </mesh>
-      <mesh position={[20, 3.5, 20]}>
-        <boxGeometry args={[0.8, 0.4, 20]} />
-        <meshStandardMaterial color="#00e5ff" transparent opacity={opacity * 0.8} wireframe={wireframe} />
-      </mesh>
-
-      {/* Procedural Electrical Cable Trays */}
-      <mesh position={[20, 3.2, 18]}>
-        <boxGeometry args={[28, 0.1, 0.4]} />
-        <meshStandardMaterial color="#ffaa00" transparent opacity={opacity} wireframe={wireframe} />
-      </mesh>
-    </group>
+    <OrbitControls
+      ref={controlsRef}
+      target={[overview.target.x, overview.target.y, overview.target.z]}
+      makeDefault
+      enableRotate={false}
+      enablePan={false}
+      enableZoom
+    />
   );
 }
-
 
 export function SingleFloorLayout({ floor, isActive, simState, activeScenario, faultTarget, onFloorClick, selectedZone, setSelectedZone, hoveredZone, setHoveredZone, viewMode = 'hybrid' }) {
   return (
@@ -611,7 +603,7 @@ export function SingleFloorLayout({ floor, isActive, simState, activeScenario, f
           />
         ))}
       </group>
-      {isActive && <InfrastructureLayer floor={floor} viewMode={viewMode} />}
+      {isActive && <FloorInfrastructure floor={floor} simState={simState} viewMode={viewMode} />}
     </>
   );
 }
@@ -637,11 +629,20 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
     return { x: 0, y: 0, z: 0 };
   }, [selectedZone, activeFloor, floors]);
 
+  // Frame the whole tower at the fixed hero angle for the very first paint, using the live
+  // viewport aspect so it's correctly framed on both desktop and mobile from the start.
+  const initialOverview = useMemo(() => {
+    const aspect = (typeof window !== 'undefined' ? window.innerWidth / Math.max(1, window.innerHeight) : 1.6);
+    return towerFraming(activeFloor, aspect);
+  }, []); // eslint-disable-line
+
   return (
     <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
       <Canvas
-        camera={{ position: [80, 55, 80], fov: 45 }}
+        camera={{ position: [initialOverview.position.x, initialOverview.position.y, initialOverview.position.z], fov: 45 }}
         frameloop="always"
+        dpr={[1, 1.5]}
+        gl={{ antialias: true, powerPreference: 'high-performance' }}
         onCreated={({ gl, invalidate }) => {
           // Recover from WebGL context loss instead of leaving the building permanently black.
           // A heavy scene (14 floors, ~290 meshes + CSG) can trip GPU memory pressure / tab
@@ -655,11 +656,12 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
         <ambientLight intensity={0.4} />
         <directionalLight position={[10, 20, 10]} intensity={1.2} />
         
-        <DynamicControls 
-          targetX={targetCoords.x} 
-          targetY={targetCoords.y} 
-          targetZ={targetCoords.z} 
-          isZoomed={!!selectedZone} 
+        <DynamicControls
+          targetX={targetCoords.x}
+          targetY={targetCoords.y}
+          targetZ={targetCoords.z}
+          isZoomed={!!selectedZone}
+          activeFloor={activeFloor}
         />
 
         <group position={[-30, 0, -20]}>
@@ -695,11 +697,6 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
                   onFloorClick={onFloorClick}
                   viewMode={viewMode}
                 />
-                {/* Airflow renders in this single (main) canvas — sharing the floor's coordinate
-                    frame — instead of a fragile second WebGL context that can fail to allocate. */}
-                {isActive && showAirflow && (
-                  <AirflowVectorField simState={simState} activeFloor={activeFloor} selectedZone={selectedZone} />
-                )}
               </group>
             );
           })}
