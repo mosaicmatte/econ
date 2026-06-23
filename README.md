@@ -206,6 +206,24 @@ streamlit run app.py
 ```
 *Note: The AI will autonomously grid-search OpenCV parameters to mathematically derive the Space Syntax Dual Graph of the blueprint.*
 
+### 6. Testing the End-to-End Hardware Integration
+To verify the complete physics loop (YOLO -> MQTT -> Go Engine -> ESP32), you can run the mock hardware emulator alongside the computer vision tracker:
+
+**Terminal 1: Start the ESP32 Hardware Emulator**
+```bash
+cd edge/esp32
+python3 esp32_emulator.py
+```
+*This script subscribes to the `econ/commands/+` MQTT wildcard and listens for thermodynamic actuation triggers (e.g., `LIGHTS_OFF`, `SETPOINT=26.0`).*
+
+**Terminal 2: Start the YOLO Tracker (with local video bypass)**
+```bash
+cd ai_modules/branch_a_occupancy/yolo_bytetrack
+pip install ultralytics opencv-python paho-mqtt
+python3 yolo_tracker.py
+```
+*As YOLO detects people in the sample video, it publishes telemetry to the Go Engine. When the occupancy drops, the Engine mathematically determines the required setback and fires an MQTT actuation command back to Terminal 1, audibly simulating a physical hardware relay click!*
+
 ### Troubleshooting
 - **Frontend isn't receiving data?** Ensure the backend is running and port `8080` is not blocked. Check the browser console (F12) for WebSocket connection errors.
 - **Docker port conflict?** If port `8080` or `5432` is already in use by another application on your machine, stop the conflicting application or map different ports in the `docker-compose.yml` file.
