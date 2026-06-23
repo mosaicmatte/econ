@@ -43,6 +43,9 @@ func main() {
 	// Initialize simulation engine
 	engine := simulation.NewEngine()
 
+	// 3. Peak-load forecast: proxy a live-telemetry window to the Python LSTM service.
+	http.HandleFunc("/api/forecast", forecastHandler(engine))
+
 	// Connect to the MQTT broker: ingest real occupancy from the CV/edge layer and
 	// publish actuation commands to the ESP32. Non-blocking; the sim runs regardless.
 	startMQTT(engine)

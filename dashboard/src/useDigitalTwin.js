@@ -13,6 +13,17 @@ const INTEGRATION_BY_TYPE = {
   'office': 0.55,
 };
 
+// Data-driven fault targets: derive the selectable zones from the loaded building so any
+// regenerated building-data.json "just works" (no hard-coded zoneIds to re-wire).
+export const FAULT_ZONES = (() => {
+  const zones = [];
+  buildingData.floors.forEach(f => f.zones.forEach(z => zones.push({ ...z, level: f.level })));
+  const servers = zones.filter(z => z.zoneType === 'server-room');
+  const pick = (servers.length ? servers : zones).slice();
+  return pick.map(z => ({ id: z.zoneId, label: `L${z.level} ${z.name.replace(/ Level \d+$/, '')}`, type: z.zoneType }));
+})();
+export const DEFAULT_FAULT_TARGET = FAULT_ZONES[0]?.id || '';
+
 export const getInitialSimData = () => {
   const data = { scenario: 'peak', ahuPressure: 500, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, vavs: {}, zones: {}, logs: [] };
   buildingData.floors.forEach(floor => {
@@ -50,8 +61,8 @@ export const getInitialSimData = () => {
 export function useDigitalTwin(onUpdate) {
   const [activeScenario, setActiveScenario] = useState('peak');
   const [autoPilot, setAutoPilot] = useState(true);
-  const [faultTarget, setFaultTargetState] = useState('zone-server-lvl8');
-  const faultTargetRef = useRef('zone-server-lvl8');
+  const [faultTarget, setFaultTargetState] = useState(DEFAULT_FAULT_TARGET);
+  const faultTargetRef = useRef(DEFAULT_FAULT_TARGET);
   
   const setFaultTarget = (v) => {
     setFaultTargetState(v);

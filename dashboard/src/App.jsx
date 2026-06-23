@@ -13,7 +13,7 @@ import * as flatbuffers from 'flatbuffers';
 import MobileImpactScreen from './MobileImpactScreen';
 import UIErrorBoundary from './UIErrorBoundary';
 import { SimState } from './telemetry';
-import { useDigitalTwin } from './useDigitalTwin';
+import { useDigitalTwin, FAULT_ZONES } from './useDigitalTwin';
 import AirflowVectorField from './AirflowVectorField';
 import CanvasErrorBoundary from './CanvasErrorBoundary';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -186,19 +186,23 @@ const buildTopologyFromSim = (simState, activeFloor, ontology) => {
       }
     });
 
-    // Per-zone accessories: Camera, Sensor, Circuit
+    // Per-zone instrumentation (camera + temp sensor) — secondary detail, kept faint so the
+    // HVAC supply path stays the visual hero. Orthogonal (smoothstep) routing avoids the
+    // diagonal-spaghetti look of the default bezier edges.
     const cameraId = `camera_${z.id}`;
-    nodes.push({ id: cameraId, type: 'camera', position: { x: x + 60, y: y - 20 }, draggable: false, data: {} });
-    edges.push({ id: `e-${z.id}-${cameraId}`, source: z.id, target: cameraId, style: { stroke: 'rgba(255,255,255,0.2)', strokeDasharray: '2 2' } });
+    nodes.push({ id: cameraId, type: 'camera', position: { x: x + 70, y: y - 18 }, draggable: false, data: {} });
+    edges.push({ id: `e-${z.id}-${cameraId}`, source: z.id, target: cameraId, type: 'smoothstep', style: { stroke: 'rgba(255,255,255,0.12)', strokeWidth: 1, strokeDasharray: '2 3' } });
 
     const sensorId = `sensor_temp_${z.id}`;
-    nodes.push({ id: sensorId, type: 'sensor', position: { x: x + 60, y: y + 20 }, draggable: false, data: {} });
-    edges.push({ id: `e-${z.id}-${sensorId}`, source: z.id, target: sensorId, style: { stroke: 'rgba(255,255,255,0.2)', strokeDasharray: '2 2' } });
+    nodes.push({ id: sensorId, type: 'sensor', position: { x: x + 70, y: y + 22 }, draggable: false, data: {} });
+    edges.push({ id: `e-${z.id}-${sensorId}`, source: z.id, target: sensorId, type: 'smoothstep', style: { stroke: 'rgba(255,255,255,0.12)', strokeWidth: 1, strokeDasharray: '2 3' } });
 
+    // Electrical feed (panel -> breaker -> zone): a quiet dark-red bus that recedes behind the
+    // bright animated air path. smoothstep keeps it a clean right-angle run, not a crossing curve.
     const circuitId = `circuit_${z.id}`;
-    nodes.push({ id: circuitId, type: 'circuit', position: { x: x - 100, y: y + 20 }, draggable: false, data: {} });
-    edges.push({ id: `e-${panelId}-${circuitId}`, source: panelId, target: circuitId, style: { stroke: 'var(--accent-red)', strokeWidth: 1.5 } });
-    edges.push({ id: `e-${circuitId}-${z.id}`, source: circuitId, target: z.id, style: { stroke: 'var(--accent-red)', strokeWidth: 1.5 } });
+    nodes.push({ id: circuitId, type: 'circuit', position: { x: x - 105, y: y + 18 }, draggable: false, data: {} });
+    edges.push({ id: `e-${panelId}-${circuitId}`, source: panelId, target: circuitId, type: 'smoothstep', style: { stroke: 'rgba(239,68,68,0.22)', strokeWidth: 1 } });
+    edges.push({ id: `e-${circuitId}-${z.id}`, source: circuitId, target: z.id, type: 'smoothstep', style: { stroke: 'rgba(239,68,68,0.30)', strokeWidth: 1 } });
 
     // 3. Topology mapping driven by Brick Schema semantic ontology!
     // Find what feeds this zone in the graph
@@ -241,7 +245,6 @@ function App() {
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
   const [leftPanelSize, setLeftPanelSize] = useState({ w: 360 });
   const [showWindSim, setShowWindSim] = useState(true);
-  const [windPanelSize, setWindPanelSize] = useState({ w: 400, h: 300 });
   const [maintenanceTarget, setMaintenanceTarget] = useState(null);
   const [ontology, setOntology] = useState(null);
   const [viewMode, setViewMode] = useState('hybrid');
@@ -528,79 +531,9 @@ function App() {
         </div>
       </div>
 
-      {showWindSim && (
-        <div 
-          className="minimap-wrapper" 
-          style={{ 
-            position: 'absolute', width: windPanelSize.w, height: windPanelSize.h, bottom: `${90 + panelSize.h + 20}px`, right: '24px', padding: 0, overflow: 'visible', zIndex: 10
-          }}
-        >
-          <div 
-            className="resize-handle" 
-            onPointerDown={(e) => {
-              e.preventDefault();
-              const startW = windPanelSize.w;
-              const startH = windPanelSize.h;
-              const startX = e.clientX;
-              const startY = e.clientY;
-              const onPointerMove = (moveEvent) => {
-                const dx = startX - moveEvent.clientX;
-                const dy = moveEvent.clientY - startY;
-                setWindPanelSize({
-                  w: Math.max(300, Math.min(startW + dx, window.innerWidth * 0.9)),
-                  h: Math.max(200, Math.min(startH + dy, window.innerHeight * 0.9))
-                });
-              };
-              const onPointerUp = () => {
-                document.removeEventListener('pointermove', onPointerMove);
-                document.removeEventListener('pointerup', onPointerUp);
-              };
-              document.addEventListener('pointermove', onPointerMove);
-              document.addEventListener('pointerup', onPointerUp);
-            }}
-            style={{
-              position: 'absolute', bottom: -10, left: -10, width: 20, height: 20, background: 'var(--accent-blue)', 
-              cursor: 'sw-resize', zIndex: 100, borderRadius: '50%', border: '2px solid #000'
-            }} 
-          />
-          <div className="topology-panel" style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', borderRadius: '12px', border: '1px solid var(--border-glass)', background: 'var(--bg-panel)' }}>
-            <div className="panel-header" style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, padding: '12px 16px', background: 'var(--bg-panel)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '10px', color: 'var(--text-primary)', fontWeight: 'bold' }}>3D AIRFLOW VECTOR FIELD</span>
-              <button 
-                 onClick={() => setShowWindSim(false)}
-                 style={{ 
-                   background: 'transparent', border: '1px solid var(--accent-blue)', color: 'var(--accent-blue)', 
-                   fontSize: '9px', padding: '4px 8px', cursor: 'pointer', fontWeight: 'bold', pointerEvents: 'auto'
-                 }}
-              >
-                 ⏸ HIDE
-              </button>
-            </div>
-            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'var(--bg-obsidian)' }}>
-              <CanvasErrorBoundary>
-                <Canvas camera={{ position: [0, 40, 40], fov: 45 }} dpr={[1, 1.5]}>
-                  <ambientLight intensity={0.5} />
-                  <directionalLight position={[10, 20, 10]} intensity={1} />
-                  <group position={[-10, -2, 0]}>
-                    <SingleFloorLayout
-                      key={`minimap-layout-${activeFloor}`}
-                      floor={buildingData.floors.find(f => f.level === activeFloor)}
-                      isActive={true}
-                      simState={simData}
-                      selectedZone={selectedZone}
-                      setSelectedZone={setSelectedZone}
-                      hoveredZone={null}
-                      setHoveredZone={() => {}}
-                      onFloorClick={() => {}}
-                    />
-                    <AirflowVectorField simState={simData} activeFloor={activeFloor} selectedZone={selectedZone} />
-                  </group>
-                </Canvas>
-              </CanvasErrorBoundary>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Airflow now renders inside the main building canvas (see BuildingModel), toggled by the
+          "SHOW/HIDE AIRFLOW" control in the topology header. This removes the fragile second
+          WebGL context that could fail to allocate and blank out. */}
 
       {/* LAYER 4: AI & TELEMETRY (Left Dock) */}
       <div style={{ position: 'absolute', top: '1.5rem', left: '1.5rem', zIndex: 50, display: 'flex', gap: '8px', maxHeight: 'calc(100vh - 3rem)' }}>
@@ -761,11 +694,9 @@ function App() {
             onChange={(e) => setFaultTarget(e.target.value)}
             style={{ background: 'transparent', color: 'var(--text-secondary)', border: 'none', padding: '0.5rem', outline: 'none', fontFamily: 'Inter', fontSize: '12px', cursor: 'pointer' }}
           >
-            <option value="zone-server-lvl8">L8 Server Room</option>
-            <option value="zone-server-lvl12">L12 Server Room</option>
-            <option value="zone-south-lvl3">L3 South Perimeter</option>
-            <option value="zone-open-a-lvl6">L6 Open Office A</option>
-            <option value="zone-core-lvl10">L10 Core Lobby</option>
+            {FAULT_ZONES.map(z => (
+              <option key={z.id} value={z.id}>{z.label}</option>
+            ))}
           </select>
           <button 
             className={`cmd-btn ${activeScenario === 'fault' ? 'active-fault' : ''}`} 

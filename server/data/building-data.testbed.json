@@ -1,0 +1,5703 @@
+{
+  "buildingId": "bldg-econ-testbed",
+  "floors": [
+    {
+      "level": 1,
+      "elevation": 0.0,
+      "height": 4.0,
+      "name": "Level 1",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-retail-east-lvl1",
+          "name": "Retail East Level 1",
+          "zoneType": "retail",
+          "bim_asset_id": "a5e0fdb5-137e-48eb-ab8e-4d877a0bda35",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 23.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 7000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 20
+          },
+          "hvacMapping": {
+            "vavId": "vav-retail-east-lvl1"
+          }
+        },
+        {
+          "zoneId": "zone-reception-lvl1",
+          "name": "Reception Level 1",
+          "zoneType": "lobby",
+          "bim_asset_id": "725ac146-f711-4e08-8f69-6236a5f532b1",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 5000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 40
+          },
+          "hvacMapping": {
+            "vavId": "vav-reception-lvl1"
+          }
+        },
+        {
+          "zoneId": "zone-retail-west-lvl1",
+          "name": "Retail West Level 1",
+          "zoneType": "retail",
+          "bim_asset_id": "77ee7ac7-23a5-4312-9234-d761753acb4f",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 23.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 7000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 20
+          },
+          "hvacMapping": {
+            "vavId": "vav-retail-west-lvl1"
+          }
+        },
+        {
+          "zoneId": "zone-leasing-office-lvl1",
+          "name": "Leasing Office Level 1",
+          "zoneType": "office",
+          "bim_asset_id": "7acd3bc2-d607-4b97-a326-fe126e902118",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-leasing-office-lvl1"
+          }
+        },
+        {
+          "zoneId": "zone-security-office-lvl1",
+          "name": "Security Office Level 1",
+          "zoneType": "office",
+          "bim_asset_id": "6fe125ce-886d-40e6-bdd2-00ff82363fd2",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-security-office-lvl1"
+          }
+        },
+        {
+          "zoneId": "zone-main-lobby-lvl1",
+          "name": "Main Lobby Level 1",
+          "zoneType": "lobby",
+          "bim_asset_id": "afb8a3fb-0f48-4214-89c5-41d782ee02bf",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 5000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 40
+          },
+          "hvacMapping": {
+            "vavId": "vav-main-lobby-lvl1"
+          }
+        },
+        {
+          "zoneId": "zone-atrium-lvl1",
+          "name": "Atrium Level 1",
+          "zoneType": "lobby",
+          "bim_asset_id": "8f839e43-3f41-479d-925c-4bb9f295b256",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 5000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 40
+          },
+          "hvacMapping": {
+            "vavId": "vav-atrium-lvl1"
+          }
+        },
+        {
+          "zoneId": "zone-visitor-lounge-lvl1",
+          "name": "Visitor Lounge Level 1",
+          "zoneType": "conference",
+          "bim_asset_id": "81c65041-a448-4c0f-bf0a-1e20ef863796",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-visitor-lounge-lvl1"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl1",
+          "name": "Core Elevator Lobby Level 1",
+          "zoneType": "corridor",
+          "bim_asset_id": "59fac26e-b887-43fd-b821-23b3a87d36a4",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl1"
+          }
+        }
+      ]
+    },
+    {
+      "level": 2,
+      "elevation": 4.0,
+      "height": 4.0,
+      "name": "Level 2",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-north-west-office-lvl2",
+          "name": "North-West Office Level 2",
+          "zoneType": "office",
+          "bim_asset_id": "5d250ed6-725a-416f-8a78-8b53e5de0a8e",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-west-office-lvl2"
+          }
+        },
+        {
+          "zoneId": "zone-north-perimeter-lvl2",
+          "name": "North Perimeter Level 2",
+          "zoneType": "office",
+          "bim_asset_id": "c693a897-666d-429e-a223-6d64e0825a48",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-perimeter-lvl2"
+          }
+        },
+        {
+          "zoneId": "zone-north-east-office-lvl2",
+          "name": "North-East Office Level 2",
+          "zoneType": "office",
+          "bim_asset_id": "5057bb94-b508-4fe1-926b-132c4861a09f",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-east-office-lvl2"
+          }
+        },
+        {
+          "zoneId": "zone-west-conference-lvl2",
+          "name": "West Conference Level 2",
+          "zoneType": "conference",
+          "bim_asset_id": "f5bbb34e-36d9-4721-9ea9-de9af4b3b98a",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-west-conference-lvl2"
+          }
+        },
+        {
+          "zoneId": "zone-east-conference-lvl2",
+          "name": "East Conference Level 2",
+          "zoneType": "conference",
+          "bim_asset_id": "f0d386f4-1825-428b-bbec-5a9ba7eec323",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-east-conference-lvl2"
+          }
+        },
+        {
+          "zoneId": "zone-south-west-office-lvl2",
+          "name": "South-West Office Level 2",
+          "zoneType": "office",
+          "bim_asset_id": "1d1adb4d-93b4-4617-b11a-986957c7a70f",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-west-office-lvl2"
+          }
+        },
+        {
+          "zoneId": "zone-south-perimeter-lvl2",
+          "name": "South Perimeter Level 2",
+          "zoneType": "office",
+          "bim_asset_id": "43625667-406a-48c6-a9e0-3143f93e69a8",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-perimeter-lvl2"
+          }
+        },
+        {
+          "zoneId": "zone-open-office-lvl2",
+          "name": "Open Office Level 2",
+          "zoneType": "office",
+          "bim_asset_id": "716fff86-2bc0-4e0c-b8f7-405d4490e3f6",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-open-office-lvl2"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl2",
+          "name": "Core Elevator Lobby Level 2",
+          "zoneType": "corridor",
+          "bim_asset_id": "6ff321e0-dfdb-4642-9581-a0a3d02b0fd4",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl2"
+          }
+        }
+      ]
+    },
+    {
+      "level": 3,
+      "elevation": 8.0,
+      "height": 4.0,
+      "name": "Level 3",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-north-west-office-lvl3",
+          "name": "North-West Office Level 3",
+          "zoneType": "office",
+          "bim_asset_id": "83e9ebea-86d5-438b-8803-c2a877d59cbc",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-west-office-lvl3"
+          }
+        },
+        {
+          "zoneId": "zone-north-perimeter-lvl3",
+          "name": "North Perimeter Level 3",
+          "zoneType": "office",
+          "bim_asset_id": "fabe78f7-ab26-42d1-a538-a04461cfb040",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-perimeter-lvl3"
+          }
+        },
+        {
+          "zoneId": "zone-north-east-office-lvl3",
+          "name": "North-East Office Level 3",
+          "zoneType": "office",
+          "bim_asset_id": "4a13a164-3bde-47a8-83c5-f6049fba3c64",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-east-office-lvl3"
+          }
+        },
+        {
+          "zoneId": "zone-west-conference-lvl3",
+          "name": "West Conference Level 3",
+          "zoneType": "conference",
+          "bim_asset_id": "95a13bf3-fe0c-4694-a971-79a554a5a67d",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-west-conference-lvl3"
+          }
+        },
+        {
+          "zoneId": "zone-east-conference-lvl3",
+          "name": "East Conference Level 3",
+          "zoneType": "conference",
+          "bim_asset_id": "35ca488a-00df-4d8d-88b1-6994f1e25176",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-east-conference-lvl3"
+          }
+        },
+        {
+          "zoneId": "zone-south-west-office-lvl3",
+          "name": "South-West Office Level 3",
+          "zoneType": "office",
+          "bim_asset_id": "285e02b6-a89d-41c4-971e-7445b382f3c6",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-west-office-lvl3"
+          }
+        },
+        {
+          "zoneId": "zone-south-perimeter-lvl3",
+          "name": "South Perimeter Level 3",
+          "zoneType": "office",
+          "bim_asset_id": "f8481594-f461-4ed9-ba61-652d72c4f92a",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-perimeter-lvl3"
+          }
+        },
+        {
+          "zoneId": "zone-open-office-lvl3",
+          "name": "Open Office Level 3",
+          "zoneType": "office",
+          "bim_asset_id": "4893607f-4e6b-4b15-b570-3305a239d796",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-open-office-lvl3"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl3",
+          "name": "Core Elevator Lobby Level 3",
+          "zoneType": "corridor",
+          "bim_asset_id": "f9e0f649-20b2-4dda-b475-cdffcf460bd7",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl3"
+          }
+        }
+      ]
+    },
+    {
+      "level": 4,
+      "elevation": 12.0,
+      "height": 4.0,
+      "name": "Level 4",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-north-west-office-lvl4",
+          "name": "North-West Office Level 4",
+          "zoneType": "office",
+          "bim_asset_id": "18ca44ab-832a-46f1-8ca6-2cd20568d466",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-west-office-lvl4"
+          }
+        },
+        {
+          "zoneId": "zone-north-perimeter-lvl4",
+          "name": "North Perimeter Level 4",
+          "zoneType": "office",
+          "bim_asset_id": "1dabafce-373e-4e28-8c21-bc1cebb0e4ce",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-perimeter-lvl4"
+          }
+        },
+        {
+          "zoneId": "zone-north-east-office-lvl4",
+          "name": "North-East Office Level 4",
+          "zoneType": "office",
+          "bim_asset_id": "f9cfb6f1-57c9-4dfd-a062-b2850575ad37",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-east-office-lvl4"
+          }
+        },
+        {
+          "zoneId": "zone-west-conference-lvl4",
+          "name": "West Conference Level 4",
+          "zoneType": "conference",
+          "bim_asset_id": "9585188f-37ee-46ba-81b3-df7781bc1bc6",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-west-conference-lvl4"
+          }
+        },
+        {
+          "zoneId": "zone-east-conference-lvl4",
+          "name": "East Conference Level 4",
+          "zoneType": "conference",
+          "bim_asset_id": "fba674e2-9cf0-46f8-8ec5-3ccb9c801ac1",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-east-conference-lvl4"
+          }
+        },
+        {
+          "zoneId": "zone-south-west-office-lvl4",
+          "name": "South-West Office Level 4",
+          "zoneType": "office",
+          "bim_asset_id": "833b3aae-8427-4da4-b424-bcbaa87cf3ce",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-west-office-lvl4"
+          }
+        },
+        {
+          "zoneId": "zone-south-perimeter-lvl4",
+          "name": "South Perimeter Level 4",
+          "zoneType": "office",
+          "bim_asset_id": "08746103-6b8a-4ecb-9777-b05451670fb5",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-perimeter-lvl4"
+          }
+        },
+        {
+          "zoneId": "zone-open-office-lvl4",
+          "name": "Open Office Level 4",
+          "zoneType": "office",
+          "bim_asset_id": "3b1e0bb3-def0-42ab-a07c-3a8dbd1670ea",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-open-office-lvl4"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl4",
+          "name": "Core Elevator Lobby Level 4",
+          "zoneType": "corridor",
+          "bim_asset_id": "fef4e7fc-7be3-4a87-883c-171e83f88b08",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl4"
+          }
+        }
+      ]
+    },
+    {
+      "level": 5,
+      "elevation": 16.0,
+      "height": 4.0,
+      "name": "Level 5",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-north-west-office-lvl5",
+          "name": "North-West Office Level 5",
+          "zoneType": "office",
+          "bim_asset_id": "d8411752-65b5-4adf-b8c1-1070051d1757",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-west-office-lvl5"
+          }
+        },
+        {
+          "zoneId": "zone-north-perimeter-lvl5",
+          "name": "North Perimeter Level 5",
+          "zoneType": "office",
+          "bim_asset_id": "e47b2782-bd45-4043-a13e-41d8f4b4fbba",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-perimeter-lvl5"
+          }
+        },
+        {
+          "zoneId": "zone-north-east-office-lvl5",
+          "name": "North-East Office Level 5",
+          "zoneType": "office",
+          "bim_asset_id": "167d87bf-b5db-42f2-a1c8-bc6109ee9d31",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-east-office-lvl5"
+          }
+        },
+        {
+          "zoneId": "zone-west-conference-lvl5",
+          "name": "West Conference Level 5",
+          "zoneType": "conference",
+          "bim_asset_id": "df05e63b-11a1-4bee-92bd-49559a1b3c54",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-west-conference-lvl5"
+          }
+        },
+        {
+          "zoneId": "zone-east-conference-lvl5",
+          "name": "East Conference Level 5",
+          "zoneType": "conference",
+          "bim_asset_id": "2b45346f-524e-415e-8b71-f717ad6e18bd",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-east-conference-lvl5"
+          }
+        },
+        {
+          "zoneId": "zone-south-west-office-lvl5",
+          "name": "South-West Office Level 5",
+          "zoneType": "office",
+          "bim_asset_id": "afd5fe2e-118c-42ea-ae35-2c7b3110ec57",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-west-office-lvl5"
+          }
+        },
+        {
+          "zoneId": "zone-south-perimeter-lvl5",
+          "name": "South Perimeter Level 5",
+          "zoneType": "office",
+          "bim_asset_id": "21f424fa-64b3-444b-94aa-f861f4c23cad",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-perimeter-lvl5"
+          }
+        },
+        {
+          "zoneId": "zone-open-office-lvl5",
+          "name": "Open Office Level 5",
+          "zoneType": "office",
+          "bim_asset_id": "34d1d3c4-52c7-4902-9a5d-e4579919c28e",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-open-office-lvl5"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl5",
+          "name": "Core Elevator Lobby Level 5",
+          "zoneType": "corridor",
+          "bim_asset_id": "2ad239ab-b0ca-40c4-a296-acdf9f2cb0fc",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl5"
+          }
+        }
+      ]
+    },
+    {
+      "level": 6,
+      "elevation": 20.0,
+      "height": 4.0,
+      "name": "Level 6",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-noc-office-lvl6",
+          "name": "NOC Office Level 6",
+          "zoneType": "office",
+          "bim_asset_id": "54ede62e-78e7-4f0f-8957-ec6711e64e37",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-noc-office-lvl6"
+          }
+        },
+        {
+          "zoneId": "zone-server-room-a-lvl6",
+          "name": "Server Room A Level 6",
+          "zoneType": "server-room",
+          "bim_asset_id": "c24f5d24-3c39-43d5-9e21-fc4e1093ed78",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 18.0,
+            "deadband": 1.0,
+            "baseHeatLoad": 85000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-server-room-a-lvl6"
+          }
+        },
+        {
+          "zoneId": "zone-ups-room-lvl6",
+          "name": "UPS Room Level 6",
+          "zoneType": "mechanical",
+          "bim_asset_id": "bcbdb2e0-d409-4d9f-934f-1532bca52ed7",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 26.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 12000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-ups-room-lvl6"
+          }
+        },
+        {
+          "zoneId": "zone-cold-aisle-lvl6",
+          "name": "Cold Aisle Level 6",
+          "zoneType": "server-room",
+          "bim_asset_id": "4486da78-dd69-4d85-a931-df2d078143e5",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 18.0,
+            "deadband": 1.0,
+            "baseHeatLoad": 85000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-cold-aisle-lvl6"
+          }
+        },
+        {
+          "zoneId": "zone-server-room-b-lvl6",
+          "name": "Server Room B Level 6",
+          "zoneType": "server-room",
+          "bim_asset_id": "ff6cc674-f11b-4189-889f-e7034a0b8012",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 18.0,
+            "deadband": 1.0,
+            "baseHeatLoad": 85000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-server-room-b-lvl6"
+          }
+        },
+        {
+          "zoneId": "zone-pdu-room-lvl6",
+          "name": "PDU Room Level 6",
+          "zoneType": "mechanical",
+          "bim_asset_id": "2bd91c46-0582-4fe6-88c8-4b248cda679c",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 26.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 12000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-pdu-room-lvl6"
+          }
+        },
+        {
+          "zoneId": "zone-server-room-c-lvl6",
+          "name": "Server Room C Level 6",
+          "zoneType": "server-room",
+          "bim_asset_id": "a318e0d1-eb07-4c49-ab91-bcf9792f4cbd",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 18.0,
+            "deadband": 1.0,
+            "baseHeatLoad": 85000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-server-room-c-lvl6"
+          }
+        },
+        {
+          "zoneId": "zone-operations-lvl6",
+          "name": "Operations Level 6",
+          "zoneType": "office",
+          "bim_asset_id": "6dc75e3b-d2a7-468d-a99a-ec71699d9ce4",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-operations-lvl6"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl6",
+          "name": "Core Elevator Lobby Level 6",
+          "zoneType": "corridor",
+          "bim_asset_id": "72aff87f-e969-4123-bed0-8f59d82645cd",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl6"
+          }
+        }
+      ]
+    },
+    {
+      "level": 7,
+      "elevation": 24.0,
+      "height": 4.0,
+      "name": "Level 7",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-north-west-office-lvl7",
+          "name": "North-West Office Level 7",
+          "zoneType": "office",
+          "bim_asset_id": "86bd7019-dc78-4a0d-adde-42407259f914",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-west-office-lvl7"
+          }
+        },
+        {
+          "zoneId": "zone-north-perimeter-lvl7",
+          "name": "North Perimeter Level 7",
+          "zoneType": "office",
+          "bim_asset_id": "594830c1-d891-4567-a2d5-3f7aaea8f13d",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-perimeter-lvl7"
+          }
+        },
+        {
+          "zoneId": "zone-north-east-office-lvl7",
+          "name": "North-East Office Level 7",
+          "zoneType": "office",
+          "bim_asset_id": "e6c8721f-d012-46df-b1fd-9a09132361ce",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-east-office-lvl7"
+          }
+        },
+        {
+          "zoneId": "zone-west-conference-lvl7",
+          "name": "West Conference Level 7",
+          "zoneType": "conference",
+          "bim_asset_id": "ed69aac5-6aed-4245-8111-f3fc05fe1659",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-west-conference-lvl7"
+          }
+        },
+        {
+          "zoneId": "zone-east-conference-lvl7",
+          "name": "East Conference Level 7",
+          "zoneType": "conference",
+          "bim_asset_id": "6c0e03f9-6fea-4c76-be0a-9a72fbb5b10f",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-east-conference-lvl7"
+          }
+        },
+        {
+          "zoneId": "zone-south-west-office-lvl7",
+          "name": "South-West Office Level 7",
+          "zoneType": "office",
+          "bim_asset_id": "7ddf8049-0cb0-49c4-89fb-4d579da5e6ec",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-west-office-lvl7"
+          }
+        },
+        {
+          "zoneId": "zone-south-perimeter-lvl7",
+          "name": "South Perimeter Level 7",
+          "zoneType": "office",
+          "bim_asset_id": "a3d16839-ede7-4d1c-bbe8-cc8e7e57517f",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-perimeter-lvl7"
+          }
+        },
+        {
+          "zoneId": "zone-open-office-lvl7",
+          "name": "Open Office Level 7",
+          "zoneType": "office",
+          "bim_asset_id": "ac68ccbb-3f68-43b8-ab06-11e37c60b734",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-open-office-lvl7"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl7",
+          "name": "Core Elevator Lobby Level 7",
+          "zoneType": "corridor",
+          "bim_asset_id": "c5fa1139-75d3-4cab-b1fd-1877e06f19c0",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl7"
+          }
+        }
+      ]
+    },
+    {
+      "level": 8,
+      "elevation": 28.0,
+      "height": 4.0,
+      "name": "Level 8",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-north-west-office-lvl8",
+          "name": "North-West Office Level 8",
+          "zoneType": "office",
+          "bim_asset_id": "b62dc3fd-2500-4160-9bc3-8479a0bfa264",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-west-office-lvl8"
+          }
+        },
+        {
+          "zoneId": "zone-north-perimeter-lvl8",
+          "name": "North Perimeter Level 8",
+          "zoneType": "office",
+          "bim_asset_id": "06de9795-20de-4d51-9f96-a2b760f084dc",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-perimeter-lvl8"
+          }
+        },
+        {
+          "zoneId": "zone-north-east-office-lvl8",
+          "name": "North-East Office Level 8",
+          "zoneType": "office",
+          "bim_asset_id": "ee935c31-e73a-4ce3-9cc7-822ee72b1419",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-east-office-lvl8"
+          }
+        },
+        {
+          "zoneId": "zone-west-conference-lvl8",
+          "name": "West Conference Level 8",
+          "zoneType": "conference",
+          "bim_asset_id": "9e8e5d78-198c-49be-a341-c2285e26da6b",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-west-conference-lvl8"
+          }
+        },
+        {
+          "zoneId": "zone-east-conference-lvl8",
+          "name": "East Conference Level 8",
+          "zoneType": "conference",
+          "bim_asset_id": "bca4ecb1-c3a2-4c5b-8d72-475443c219fc",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-east-conference-lvl8"
+          }
+        },
+        {
+          "zoneId": "zone-south-west-office-lvl8",
+          "name": "South-West Office Level 8",
+          "zoneType": "office",
+          "bim_asset_id": "bcd5ad6e-8fdb-42df-90af-8b993967c31b",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-west-office-lvl8"
+          }
+        },
+        {
+          "zoneId": "zone-south-perimeter-lvl8",
+          "name": "South Perimeter Level 8",
+          "zoneType": "office",
+          "bim_asset_id": "ef6de9a7-7b0f-403d-b6c6-703d826fc1a9",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-perimeter-lvl8"
+          }
+        },
+        {
+          "zoneId": "zone-open-office-lvl8",
+          "name": "Open Office Level 8",
+          "zoneType": "office",
+          "bim_asset_id": "b56e66e4-1911-43f3-89c3-8022aabbfc10",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-open-office-lvl8"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl8",
+          "name": "Core Elevator Lobby Level 8",
+          "zoneType": "corridor",
+          "bim_asset_id": "a9423581-32f8-4463-bb51-464946b1f8b8",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl8"
+          }
+        }
+      ]
+    },
+    {
+      "level": 9,
+      "elevation": 32.0,
+      "height": 4.0,
+      "name": "Level 9",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-noc-office-lvl9",
+          "name": "NOC Office Level 9",
+          "zoneType": "office",
+          "bim_asset_id": "f1b9410e-e0a9-4465-bf8e-83efeacf5a57",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-noc-office-lvl9"
+          }
+        },
+        {
+          "zoneId": "zone-server-room-a-lvl9",
+          "name": "Server Room A Level 9",
+          "zoneType": "server-room",
+          "bim_asset_id": "230899b0-efe9-4265-90bb-fc0b934cbde3",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 18.0,
+            "deadband": 1.0,
+            "baseHeatLoad": 85000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-server-room-a-lvl9"
+          }
+        },
+        {
+          "zoneId": "zone-ups-room-lvl9",
+          "name": "UPS Room Level 9",
+          "zoneType": "mechanical",
+          "bim_asset_id": "c4cf8a91-dc91-4e2e-8f6e-bd56439ff1dd",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 26.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 12000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-ups-room-lvl9"
+          }
+        },
+        {
+          "zoneId": "zone-cold-aisle-lvl9",
+          "name": "Cold Aisle Level 9",
+          "zoneType": "server-room",
+          "bim_asset_id": "49ea2662-1dcd-4906-b9f1-efee9b76d6fe",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 18.0,
+            "deadband": 1.0,
+            "baseHeatLoad": 85000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-cold-aisle-lvl9"
+          }
+        },
+        {
+          "zoneId": "zone-server-room-b-lvl9",
+          "name": "Server Room B Level 9",
+          "zoneType": "server-room",
+          "bim_asset_id": "c688bbef-bb54-416a-9d6e-18f970313226",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 18.0,
+            "deadband": 1.0,
+            "baseHeatLoad": 85000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-server-room-b-lvl9"
+          }
+        },
+        {
+          "zoneId": "zone-pdu-room-lvl9",
+          "name": "PDU Room Level 9",
+          "zoneType": "mechanical",
+          "bim_asset_id": "91360a26-f379-4364-b428-73f606761fe1",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 26.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 12000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-pdu-room-lvl9"
+          }
+        },
+        {
+          "zoneId": "zone-server-room-c-lvl9",
+          "name": "Server Room C Level 9",
+          "zoneType": "server-room",
+          "bim_asset_id": "c18d3560-62ec-4fc6-8eb5-9cb1a542a316",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 18.0,
+            "deadband": 1.0,
+            "baseHeatLoad": 85000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-server-room-c-lvl9"
+          }
+        },
+        {
+          "zoneId": "zone-operations-lvl9",
+          "name": "Operations Level 9",
+          "zoneType": "office",
+          "bim_asset_id": "300cd9db-a5f8-4fd2-8e3f-ade881267437",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-operations-lvl9"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl9",
+          "name": "Core Elevator Lobby Level 9",
+          "zoneType": "corridor",
+          "bim_asset_id": "92f1dd62-7772-45fa-9c9b-f4d4a25eca56",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl9"
+          }
+        }
+      ]
+    },
+    {
+      "level": 10,
+      "elevation": 36.0,
+      "height": 4.0,
+      "name": "Level 10",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-north-west-office-lvl10",
+          "name": "North-West Office Level 10",
+          "zoneType": "office",
+          "bim_asset_id": "6fd5519f-6d8a-43e3-92e1-827cf4348923",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-west-office-lvl10"
+          }
+        },
+        {
+          "zoneId": "zone-north-perimeter-lvl10",
+          "name": "North Perimeter Level 10",
+          "zoneType": "office",
+          "bim_asset_id": "2e6a20d4-c081-45c6-a76a-257eed2d946c",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-perimeter-lvl10"
+          }
+        },
+        {
+          "zoneId": "zone-north-east-office-lvl10",
+          "name": "North-East Office Level 10",
+          "zoneType": "office",
+          "bim_asset_id": "bcf8271f-2acc-43db-b6d5-39a80ce12b03",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-east-office-lvl10"
+          }
+        },
+        {
+          "zoneId": "zone-west-conference-lvl10",
+          "name": "West Conference Level 10",
+          "zoneType": "conference",
+          "bim_asset_id": "1defd1f2-e486-4968-9e67-1f7d41809303",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-west-conference-lvl10"
+          }
+        },
+        {
+          "zoneId": "zone-east-conference-lvl10",
+          "name": "East Conference Level 10",
+          "zoneType": "conference",
+          "bim_asset_id": "fd8b81e7-53e8-4a35-85cb-b02dd71474ce",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-east-conference-lvl10"
+          }
+        },
+        {
+          "zoneId": "zone-south-west-office-lvl10",
+          "name": "South-West Office Level 10",
+          "zoneType": "office",
+          "bim_asset_id": "de47e194-04a8-496b-aa2d-c2d26adaae24",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-west-office-lvl10"
+          }
+        },
+        {
+          "zoneId": "zone-south-perimeter-lvl10",
+          "name": "South Perimeter Level 10",
+          "zoneType": "office",
+          "bim_asset_id": "59e84a35-3408-488c-b017-1378f7e64fb7",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-perimeter-lvl10"
+          }
+        },
+        {
+          "zoneId": "zone-open-office-lvl10",
+          "name": "Open Office Level 10",
+          "zoneType": "office",
+          "bim_asset_id": "a4e0880f-fec4-4266-adf9-5adf79c91389",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-open-office-lvl10"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl10",
+          "name": "Core Elevator Lobby Level 10",
+          "zoneType": "corridor",
+          "bim_asset_id": "9e4c4d21-3618-4a1e-b53d-69cb3afa8dba",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl10"
+          }
+        }
+      ]
+    },
+    {
+      "level": 11,
+      "elevation": 40.0,
+      "height": 4.0,
+      "name": "Level 11",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-executive-office-1-lvl11",
+          "name": "Executive Office 1 Level 11",
+          "zoneType": "office",
+          "bim_asset_id": "a30e0757-2a96-4b7f-975a-d227c294d499",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-executive-office-1-lvl11"
+          }
+        },
+        {
+          "zoneId": "zone-boardroom-lvl11",
+          "name": "Boardroom Level 11",
+          "zoneType": "conference",
+          "bim_asset_id": "27bd3f75-e97e-4460-beca-472731e5f0ea",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-boardroom-lvl11"
+          }
+        },
+        {
+          "zoneId": "zone-executive-office-2-lvl11",
+          "name": "Executive Office 2 Level 11",
+          "zoneType": "office",
+          "bim_asset_id": "63dd1540-c876-4c79-a102-5a9e486c446b",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-executive-office-2-lvl11"
+          }
+        },
+        {
+          "zoneId": "zone-executive-office-3-lvl11",
+          "name": "Executive Office 3 Level 11",
+          "zoneType": "office",
+          "bim_asset_id": "238a369a-7b9c-4185-a875-442a9b9f9528",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-executive-office-3-lvl11"
+          }
+        },
+        {
+          "zoneId": "zone-executive-office-4-lvl11",
+          "name": "Executive Office 4 Level 11",
+          "zoneType": "office",
+          "bim_asset_id": "b1e49a3c-2433-495b-9467-8a1f56db55f0",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-executive-office-4-lvl11"
+          }
+        },
+        {
+          "zoneId": "zone-strategy-room-lvl11",
+          "name": "Strategy Room Level 11",
+          "zoneType": "conference",
+          "bim_asset_id": "4146ba39-cf58-459d-b38e-c94a4f0510cf",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-strategy-room-lvl11"
+          }
+        },
+        {
+          "zoneId": "zone-executive-lounge-lvl11",
+          "name": "Executive Lounge Level 11",
+          "zoneType": "lobby",
+          "bim_asset_id": "61514d5a-c65a-4dbf-b37e-3e10b0fce477",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 5000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 40
+          },
+          "hvacMapping": {
+            "vavId": "vav-executive-lounge-lvl11"
+          }
+        },
+        {
+          "zoneId": "zone-assistant-pool-lvl11",
+          "name": "Assistant Pool Level 11",
+          "zoneType": "office",
+          "bim_asset_id": "dc6339de-d9a3-4d73-88f1-52586f262a76",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-assistant-pool-lvl11"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl11",
+          "name": "Core Elevator Lobby Level 11",
+          "zoneType": "corridor",
+          "bim_asset_id": "2981850f-a5cc-4a7b-8360-76c3f6719723",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl11"
+          }
+        }
+      ]
+    },
+    {
+      "level": 12,
+      "elevation": 44.0,
+      "height": 4.0,
+      "name": "Level 12",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-north-west-office-lvl12",
+          "name": "North-West Office Level 12",
+          "zoneType": "office",
+          "bim_asset_id": "64cbd5ff-9a46-4a23-98cf-6df7dcfd7c0d",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-west-office-lvl12"
+          }
+        },
+        {
+          "zoneId": "zone-north-perimeter-lvl12",
+          "name": "North Perimeter Level 12",
+          "zoneType": "office",
+          "bim_asset_id": "6b420bfe-e066-4d99-a00a-9767f2aeb44f",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-perimeter-lvl12"
+          }
+        },
+        {
+          "zoneId": "zone-north-east-office-lvl12",
+          "name": "North-East Office Level 12",
+          "zoneType": "office",
+          "bim_asset_id": "8fd316ce-a923-4f5c-97b1-fedb54b1de59",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-east-office-lvl12"
+          }
+        },
+        {
+          "zoneId": "zone-west-conference-lvl12",
+          "name": "West Conference Level 12",
+          "zoneType": "conference",
+          "bim_asset_id": "c36d6b77-2596-413f-b42a-49a9bda49daf",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-west-conference-lvl12"
+          }
+        },
+        {
+          "zoneId": "zone-east-conference-lvl12",
+          "name": "East Conference Level 12",
+          "zoneType": "conference",
+          "bim_asset_id": "143b9fd7-f124-4a22-a8ab-e2c6b10cc581",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-east-conference-lvl12"
+          }
+        },
+        {
+          "zoneId": "zone-south-west-office-lvl12",
+          "name": "South-West Office Level 12",
+          "zoneType": "office",
+          "bim_asset_id": "77a59145-e231-4127-8462-21b7c3eebc26",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-west-office-lvl12"
+          }
+        },
+        {
+          "zoneId": "zone-south-perimeter-lvl12",
+          "name": "South Perimeter Level 12",
+          "zoneType": "office",
+          "bim_asset_id": "07b59f00-d32d-4d91-9ca4-749e91734ba3",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-perimeter-lvl12"
+          }
+        },
+        {
+          "zoneId": "zone-open-office-lvl12",
+          "name": "Open Office Level 12",
+          "zoneType": "office",
+          "bim_asset_id": "5cb07337-fa22-415d-be4a-d12cfd2484c9",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-open-office-lvl12"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl12",
+          "name": "Core Elevator Lobby Level 12",
+          "zoneType": "corridor",
+          "bim_asset_id": "b94a5271-3091-4d47-b2fe-3945d14ed861",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl12"
+          }
+        }
+      ]
+    },
+    {
+      "level": 13,
+      "elevation": 48.0,
+      "height": 4.0,
+      "name": "Level 13",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-north-west-office-lvl13",
+          "name": "North-West Office Level 13",
+          "zoneType": "office",
+          "bim_asset_id": "68d62d78-b147-4f75-b329-a6bf633f04ec",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-west-office-lvl13"
+          }
+        },
+        {
+          "zoneId": "zone-north-perimeter-lvl13",
+          "name": "North Perimeter Level 13",
+          "zoneType": "office",
+          "bim_asset_id": "2dc5007a-7ced-44ae-8d65-744e5b3d620f",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-perimeter-lvl13"
+          }
+        },
+        {
+          "zoneId": "zone-north-east-office-lvl13",
+          "name": "North-East Office Level 13",
+          "zoneType": "office",
+          "bim_asset_id": "9a324c58-be28-4de0-8905-004d3fa64879",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-north-east-office-lvl13"
+          }
+        },
+        {
+          "zoneId": "zone-west-conference-lvl13",
+          "name": "West Conference Level 13",
+          "zoneType": "conference",
+          "bim_asset_id": "b149b319-4349-460a-87e9-c975c594c2ae",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-west-conference-lvl13"
+          }
+        },
+        {
+          "zoneId": "zone-east-conference-lvl13",
+          "name": "East Conference Level 13",
+          "zoneType": "conference",
+          "bim_asset_id": "2dc36b2c-66e1-4f17-bf01-979a130f34ae",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 6000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 16
+          },
+          "hvacMapping": {
+            "vavId": "vav-east-conference-lvl13"
+          }
+        },
+        {
+          "zoneId": "zone-south-west-office-lvl13",
+          "name": "South-West Office Level 13",
+          "zoneType": "office",
+          "bim_asset_id": "d9e66313-d98b-49c2-8a54-a529cc8a0533",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-west-office-lvl13"
+          }
+        },
+        {
+          "zoneId": "zone-south-perimeter-lvl13",
+          "name": "South Perimeter Level 13",
+          "zoneType": "office",
+          "bim_asset_id": "16188cb0-0028-4689-a1f2-a637d456cae8",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-south-perimeter-lvl13"
+          }
+        },
+        {
+          "zoneId": "zone-open-office-lvl13",
+          "name": "Open Office Level 13",
+          "zoneType": "office",
+          "bim_asset_id": "e0c37a8f-f03a-411a-919d-f60b2a4ffb4a",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-open-office-lvl13"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl13",
+          "name": "Core Elevator Lobby Level 13",
+          "zoneType": "corridor",
+          "bim_asset_id": "91704e0a-c2b9-42e3-9d9b-23a9f5cbb632",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl13"
+          }
+        }
+      ]
+    },
+    {
+      "level": 14,
+      "elevation": 52.0,
+      "height": 4.0,
+      "name": "Level 14",
+      "geometry": {
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            60.0,
+            0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            0,
+            40.0
+          ]
+        ],
+        "corePolygon": [
+          [
+            20,
+            15
+          ],
+          [
+            40,
+            15
+          ],
+          [
+            40,
+            25
+          ],
+          [
+            20,
+            25
+          ]
+        ],
+        "wallThickness": 0.3
+      },
+      "zones": [
+        {
+          "zoneId": "zone-ahu-room-lvl14",
+          "name": "AHU Room Level 14",
+          "zoneType": "mechanical",
+          "bim_asset_id": "dcfe9cad-41e8-4537-9213-d156a9c762af",
+          "polygon": [
+            [
+              0,
+              0
+            ],
+            [
+              20,
+              0
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              0,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 26.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 12000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-ahu-room-lvl14"
+          }
+        },
+        {
+          "zoneId": "zone-chiller-plant-lvl14",
+          "name": "Chiller Plant Level 14",
+          "zoneType": "mechanical",
+          "bim_asset_id": "63b6591a-d7c2-4d49-a0b7-deceac70faed",
+          "polygon": [
+            [
+              20,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              20,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 26.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 12000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-chiller-plant-lvl14"
+          }
+        },
+        {
+          "zoneId": "zone-cooling-tower-lvl14",
+          "name": "Cooling Tower Level 14",
+          "zoneType": "mechanical",
+          "bim_asset_id": "5f4bf67c-c6b1-4045-ac78-062d5d7fb84d",
+          "polygon": [
+            [
+              40,
+              0
+            ],
+            [
+              60,
+              0
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              40,
+              15
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 7.5
+          },
+          "thermalProperties": {
+            "setpoint": 26.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 12000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-cooling-tower-lvl14"
+          }
+        },
+        {
+          "zoneId": "zone-pump-room-lvl14",
+          "name": "Pump Room Level 14",
+          "zoneType": "mechanical",
+          "bim_asset_id": "f4a27355-1689-41b2-a9d9-25049c7bfea2",
+          "polygon": [
+            [
+              0,
+              15
+            ],
+            [
+              20,
+              15
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              0,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 26.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 12000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-pump-room-lvl14"
+          }
+        },
+        {
+          "zoneId": "zone-electrical-switchgear-lvl14",
+          "name": "Electrical Switchgear Level 14",
+          "zoneType": "mechanical",
+          "bim_asset_id": "73a56977-8fcd-4431-b83b-c70c55dc1b81",
+          "polygon": [
+            [
+              40,
+              15
+            ],
+            [
+              60,
+              15
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              40,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 26.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 12000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-electrical-switchgear-lvl14"
+          }
+        },
+        {
+          "zoneId": "zone-fan-room-lvl14",
+          "name": "Fan Room Level 14",
+          "zoneType": "mechanical",
+          "bim_asset_id": "85069afe-cddb-4a5b-acd6-15a90221536b",
+          "polygon": [
+            [
+              0,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              20,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 10.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 26.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 12000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-fan-room-lvl14"
+          }
+        },
+        {
+          "zoneId": "zone-heat-exchanger-lvl14",
+          "name": "Heat Exchanger Level 14",
+          "zoneType": "mechanical",
+          "bim_asset_id": "8f8fb3c1-d477-4ed1-8191-1081ac5ebd58",
+          "polygon": [
+            [
+              20,
+              25
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              20,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 26.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 12000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 1
+          },
+          "hvacMapping": {
+            "vavId": "vav-heat-exchanger-lvl14"
+          }
+        },
+        {
+          "zoneId": "zone-bms-office-lvl14",
+          "name": "BMS Office Level 14",
+          "zoneType": "office",
+          "bim_asset_id": "167b296f-ed18-479c-b7cf-fa762c359e65",
+          "polygon": [
+            [
+              40,
+              25
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              60,
+              40
+            ],
+            [
+              40,
+              40
+            ]
+          ],
+          "centroid": {
+            "x": 50.0,
+            "y": 32.5
+          },
+          "thermalProperties": {
+            "setpoint": 22.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 8000,
+            "solarGainMultiplier": 1.2,
+            "rWall": 0.2,
+            "cAir": 1452000,
+            "occupancy": 35
+          },
+          "hvacMapping": {
+            "vavId": "vav-bms-office-lvl14"
+          }
+        },
+        {
+          "zoneId": "zone-core-elevator-lobby-lvl14",
+          "name": "Core Elevator Lobby Level 14",
+          "zoneType": "corridor",
+          "bim_asset_id": "6b5a4259-d705-4bff-815a-f62451439bed",
+          "polygon": [
+            [
+              20,
+              15
+            ],
+            [
+              40,
+              15
+            ],
+            [
+              40,
+              25
+            ],
+            [
+              20,
+              25
+            ]
+          ],
+          "centroid": {
+            "x": 30.0,
+            "y": 20.0
+          },
+          "thermalProperties": {
+            "setpoint": 24.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 2000,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.2,
+            "cAir": 968000,
+            "occupancy": 4
+          },
+          "hvacMapping": {
+            "vavId": "vav-core-elevator-lobby-lvl14"
+          }
+        }
+      ]
+    }
+  ]
+}

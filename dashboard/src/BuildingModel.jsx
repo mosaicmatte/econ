@@ -639,7 +639,18 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
-      <Canvas camera={{ position: [80, 55, 80], fov: 45 }}>
+      <Canvas
+        camera={{ position: [80, 55, 80], fov: 45 }}
+        frameloop="always"
+        onCreated={({ gl, invalidate }) => {
+          // Recover from WebGL context loss instead of leaving the building permanently black.
+          // A heavy scene (14 floors, ~290 meshes + CSG) can trip GPU memory pressure / tab
+          // suspend, which drops the context; without these handlers the canvas never repaints.
+          const canvas = gl.domElement;
+          canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); }, false);
+          canvas.addEventListener('webglcontextrestored', () => { invalidate(); }, false);
+        }}
+      >
         {/* Transparent background for weather overlay */}
         <ambientLight intensity={0.4} />
         <directionalLight position={[10, 20, 10]} intensity={1.2} />
@@ -654,7 +665,7 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
         <group position={[-30, 0, -20]}>
           {floors.map((floor) => {
             const isActive = floor.level === activeFloor;
-            
+
             let yOffset = 0;
             if (floor.level > activeFloor) {
                 yOffset = 30.0;
@@ -684,6 +695,11 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
                   onFloorClick={onFloorClick}
                   viewMode={viewMode}
                 />
+                {/* Airflow renders in this single (main) canvas — sharing the floor's coordinate
+                    frame — instead of a fragile second WebGL context that can fail to allocate. */}
+                {isActive && showAirflow && (
+                  <AirflowVectorField simState={simState} activeFloor={activeFloor} selectedZone={selectedZone} />
+                )}
               </group>
             );
           })}

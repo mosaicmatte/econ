@@ -187,8 +187,8 @@ func (e *Engine) doHardyCross() {
 // demoZoneAlias maps inbound MQTT identifiers (demo node names / aliases) to a real
 // building zone. In a full deployment the payload would carry the actual zoneId.
 var demoZoneAlias = map[string]string{
-	"zone_1":  "zone-open-a-lvl4",
-	"Level 4": "zone-open-a-lvl4",
+	"zone_1":  "zone-north-west-office-lvl4",
+	"Level 4": "zone-north-west-office-lvl4",
 }
 
 // SetZoneOccupancy ingests a real occupancy reading from the CV/edge layer (MQTT) and
@@ -219,7 +219,25 @@ func (e *Engine) resolveZone(ref string) *ZoneSim {
 			return z
 		}
 	}
-	return nil
+	// Fallback: a regenerated building changes zoneIds, so an aliased id may not exist.
+	// Resolve any unknown demo identifier to a deterministic real office zone so the
+	// occupancy demo keeps working without re-wiring the alias table each time.
+	return e.firstOfficeZone()
+}
+
+// firstOfficeZone returns the lexicographically-smallest office zone (deterministic across
+// runs despite Go's randomized map iteration), or nil if the building has no office.
+func (e *Engine) firstOfficeZone() *ZoneSim {
+	best := ""
+	for id, z := range e.Zones {
+		if z.Type == "office" && (best == "" || id < best) {
+			best = id
+		}
+	}
+	if best == "" {
+		return nil
+	}
+	return e.Zones[best]
 }
 
 const vacancyDelayTicks = 90 // ~3s at 30 FPS — stand-in for the real safety time-delay
@@ -409,14 +427,54 @@ func (e *Engine) tick(dt float64) {
 		}
 }
 
+// ForecastWindow builds the [room_temp(°C), airflow_fraction(0..1)] sequence the Python
+// forecaster expects, from the current zone/VAV state. Airflow is normalized to a fraction of
+// each VAV's nominal flow so it matches the model's training scale (the engine's raw m³/s would
+// be far out of distribution). The engine keeps no telemetry history yet, so the current
+// building-average conditions are replicated across `seqLen` steps.
+func (e *Engine) ForecastWindow(seqLen int) [][]float64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	tempSum := 0.0
+	for _, z := range e.Zones {
+		tempSum += z.Temp
+	}
+	flowSum := 0.0
+	for _, v := range e.Vavs {
+		frac := 0.0
+		if v.NominalFlow > 1e-6 {
+			frac = v.Flow / v.NominalFlow
+		}
+		flowSum += math.Max(0, math.Min(1, frac))
+	}
+
+	avgTemp := 24.0
+	if len(e.Zones) > 0 {
+		avgTemp = tempSum / float64(len(e.Zones))
+	}
+	avgFlow := 0.5
+	if len(e.Vavs) > 0 {
+		avgFlow = flowSum / float64(len(e.Vavs))
+	}
+
+	seq := make([][]float64, seqLen)
+	for i := range seq {
+		seq[i] = []float64{avgTemp, avgFlow}
+	}
+	return seq
+}
+
 func (e *Engine) broadcast() {
 		// ---- Live global metrics (all derived from current zone state) ----
 		totalHeatW := 0.0    // total thermal load the plant must remove (W)
 		totalOccupants := 0
-		inBand := 0
+		comfortSum := 0.0      // Σ per-zone thermal-comfort score (report §4.5 discomfort model)
 		strainSum := 0.0       // sum of how far zones sit above setpoint (drives plant COP)
 		savedLightingW := 0.0  // lighting cut on vacant (set-back) zones
 		savedThermalW := 0.0   // cooling demand avoided on vacant (set-back) zones
+		// Half-comfort point: a zone this many °C *beyond* its deadband scores 0.5 comfort.
+		const sigmaComfort2 = 2.5 * 2.5
 		for id, z := range e.Zones {
 			qSolar := z.SolarGainMult * 10000.0
 			qi := z.BaseHeatGain + float64(z.Occupancy)*100.0 + qSolar
@@ -430,9 +488,12 @@ func (e *Engine) broadcast() {
 				sp = 24.0
 			}
 			strainSum += math.Max(0, z.Temp-sp)
-			if math.Abs(z.Temp-sp) <= z.Deadband {
-				inBand++
-			}
+			// Report §4.5 thermal-discomfort term — excess beyond the deadband penalized
+			// quadratically (max(0,|T-Tset|-δ))² — mapped to a bounded [0,1] comfort score.
+			// This grades health by *severity* (a 0.1°C overshoot ≈ healthy; a runaway ≈ 0)
+			// instead of the old binary in-band / out-of-band flag.
+			excess := math.Max(0, math.Abs(z.Temp-sp)-z.Deadband)
+			comfortSum += 1.0 / (1.0 + (excess*excess)/sigmaComfort2)
 			// Occupancy-driven savings: a live zone in setback (lights off) avoids its
 			// lighting load and a chunk of its internal-gain cooling.
 			if z.Live && z.Setpoint > z.BaseSetpoint+0.01 {
@@ -455,9 +516,11 @@ func (e *Engine) broadcast() {
 		buildingLoadMW := coolingElectricalMW + baseElectricalMW
 		energySavedMW := (savedLightingW + savedThermalW/plantCop) / 1e6
 
+		// System health = mean per-zone comfort (severity-weighted), per the report's discomfort
+		// model. Bounded [0,100]; the discrete "active critical faults" count handles alarms.
 		systemHealth := 100.0
 		if len(e.Zones) > 0 {
-			systemHealth = 100.0 * float64(inBand) / float64(len(e.Zones))
+			systemHealth = 100.0 * comfortSum / float64(len(e.Zones))
 		}
 
 		// FlatBuffers Serialization

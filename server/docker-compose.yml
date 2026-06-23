@@ -27,9 +27,25 @@ services:
     environment:
       - DB_URL=postgres://econ:econ@db:5432/econ?sslmode=disable
       - MQTT_BROKER=tcp://mqtt:1883
+      - FORECAST_URL=http://forecasting:8000  # consumed by /api/forecast proxy
     depends_on:
       - db
       - mqtt
+      - forecasting
+
+  # Python LSTM peak-load forecaster (FastAPI). Trains at build time, so it ships with real
+  # weights + scaler (no random-init predictions). Independent of db/mqtt. POST /predict,
+  # GET /health. Set OPENWEATHER_API_KEY in a .env next to this compose file for live weather;
+  # without it the service runs with a flagged fallback (weather_source="fallback").
+  forecasting:
+    build:
+      context: ../backend/forecasting
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY:-}
+      - WEATHER_LAT=${WEATHER_LAT:-10.7724}
+      - WEATHER_LON=${WEATHER_LON:-106.6581}
 
 volumes:
   db-data:

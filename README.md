@@ -27,7 +27,14 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 > **Branch B digitization bridge.** `ai_modules/branch_b_digitization/floorplan_to_buildingdata.py`
 > turns a 2D floorplan into the exact `building-data.json` schema the engine + twin consume
 > (DeepFloorplan adapter as the upgrade segmenter, OpenCV working today). *Verified:* a real
-> floorplan → 15 floors / 210 zones with full thermal properties + HVAC mapping.
+> floorplan → 15 floors / 210 zones with full thermal properties + HVAC mapping. Note: The classical 
+> computer vision pipeline (`cv2.watershed`) was re-engineered to fix severe expansion bugs, but polygon 
+> extraction remains highly inaccurate for dense commercial floorplans.
+>
+> **Hardware-in-the-loop tracking.** Replaced raw static IoT logic with dynamic physical tracking.
+> Integrated PyTorch YOLOv11/ByteTrack running on Apple MPS (Metal Performance Shaders) to count
+> occupants crossing virtual doorways. Telemetry publishes live to the Go Engine, which routes 
+> actuation commands back to a Python ESP32 simulator listening on wildcard MQTT topics.
 >
 > **WebGL blackout fix.** Every `<Canvas>` is wrapped in an auto-recovering `CanvasErrorBoundary`,
 > so a transient render error self-heals instead of permanently blanking the 3D view.

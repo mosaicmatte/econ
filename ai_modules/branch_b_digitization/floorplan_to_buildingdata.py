@@ -18,6 +18,7 @@ Output is drop-in for econ/server/data/building-data.json (rebuild the engine im
 import argparse
 import json
 import uuid
+import os
 
 import cv2
 import numpy as np
@@ -135,13 +136,14 @@ def touches_perimeter(poly_m, fw, fd, eps=1.0):
 # ---------------------------------------------------------------------------
 # 4. Assemble zones / floors / building (the detailed schema)
 # ---------------------------------------------------------------------------
-def build_zone(poly_m, level, idx, fw, fd, type_hint=None):
+def build_zone(poly_m, level, idx, fw, fd, type_hint=None, adjacent_to_idx=None):
     ztype = classify(poly_m, fw, fd, type_hint)
     x, y, bw, bh = bbox_metric(poly_m)
     area = max(1.0, bw * bh)
     arch = ARCHETYPES.get(ztype, ARCHETYPES["office"])
     perimeter = touches_perimeter(poly_m, fw, fd)
     return {
+        "adjacent_to_idx": adjacent_to_idx or [],
         "zoneId": f"zone-{ztype}-{idx}-lvl{level}",
         "name": f"{ztype.replace('-', ' ').title()} {idx} Level {level}",
         "zoneType": ztype,
@@ -162,7 +164,7 @@ def build_zone(poly_m, level, idx, fw, fd, type_hint=None):
 
 
 def build_floor(rooms_m, level, fw, fd):
-    zones = [build_zone(r["poly_m"], level, i + 1, fw, fd, r.get("type_hint"))
+    zones = [build_zone(r["poly_m"], level, i + 1, fw, fd, r.get("type_hint"), r.get("adjacent_to", []))
              for i, r in enumerate(rooms_m)]
     core = next((z for z in zones if z["zoneType"] == "corridor"), None)
     return {
@@ -205,11 +207,36 @@ def main():
         raise SystemExit("no rooms detected — check the floorplan / thresholds")
 
     rooms_m = [{"poly_m": px_to_metric(r["polygon_px"], w, h, fw, fd),
-                "type_hint": r.get("type_hint")} for r in rooms]
+                "type_hint": r.get("type_hint"),
+                "adjacent_to": r.get("adjacent_to", [])} for r in rooms]
 
     building = build_building(rooms_m, args.floors, fw, fd)
+    
+    ontology = []
+    for fl in building["floors"]:
+        for i, z in enumerate(fl["zones"]):
+            ontology.append({
+                "subject": z["hvacMapping"]["vavId"],
+                "predicate": "brick:feeds",
+                "object": z["zoneId"]
+            })
+            for adj_idx in z.get("adjacent_to_idx", []):
+                if adj_idx < len(fl["zones"]):
+                    adj_zone = fl["zones"][adj_idx]
+                    ontology.append({
+                        "subject": z["zoneId"],
+                        "predicate": "brick:adjacentTo",
+                        "object": adj_zone["zoneId"]
+                    })
+            z.pop("adjacent_to_idx", None)
+
     with open(args.out, "w") as f:
         json.dump(building, f, indent=2)
+
+    out_dir = os.path.dirname(args.out) or "."
+    ontology_path = os.path.join(out_dir, "brick-ontology.json")
+    with open(ontology_path, "w") as f:
+        json.dump(ontology, f, indent=2)
 
     nz = sum(len(fl["zones"]) for fl in building["floors"])
     from collections import Counter
@@ -220,7 +247,13 @@ def main():
 
     if args.debug:
         for r in rooms:
-            x, y, bw, bh = r["bbox_px"]
+            if "bbox_px" in r:
+                x, y, bw, bh = r["bbox_px"]
+            else:
+                xs = [p[0] for p in r["polygon_px"]]
+                ys = [p[1] for p in r["polygon_px"]]
+                x, y = min(xs), min(ys)
+                bw, bh = max(xs) - x, max(ys) - y
             cv2.rectangle(img, (x, y), (x + bw, y + bh), (0, 200, 0), 2)
         cv2.imwrite(args.debug, img)
         print(f"[done] annotated -> {args.debug}")

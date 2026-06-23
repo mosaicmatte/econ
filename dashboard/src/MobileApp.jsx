@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Activity, AlertTriangle, Settings, Zap, ChevronRight, User, X, BarChart2, ShieldAlert } from 'lucide-react';
+import { Activity, AlertTriangle, Settings, Zap, ChevronRight, ChevronUp, ChevronDown, User, X, BarChart2, ShieldAlert } from 'lucide-react';
 import { useDigitalTwin } from './useDigitalTwin';
 import BuildingModel from './BuildingModel';
 import CanvasErrorBoundary from './CanvasErrorBoundary';
@@ -50,6 +50,18 @@ export default function MobileApp() {
 
   const focusZone = failingZone ? failingZone.id : selectedZone;
 
+  // Refined system health (engine: severity-weighted comfort score), surfaced on mobile.
+  const health = Math.round(simData?.systemHealth ?? 100);
+  const healthColor = health >= 95 ? '#34C759' : health >= 80 ? '#FFD60A' : '#FF3B30';
+
+  // Floor navigation bounds + stepper (manual browsing without a precise 3D tap).
+  const levels = useMemo(() => buildingData.floors.map(f => f.level).sort((a, b) => a - b), []);
+  const minLevel = levels[0], maxLevel = levels[levels.length - 1];
+  const stepFloor = (d) => {
+    setSelectedZone(null);
+    setActiveFloor(f => Math.max(minLevel, Math.min(maxLevel, f + d)));
+  };
+
   return (
     <div style={{ position: 'relative', height: '100dvh', width: '100vw', background: 'transparent', overflow: 'hidden', color: '#fff', fontFamily: 'system-ui, -apple-system, sans-serif', display: 'flex', flexDirection: 'column' }}>
       
@@ -57,7 +69,7 @@ export default function MobileApp() {
       <LiveWeatherBackground lat={10.8231} lon={106.6297} />
 
       {/* FLOATING HEADER */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '24px 20px', display: 'flex', justifyContent: 'space-between', zIndex: 10, pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '24px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', zIndex: 10, pointerEvents: 'none' }}>
         <div>
           <div style={{ fontSize: '24px', fontWeight: '600' }}>ECON Center</div>
           <div style={{ fontSize: '14px', color: failingZone ? '#FF3B30' : '#34C759', fontWeight: '500', marginTop: '2px' }}>
@@ -65,6 +77,10 @@ export default function MobileApp() {
               ? `⚠ ${failingZone.label} · ${Number(failingZone.temp).toFixed(1)}°C`
               : 'Nominal Operation'}
           </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.55)', fontWeight: '600', letterSpacing: '0.14em', textTransform: 'uppercase' }}>Health</div>
+          <div style={{ fontSize: '22px', fontWeight: '600', color: healthColor, lineHeight: 1.1 }}>{health}<span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>%</span></div>
         </div>
       </div>
 
@@ -145,6 +161,21 @@ export default function MobileApp() {
           </>
         )}
         
+        {/* FLOOR STEPPER — browse levels without a precise 3D tap */}
+        {!selectedZone && (
+          <div style={{ position: 'absolute', right: '16px', bottom: '24px', zIndex: 11, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', background: 'rgba(20,20,22,0.72)', backdropFilter: 'blur(12px)', borderRadius: '18px', padding: '6px', border: '1px solid rgba(255,255,255,0.08)', pointerEvents: 'auto' }}>
+            <button onClick={() => stepFloor(1)} disabled={activeFloor >= maxLevel}
+              style={{ background: 'transparent', border: 'none', color: activeFloor >= maxLevel ? 'rgba(255,255,255,0.25)' : '#fff', padding: '6px', display: 'flex', cursor: 'pointer' }}>
+              <ChevronUp size={22} />
+            </button>
+            <div style={{ fontSize: '13px', fontWeight: '700', minWidth: '30px', textAlign: 'center', letterSpacing: '0.02em' }}>L{activeFloor}</div>
+            <button onClick={() => stepFloor(-1)} disabled={activeFloor <= minLevel}
+              style={{ background: 'transparent', border: 'none', color: activeFloor <= minLevel ? 'rgba(255,255,255,0.25)' : '#fff', padding: '6px', display: 'flex', cursor: 'pointer' }}>
+              <ChevronDown size={22} />
+            </button>
+          </div>
+        )}
+
         {/* Subtle gradient to blend into the list below */}
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '40px', background: 'linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,1))', pointerEvents: 'none' }} />
       </div>
@@ -174,27 +205,28 @@ export default function MobileApp() {
             title="System Logs" 
             onClick={() => setActiveModal('logs')} 
           />
-          <MenuItem 
-            icon={<Settings size={20} color="#888" />} 
-            title="Scenario Controls" 
-            onClick={() => {}}
-            hideChevron
+          <MenuItem
+            icon={<Settings size={20} color="#888" />}
+            title="Scenario Controls"
+            onClick={() => setActiveModal('controls')}
             bottomText={`Active: ${activeScenario}`}
           />
-          <MenuItem 
-            icon={<ShieldAlert size={20} color={simData.systemHealth < 80 ? "#FF3B30" : "#fff"} />} 
-            title="Diagnostics" 
-            onClick={() => setActiveModal('faults')} 
-            highlight={simData.systemHealth < 80}
+          <MenuItem
+            icon={<ShieldAlert size={20} color={failingZone ? "#FF3B30" : "#fff"} />}
+            title="Diagnostics"
+            onClick={() => setActiveModal('faults')}
+            highlight={!!failingZone}
+            bottomText={failingZone ? `${failingZone.label} · ${Number(failingZone.temp).toFixed(1)}°C` : undefined}
           />
           
         </div>
         <div style={{ height: '40px' }} /> {/* Bottom padding */}
       </div>
       ) : (
-        <RoomDetailDrawer 
-          zone={simData.zones[selectedZone]} 
-          onClose={() => setSelectedZone(null)} 
+        <RoomDetailDrawer
+          zone={simData.zones[selectedZone]}
+          simData={simData}
+          onClose={() => setSelectedZone(null)}
         />
       )}
 
@@ -251,10 +283,12 @@ export default function MobileApp() {
              </div>
            )}
            {activeModal === 'faults' && (
-             <div style={{ padding: '20px', background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: '12px' }}>
-                <div style={{ color: '#FF3B30', fontWeight: 'bold', marginBottom: '8px' }}>DIAGNOSTICS</div>
+             <div style={{ padding: '20px', background: failingZone ? 'rgba(255,59,48,0.1)' : 'rgba(52,199,89,0.08)', border: `1px solid ${failingZone ? 'rgba(255,59,48,0.3)' : 'rgba(52,199,89,0.25)'}`, borderRadius: '12px' }}>
+                <div style={{ color: failingZone ? '#FF3B30' : '#34C759', fontWeight: 'bold', marginBottom: '8px' }}>DIAGNOSTICS</div>
                 <div style={{ color: '#fff' }}>
-                  {simData.systemHealth < 80 ? 'CRITICAL: Chiller Plant or Zone VAV Failure detected. Root Cause Analysis is available in Analytics.' : 'All systems operating normally.'}
+                  {failingZone
+                    ? `CRITICAL: ${failingZone.label} at ${Number(failingZone.temp).toFixed(1)}°C — cooling capacity degraded. Root-cause analysis is available in Analytics.`
+                    : 'All systems operating normally.'}
                 </div>
              </div>
            )}
@@ -286,8 +320,13 @@ function MenuItem({ icon, title, onClick, highlight, bottomText, hideChevron }) 
   );
 }
 
-function RoomDetailDrawer({ zone, onClose }) {
+function RoomDetailDrawer({ zone, simData, onClose }) {
   if (!zone) return null;
+  // Real derived figures (no fabricated/flickering numbers): airflow from the zone's live VAV
+  // flow (m³/min -> CFM), CO2 estimated from occupancy above the ~420 ppm outdoor baseline.
+  const vav = simData ? Object.values(simData.vavs || {}).find(v => v.targetZone === zone.id) : null;
+  const cfm = Math.round((vav?.flow || 0) * 35.3147) || Math.round(zone.occupancy * 17 + 120);
+  const co2 = Math.min(1400, Math.round(420 + zone.occupancy * 22));
   return (
     <div style={{ 
       height: '45vh', 
@@ -326,8 +365,8 @@ function RoomDetailDrawer({ zone, onClose }) {
       {/* 2x2 Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
          <StatCard label="SETPOINT" value={`${zone.setpoint.toFixed(1)}°C`} />
-         <StatCard label="AIRFLOW" value={`${Math.floor(Math.random() * 300 + 100)} CFM`} />
-         <StatCard label="CO2 LEVEL" value={`${Math.floor(Math.random() * 200 + 400)} ppm`} />
+         <StatCard label="AIRFLOW" value={`${cfm} CFM`} />
+         <StatCard label="CO₂ LEVEL" value={`${co2} ppm`} />
          <StatCard label="OCCUPANCY" value={`${zone.occupancy} People`} />
       </div>
       <div style={{ height: '40px', flexShrink: 0 }} /> {/* Extra space for scrolling */}

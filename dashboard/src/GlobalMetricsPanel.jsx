@@ -62,7 +62,17 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
   const bldgLoad = simData.buildingLoadMw ?? 0;
   const sysHealth = simData.systemHealth ?? 100;
   const occupants = simData.totalOccupants ?? 0;
-  
+
+  // Real "active critical faults": zones the live stream has flagged in alarm. This matches the
+  // red zones in the 3D model / topology and works regardless of building size (the old
+  // sysHealth<80 proxy never tripped once the building grew past ~20 zones).
+  const criticalFaults = Object.values(simData.zones || {}).filter(z => z.alert === true).length;
+  const hasFault = criticalFaults > 0;
+  // Active cooling capacity = current building electrical load vs nameplate design peak, so the
+  // bar tracks real plant utilization (rises on peak/fault) instead of a hard-coded constant.
+  const DESIGN_PEAK_MW = 3.6;
+  const coolingCapacityPct = Math.max(0, Math.min(100, (bldgLoad / DESIGN_PEAK_MW) * 100));
+
   // Fake delta calculations for demonstration of the professional HMI look
   const loadDelta = +(Math.random() * 0.05).toFixed(2);
   const occDelta = Math.floor(Math.random() * 15);
@@ -93,13 +103,13 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
           <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '16px 12px 4px 12px' }}>
             <BulletGraph label="System Health" value={sysHealth} max={100} target={95} color={sysHealth < 80 ? 'var(--accent-red)' : 'var(--accent-green)'} unit="%" />
             <BulletGraph label="Avg Temperature" value={globalMetrics.avgTemp || 24} max={35} target={23.5} color="var(--accent-blue)" unit="°C" />
-            <BulletGraph label="Active Cooling Capacity" value={72} max={100} target={60} color="var(--accent-yellow)" unit="%" />
+            <BulletGraph label="Active Cooling Capacity" value={coolingCapacityPct} max={100} target={60} color="var(--accent-yellow)" unit="%" />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: sysHealth < 80 ? 'rgba(255,0,0,0.1)' : 'rgba(0,0,0,0.2)', border: sysHealth < 80 ? '1px solid rgba(255,0,0,0.3)' : '1px solid var(--border-glass)', borderRadius: '8px', alignItems: 'center', transition: '0.3s' }}>
-            <div style={{ fontSize: '11px', color: sysHealth < 80 ? 'var(--accent-red)' : 'var(--text-secondary)', fontWeight: 'bold' }}>ACTIVE CRITICAL FAULTS</div>
-            <div style={{ fontSize: '16px', fontWeight: 'bold', color: sysHealth < 80 ? 'var(--accent-red)' : 'var(--accent-green)' }}>
-               {sysHealth < 80 ? '1' : '0'}
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: hasFault ? 'rgba(255,0,0,0.1)' : 'rgba(0,0,0,0.2)', border: hasFault ? '1px solid rgba(255,0,0,0.3)' : '1px solid var(--border-glass)', borderRadius: '8px', alignItems: 'center', transition: '0.3s' }}>
+            <div style={{ fontSize: '11px', color: hasFault ? 'var(--accent-red)' : 'var(--text-secondary)', fontWeight: 'bold' }}>ACTIVE CRITICAL FAULTS</div>
+            <div style={{ fontSize: '16px', fontWeight: 'bold', color: hasFault ? 'var(--accent-red)' : 'var(--accent-green)' }}>
+               {criticalFaults}
             </div>
           </div>
 

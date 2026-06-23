@@ -11,3 +11,7 @@ venv/
 # Edge/build artifacts
 edge/esp32/.pio/
 *.log
+CONTINUE_HERE.md
+.DS_Store
+*.pt
+*.mp4

@@ -1,34 +1,49 @@
-import urllib.request
+"""Download REAL floorplan rasters from Wikimedia Commons, by exact title.
+
+The previous version grabbed the *first* file in `Category:Floor_plans`, which is arbitrary and
+once landed on a stained-glass *window* engraving (not a floorplan at all) — poisoning every
+Branch B test. Pull known-good plans by explicit title instead. Writes to `samples/`.
+"""
 import json
+import os
 import ssl
+import urllib.parse
+import urllib.request
 
 ctx = ssl.create_default_context()
 ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 
-url = "https://commons.wikimedia.org/w/api.php?action=query&format=json&list=categorymembers&cmtitle=Category:Floor_plans&cmtype=file&cmlimit=50"
-req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-response = urllib.request.urlopen(req, context=ctx)
-data = json.loads(response.read().decode('utf-8'))
+# Curated, verified-to-be-actual-floorplans (name -> Commons File: title).
+PLANS = {
+    "office": "File:Affordable Palace Opposite Office Floorplan1-500.jpg",  # dense plan, courtyard core
+    "house":  "File:Benin House Plan.jpg",                                  # clean schematic
+}
 
-for member in data['query']['categorymembers']:
-    title = member['title']
-    if title.lower().endswith(".png") or title.lower().endswith(".jpg"):
-        print(f"Found: {title}")
-        
-        img_url_req = f"https://commons.wikimedia.org/w/api.php?action=query&format=json&titles={urllib.parse.quote(title)}&prop=imageinfo&iiprop=url"
-        req2 = urllib.request.Request(img_url_req, headers={'User-Agent': 'Mozilla/5.0'})
-        response2 = urllib.request.urlopen(req2, context=ctx)
-        img_data = json.loads(response2.read().decode('utf-8'))
-        
-        pages = img_data['query']['pages']
-        img_url = list(pages.values())[0]['imageinfo'][0]['url']
-        print(f"URL: {img_url}")
-        
-        # Download
-        req3 = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req3, context=ctx) as response3, open('real_floorplan.png', 'wb') as out_file:
-            data3 = response3.read()
-            out_file.write(data3)
-        print("Downloaded real_floorplan.png")
-        break
+
+def _fetch(title, out):
+    q = (f"https://commons.wikimedia.org/w/api.php?action=query&format=json"
+         f"&titles={urllib.parse.quote(title)}&prop=imageinfo&iiprop=url|size")
+    req = urllib.request.Request(q, headers={"User-Agent": "Mozilla/5.0"})
+    info = json.loads(urllib.request.urlopen(req, context=ctx, timeout=30).read())
+    page = list(info["query"]["pages"].values())[0]["imageinfo"][0]
+    url = page["url"]
+    req2 = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    data = urllib.request.urlopen(req2, context=ctx, timeout=60).read()
+    with open(out, "wb") as f:
+        f.write(data)
+    print(f"  {out}: {page.get('width')}x{page.get('height')} ({len(data)//1024} KB)")
+
+
+def main():
+    os.makedirs("samples", exist_ok=True)
+    for name, title in PLANS.items():
+        ext = os.path.splitext(title)[1].lower()
+        try:
+            _fetch(title, f"samples/{name}{ext}")
+        except Exception as e:
+            print(f"  {name}: FAILED {e}")
+
+
+if __name__ == "__main__":
+    main()

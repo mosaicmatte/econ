@@ -86,9 +86,11 @@ export default function AirflowVectorField({ simState, activeFloor, selectedZone
 
     const maxY = floor.height || 4;
 
-    const resX = selectedZone ? 12 : 30;
-    const resY = 5;
-    const resZ = selectedZone ? 12 : 30;
+    // Seed a coarser grid than before — fewer, larger, *moving* arrows read as airflow far better
+    // than a dense static blob. Single-zone view stays denser since it covers less area.
+    const resX = selectedZone ? 10 : 18;
+    const resY = 4;
+    const resZ = selectedZone ? 10 : 12;
 
     let validPositions = [];
     for (let x = 0; x < resX; x++) {
@@ -97,11 +99,11 @@ export default function AirflowVectorField({ simState, activeFloor, selectedZone
           const px = minX + (x / (resX - 1)) * (maxX - minX);
           const py = 0.5 + (y / (resY - 1)) * (maxY - 1);
           const pz = minZ + (z / (resZ - 1)) * (maxZ - minZ);
-          
+
           let insideAny = false;
           for (const zone of targetZones) {
              if (pointInPolygon(px, pz, zone.polygon)) {
-                insideAny = true; 
+                insideAny = true;
                 break;
              }
           }
@@ -113,7 +115,10 @@ export default function AirflowVectorField({ simState, activeFloor, selectedZone
     }
 
     const count = validPositions.length / 3;
-    const gridPositions = new Float32Array(validPositions);
+    const seeds = new Float32Array(validPositions);
+    const live = Float32Array.from(seeds);           // mutable advected positions
+    const ages = new Float32Array(count);            // staggered so they don't all recycle at once
+    for (let i = 0; i < count; i++) ages[i] = Math.random();
 
     const vavCentroids = targetZones.map(z => ({
       x: z.centroid.x - 20,
@@ -125,75 +130,92 @@ export default function AirflowVectorField({ simState, activeFloor, selectedZone
       deadband: z.thermalProperties?.deadband || 2.0
     }));
 
-    return { bounds: { minX, maxX, minZ, maxZ, maxY }, count, gridPositions, vavCentroids };
+    return { bounds: { minX, maxX, minZ, maxZ, maxY }, count, gridPositions: seeds, live, ages, vavCentroids };
   }, [activeFloor, selectedZone, simState]);
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const color = useMemo(() => new THREE.Color(), []);
+  const vel = useMemo(() => new THREE.Vector3(), []);
+  const quat = useMemo(() => new THREE.Quaternion(), []);
+  const UP = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  const LIFE = 2.6;          // seconds a particle travels before recycling to its seed
+  const FLOW = 3.2;          // advection speed (model units / s)
 
-  useFrame((state) => {
+  // Velocity of the flow field at a point: divergence-free curl noise + a supply jet pushing
+  // outward from the nearest VAV diffuser, biased gently downward (cold supply air falls).
+  const fieldVelocity = (x, y, z, time, out) => {
+    const s = 0.15;
+    const curl = curlNoise(x * s, y * s + time, z * s);
+    let closestVavDist = Infinity, closestVav = null;
+    for (const v of vavCentroids) {
+      const dx = x - v.x, dz = z - v.z;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      if (d < closestVavDist) { closestVavDist = d; closestVav = v; }
+    }
+    out.set(curl.x + 0.5, curl.y - 0.25, curl.z + 0.5);
+    if (closestVav && closestVavDist < 12) {
+      const inv = 1 / (closestVavDist || 1);
+      const jet = Math.max(0, 2.0 - closestVavDist / 6);
+      out.x += (x - closestVav.x) * inv * jet;
+      out.y += -0.2 * jet;
+      out.z += (z - closestVav.z) * inv * jet;
+    }
+    return closestVav;
+  };
+
+  useFrame((state, delta) => {
     if (!meshRef.current || count === 0) return;
     const time = state.clock.elapsedTime * 0.5;
+    const dt = Math.min(delta, 0.05);
+    const { minX, maxX, minZ, maxZ, maxY } = bounds;
+    const m = 0.6; // bounds margin before recycling
 
     for (let i = 0; i < count; i++) {
       const ix = i * 3;
-      const x = gridPositions[ix];
-      const y = gridPositions[ix + 1];
-      const z = gridPositions[ix + 2];
+      let x = live[ix], y = live[ix + 1], z = live[ix + 2];
 
-      const s = 0.15;
-      const curl = curlNoise(x * s, y * s + time, z * s);
-      
-      let bias = new THREE.Vector3(0.5, -0.1, 0.5); // Natural cross-room supply -> return flow
-      let closestVavDist = Infinity;
-      let closestVav = null;
+      const closestVav = fieldVelocity(x, y, z, time, vel);
+      // Unit flow direction, hardened against a zero/NaN field. A bad direction here would make a
+      // NaN instance matrix and — with depthTest off — smear one garbage triangle over the whole
+      // frame (blanking the canvas). `!(speed > 1e-4)` also catches NaN.
+      let speed = vel.length();
+      if (!(speed > 1e-4)) { vel.set(0, -1, 0); speed = 1; }
+      vel.multiplyScalar(1 / speed); // vel is now a unit direction
 
-      vavCentroids.forEach(vav => {
-        const dx = x - vav.x;
-        const dz = z - vav.z;
-        const dist = Math.sqrt(dx*dx + dz*dz);
-        if (dist < closestVavDist) {
-          closestVavDist = dist;
-          closestVav = vav;
-        }
-      });
-
-      if (closestVav && closestVavDist < 12) {
-        // Strong jet from supply
-        const dir = new THREE.Vector3(x - closestVav.x, -0.2, z - closestVav.z).normalize();
-        bias.add(dir.multiplyScalar(Math.max(0, 2.0 - closestVavDist/6)));
+      // advect at a steady speed, then recycle on lifetime / leaving the box. The bounds test is
+      // positive-logic so a non-finite position FAILS it and resets to the seed (NaN can't persist).
+      x += vel.x * FLOW * dt; y += vel.y * FLOW * dt; z += vel.z * FLOW * dt;
+      ages[i] += dt / LIFE;
+      const inBounds = x > minX - m && x < maxX + m && z > minZ - m && z < maxZ + m && y > 0.2 && y < maxY;
+      if (!inBounds || ages[i] >= 1) {
+        x = seeds[ix]; y = seeds[ix + 1]; z = seeds[ix + 2];
+        ages[i] = 0;
       }
+      live[ix] = x; live[ix + 1] = y; live[ix + 2] = z;
 
-      curl.add(bias).normalize();
+      // fade in at birth, fade out near death so recycling isn't a visible pop
+      const fade = Math.sin(Math.min(1, Math.max(0, ages[i])) * Math.PI);
+      const scale = 0.55 + 0.6 * fade;
 
-      // Speed is proportional to the curl magnitude before normalize, but we just use fixed length and color by temp deviation
-      let speed = curl.length(); 
-
+      // orient the cone (+Y axis) along the flow — setFromUnitVectors has no up-vector degeneracy
+      quat.setFromUnitVectors(UP, vel);
       dummy.position.set(x, y, z);
-      
-      // Orient arrow along velocity
-      const target = new THREE.Vector3(x + curl.x, y + curl.y, z + curl.z);
-      dummy.lookAt(target);
-      dummy.rotateX(Math.PI / 2); // Cylinder points up by default
-
+      dummy.quaternion.copy(quat);
+      dummy.scale.setScalar(scale);
       dummy.updateMatrix();
       meshRef.current.setMatrixAt(i, dummy.matrix);
 
-      // Color by temp deviation of closest VAV
+      // color by the supplied zone's thermal deviation: cyan (cold supply) -> green (in band)
+      // -> amber -> red (warm / faulting). fade dims dying particles.
       let deviation = 0;
-      if (closestVav) {
-        deviation = (closestVav.temp - closestVav.setpoint) / closestVav.deadband;
-      }
-      
-      // Map deviation to cool(cyan) -> warm(orange/red)
-      // Deviation 0 -> cyan (cool)
-      // Deviation 1 -> yellow/orange
-      // Deviation 1.5 -> red
-      let r = THREE.MathUtils.clamp(deviation * 0.8 + 0.2, 0, 1);
-      let g = THREE.MathUtils.clamp(1.0 - Math.abs(deviation), 0, 1);
-      let b = THREE.MathUtils.clamp(1.0 - deviation, 0, 1);
-
-      color.setRGB(r, g, b);
+      if (closestVav) deviation = (closestVav.temp - closestVav.setpoint) / closestVav.deadband;
+      const d = THREE.MathUtils.clamp(deviation, -1, 2);
+      let r, g, b;
+      if (d < 0)      { r = 0.0;          g = 0.7 + 0.3 * (1 + d); b = 1.0; }        // cyan-ish, over-cooled
+      else if (d < 1) { r = d;            g = 1.0;                 b = 1.0 - d; }     // green -> yellow
+      else            { r = 1.0;          g = 1.0 - (d - 1);       b = 0.0; }         // yellow -> red
+      const dim = 0.35 + 0.65 * fade;
+      color.setRGB(r * dim, g * dim, b * dim);
       meshRef.current.setColorAt(i, color);
     }
 
@@ -207,8 +229,11 @@ export default function AirflowVectorField({ simState, activeFloor, selectedZone
 
   return (
     <instancedMesh ref={meshRef} args={[null, null, count]} renderOrder={2}>
-      <coneGeometry args={[0.25, 0.9, 8]} />
-      <meshStandardMaterial transparent opacity={0.85} depthTest={false} depthWrite={false} />
+      <coneGeometry args={[0.3, 1.3, 8]} />
+      {/* Unlit basic material so each cone shows its per-instance thermal color at full brightness
+          (setColorAt). The previous meshStandardMaterial set emissiveIntensity but no emissive
+          color, so the cones only caught the dim scene lighting and were effectively invisible. */}
+      <meshBasicMaterial transparent opacity={0.95} toneMapped={false} depthTest={false} depthWrite={false} />
     </instancedMesh>
   );
 }

@@ -136,4 +136,4 @@ def run_tracking_pipeline(source=0):
 if __name__ == "__main__":
     setup_mqtt()
     # Replace '0' with a video file path to test on pre-recorded footage
-    run_tracking_pipeline(source=0)
+    run_tracking_pipeline(source="people-detection.mp4")
