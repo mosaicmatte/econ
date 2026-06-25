@@ -279,6 +279,15 @@ python3 yolo_tracker.py
 ```
 *As YOLO detects people in the sample video, it publishes telemetry to the Go Engine. When the occupancy drops, the Engine mathematically determines the required setback and fires an MQTT actuation command back to Terminal 1, audibly simulating a physical hardware relay click!*
 
+### 7. Testing the Full Digital Twin Functionality
+Once the Backend (Step 1) and Frontend (Step 2) are running, open your browser to `http://localhost:5173` to explore the complete feature set:
+
+1. **3D Heatmap & Airflow:** Navigate around the 3D isometric model. The building will glow dynamically based on real-time temperature deviations. The animated airflow lines realistically respect the structural boundaries (walls and doors) based on potential-flow physics.
+2. **Fault Injection (AI Auto-Pilot):** On the right-side control panel, click the **Critical Fault** scenario. Watch as the server room experiences a thermal runaway (turning red). The AI Auto-Pilot will autonomously detect the anomaly and aggressively reroute HVAC cooling to stabilize the building.
+3. **Telemetry Profiler & Insights:** Open the left navigation dock and select the **Profiler**. Here you can view the live scatter plot showing the building's thermodynamic characteristics (Power vs CO₂). Click on **AI Insights** to see the system autonomously diagnose the root cause of the fault (e.g., "VAV damper stuck").
+4. **2D Topology Mapping:** Switch to the **Topology** tab to view the live node-based mechanical graph. You will see the exact dependency chain from the Chiller to the AHU, down to individual VAV boxes and thermal zones.
+5. **Manual Veto Overrides:** In the zone details pane, attempt to manually click **FORCE OFF** or **MAX COOL**. The engine will immediately latch your human-in-the-loop override for 15 minutes, superseding the AI's autonomous optimization loop.
+
 ### Troubleshooting
 - **Frontend isn't receiving data?** Ensure the backend is running and port `8080` is not blocked. Check the browser console (F12) for WebSocket connection errors.
 - **Docker port conflict?** If port `8080` or `5432` is already in use by another application on your machine, stop the conflicting application or map different ports in the `docker-compose.yml` file.
