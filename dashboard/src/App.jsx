@@ -161,13 +161,6 @@ const buildTopologyFromSim = (simState, activeFloor, ontology) => {
     predicate: r.predicate,
   }));
   
-  // Electrical Panel for the floor
-  const panelId = `panel-lvl${activeFloor}`;
-  nodes.push({
-    id: panelId, type: 'panel', position: { x: 250, y: -25 * SCALE - 40 },
-    data: { label: `EP-L${activeFloor}` }
-  });
-
   activeZones.forEach((z) => {
     // 1. Map physical 3D centroid coordinates to 2D React Flow canvas
     // Subtracting 30 (width/2) and 20 (depth/2) centers the building around 0,0
@@ -193,24 +186,6 @@ const buildTopologyFromSim = (simState, activeFloor, ontology) => {
         bim_asset_id: z.bim_asset_id
       }
     });
-
-    // Per-zone instrumentation (camera + temp sensor) — secondary detail, kept faint so the
-    // HVAC supply path stays the visual hero. Orthogonal (smoothstep) routing avoids the
-    // diagonal-spaghetti look of the default bezier edges.
-    const cameraId = `camera_${z.id}`;
-    nodes.push({ id: cameraId, type: 'camera', position: { x: x + 70, y: y - 18 }, draggable: false, data: {} });
-    edges.push({ id: `e-${z.id}-${cameraId}`, source: z.id, target: cameraId, type: 'smoothstep', style: { stroke: 'rgba(255,255,255,0.12)', strokeWidth: 1, strokeDasharray: '2 3' } });
-
-    const sensorId = `sensor_temp_${z.id}`;
-    nodes.push({ id: sensorId, type: 'sensor', position: { x: x + 70, y: y + 22 }, draggable: false, data: {} });
-    edges.push({ id: `e-${z.id}-${sensorId}`, source: z.id, target: sensorId, type: 'smoothstep', style: { stroke: 'rgba(255,255,255,0.12)', strokeWidth: 1, strokeDasharray: '2 3' } });
-
-    // Electrical feed (panel -> breaker -> zone): a quiet dark-red bus that recedes behind the
-    // bright animated air path. smoothstep keeps it a clean right-angle run, not a crossing curve.
-    const circuitId = `circuit_${z.id}`;
-    nodes.push({ id: circuitId, type: 'circuit', position: { x: x - 105, y: y + 18 }, draggable: false, data: {} });
-    edges.push({ id: `e-${panelId}-${circuitId}`, source: panelId, target: circuitId, type: 'smoothstep', style: { stroke: 'rgba(239,68,68,0.22)', strokeWidth: 1 } });
-    edges.push({ id: `e-${circuitId}-${z.id}`, source: circuitId, target: z.id, type: 'smoothstep', style: { stroke: 'rgba(239,68,68,0.30)', strokeWidth: 1 } });
 
     // 3. Topology mapping driven by Brick Schema semantic ontology!
     // Find what feeds this zone in the graph
@@ -647,20 +622,22 @@ function App() {
               {activeLeftTab === 'logs' ? (
                 <TelemetryLogs simData={simData} />
               ) : activeLeftTab === 'telemetry' ? (
-                <TelemetryPanel 
-                  simData={simData} 
+                <TelemetryPanel
+                  simData={simData}
                   loadHistory={loadHistory}
                   activeScenario={activeScenario}
                   faultTarget={faultTarget}
                   onOpenMaintenance={() => setMaintenanceTarget(failingZone ? failingZone.bim_asset_id : null)}
                   autoPilot={autoPilot}
+                  setAutoPilot={setAutoPilot}
                 />
               ) : (
-                <AiInsightsPanel 
-                  simData={simData} 
-                  activeScenario={activeScenario} 
-                  faultTarget={faultTarget} 
+                <AiInsightsPanel
+                  simData={simData}
+                  activeScenario={activeScenario}
+                  faultTarget={faultTarget}
                   aiForecast={aiForecast}
+                  setAutoPilot={setAutoPilot}
                 />
               )}
             </div>

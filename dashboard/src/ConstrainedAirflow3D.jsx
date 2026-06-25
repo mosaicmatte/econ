@@ -13,20 +13,8 @@ import { flowKeyOf, heat } from './flowfield';
 // particles advecting through the room volume.
 // ----------------------------------------------------------------------------
 
-function makeDotTexture() {
-  const s = 64, c = document.createElement('canvas');
-  c.width = c.height = s;
-  const ctx = c.getContext('2d');
-  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.4, 'rgba(255,255,255,0.6)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
-  const t = new THREE.CanvasTexture(c); t.needsUpdate = true; return t;
-}
-
 export default function ConstrainedAirflow3D({ floor, simState, layers = {} }) {
-  const show = { walls: true, arrows: true, streams: true, people: true, windows: true, hvac: true, electrical: false, ...layers };
+  const show = { walls: true, arrows: true, people: true, windows: true, hvac: true, electrical: false, ...layers };
   const flowKey = useMemo(() => flowKeyOf(floor, simState), [floor, simState]);
   const field = useMemo(() => buildFlowField3D(floor, simState), [floor, flowKey]); // eslint-disable-line
 
@@ -40,7 +28,6 @@ export default function ConstrainedAirflow3D({ floor, simState, layers = {} }) {
       {show.hvac && <HvacFixtures field={field} />}
       {show.people && <Occupants field={field} />}
       {show.arrows && <Arrows3D field={field} />}
-      {show.streams && <Streams3D field={field} />}
     </group>
   );
 }
@@ -237,57 +224,3 @@ function Arrows3D({ field }) {
   );
 }
 
-// Tracer particles seeded at ceiling diffusers, advected through the volume in 3D.
-function Streams3D({ field }) {
-  const N = 320;
-  const tex = useMemo(() => makeDotTexture(), []);
-  const ref = useRef();
-  const positions = useMemo(() => new Float32Array(N * 3), []);
-  const colors = useMemo(() => new Float32Array(N * 3), []);
-  const life = useRef(new Float32Array(N));
-  const seeds = useMemo(() => {
-    const total = field.diffusers3d.reduce((s, d) => s + d.strength, 0) || 1;
-    return field.diffusers3d.map((d) => ({ x: d.x, y: d.y, z: d.z, w: d.strength / total }));
-  }, [field]);
-
-  const respawn = (i) => {
-    let r = Math.random(), pick = seeds[0] || { x: field.center.x, y: field.grid.H - 0.3, z: field.center.z };
-    for (const s of seeds) { r -= s.w; if (r <= 0) { pick = s; break; } }
-    positions[i * 3] = pick.x + (Math.random() - 0.5) * 1.2;
-    positions[i * 3 + 1] = pick.y - 0.2 - Math.random() * 0.4;
-    positions[i * 3 + 2] = pick.z + (Math.random() - 0.5) * 1.2;
-    life.current[i] = 1.0 + Math.random() * 3.0;
-  };
-
-  useMemo(() => { for (let i = 0; i < N; i++) respawn(i); }, [field]); // eslint-disable-line
-
-  useFrame((_, delta) => {
-    if (!ref.current) return;
-    const dt = Math.min(delta, 0.05);
-    const SPEED = 8 / field.maxSpeed;
-    for (let i = 0; i < N; i++) {
-      let x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
-      const [vx, vy, vz, blocked] = field.sample(x, y, z);
-      const m = Math.hypot(vx, vy, vz);
-      life.current[i] -= dt;
-      if (blocked || m < field.maxSpeed * 0.015 || life.current[i] <= 0) { respawn(i); continue; }
-      x += vx * SPEED * dt; y += vy * SPEED * dt; z += vz * SPEED * dt;
-      positions[i * 3] = x; positions[i * 3 + 1] = y; positions[i * 3 + 2] = z;
-      const tcol = Math.sqrt(m / field.maxSpeed);
-      const [r, g, b] = heat(tcol);
-      colors[i * 3] = r; colors[i * 3 + 1] = g; colors[i * 3 + 2] = b;
-    }
-    ref.current.geometry.attributes.position.needsUpdate = true;
-    ref.current.geometry.attributes.color.needsUpdate = true;
-  });
-
-  return (
-    <points ref={ref}>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={N} array={positions} itemSize={3} />
-        <bufferAttribute attach="attributes-color" count={N} array={colors} itemSize={3} />
-      </bufferGeometry>
-      <pointsMaterial map={tex} size={0.9} vertexColors transparent depthWrite={false} blending={THREE.AdditiveBlending} sizeAttenuation toneMapped={false} opacity={0.95} />
-    </points>
-  );
-}

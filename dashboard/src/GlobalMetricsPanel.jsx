@@ -1,6 +1,16 @@
 import React from 'react';
 import { Activity, Users, Thermometer, Zap, BarChart2 } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area } from 'recharts';
+import buildingData from './building-data.json';
+
+// Building design peak (MW electrical), derived once from the loaded building nameplate so the
+// "Active Cooling Capacity" bar scales with ANY building instead of a hard-coded constant.
+// Mirrors the engine's load model: Σ(zone base heat) thermal → /COP electrical → + base plant.
+const DESIGN_PEAK_MW = (() => {
+  const zones = (buildingData.floors || []).flatMap(f => f.zones || []);
+  const thermalMw = zones.reduce((s, z) => s + (z.thermalProperties?.baseHeatLoad || 0), 0) / 1e6;
+  return Math.max(3.6, thermalMw / 3.0 + 2.0); // ~COP 3 + 2 MW lighting/plug/fan baseline
+})();
 
 function Sparkline({ data, dataKey, color }) {
   return (
@@ -84,12 +94,14 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
   const hasFault = criticalFaults > 0;
   // Active cooling capacity = current building electrical load vs nameplate design peak, so the
   // bar tracks real plant utilization (rises on peak/fault) instead of a hard-coded constant.
-  const DESIGN_PEAK_MW = 3.6;
   const coolingCapacityPct = Math.max(0, Math.min(100, (bldgLoad / DESIGN_PEAK_MW) * 100));
 
-  // Fake delta calculations for demonstration of the professional HMI look
-  const loadDelta = +(Math.random() * 0.05).toFixed(2);
-  const occDelta = Math.floor(Math.random() * 15);
+  // Real deltas: change between the last two persisted history samples (pwr is kW, co2 encodes
+  // occupancy as 400 + pax*0.85). No more random demo numbers on the HMI cards.
+  const h = loadHistory || [];
+  const a = h[h.length - 2], b = h[h.length - 1];
+  const loadDelta = a && b ? +(((b.pwr - a.pwr) / 1000)).toFixed(2) : 0;
+  const occDelta = a && b ? Math.round((b.co2 - a.co2) / 0.85) : 0;
   
   return (
     <aside className="hud-dock-right" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width, padding: '1rem', position: 'absolute' }}>

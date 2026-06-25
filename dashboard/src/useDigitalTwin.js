@@ -165,11 +165,19 @@ export function useDigitalTwin(onUpdate) {
             let alert = false;
             const isFaultMode = activeScenarioRef.current === 'fault';
             const isRemediatingMode = activeScenarioRef.current === 'remediating';
-            
-            if (isFaultMode && id === faultTargetRef.current) {
-                alert = true;
-            } else if (isRemediatingMode && id === faultTargetRef.current) {
+
+            // Real thermal alarm: a zone running well above its comfort band (setpoint + deadband)
+            // is critical regardless of scenario — this is what surfaces a genuinely hot/cooling-
+            // starved room in the 3D model, topology, and the "Active Critical Faults" count.
+            const prev = newSimData.zones[id];
+            const sp = prev?.setpoint ?? 24;
+            const db = prev?.deadband ?? 1;
+            const CRITICAL_MARGIN = 5; // °C above the comfort band before a zone is "critical"
+
+            if (isRemediatingMode && id === faultTargetRef.current) {
                 alert = 'REMEDIATING';
+            } else if ((isFaultMode && id === faultTargetRef.current) || temp > sp + db + CRITICAL_MARGIN) {
+                alert = true;
             }
             newSimData.zones[id] = { ...newSimData.zones[id], temp, load: z.load(), occupancy: z.occupants(), alert };
         }

@@ -59,7 +59,7 @@ function LayerChip({ label, on, onClick, color }) {
 // occupants, instead of the old "radiate from every centroid" approximation.
 export default function AirflowWindow({ floor, activeFloor, simState, size, setSize, onClose, bottom = 90, right = 24 }) {
   const [layers, setLayers] = useState({
-    walls: true, arrows: true, streams: true, people: true,
+    walls: true, arrows: true, people: true,
     windows: true, hvac: true, electrical: false, thermal: true,
   });
   const toggle = (k) => setLayers((l) => ({ ...l, [k]: !l[k] }));
@@ -108,7 +108,6 @@ export default function AirflowWindow({ floor, activeFloor, simState, size, setS
         {/* layer toggles */}
         <div style={{ position: 'absolute', top: 36, left: 14, right: 14, zIndex: 10, display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
           <LayerChip label="ARROWS" on={layers.arrows} onClick={() => toggle('arrows')} color="#21d4ff" />
-          <LayerChip label="STREAMS" on={layers.streams} onClick={() => toggle('streams')} color="#26d94d" />
           <LayerChip label="WALLS" on={layers.walls} onClick={() => toggle('walls')} color="#8893a0" />
           <LayerChip label="HVAC" on={layers.hvac} onClick={() => toggle('hvac')} color="#21d4ff" />
           <LayerChip label="WINDOWS" on={layers.windows} onClick={() => toggle('windows')} color="#36d6ff" />

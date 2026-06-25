@@ -1,8 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Brain, Zap, AlertTriangle, TrendingDown, ThermometerSnowflake, Activity, Eye, ShieldAlert } from 'lucide-react';
 
-export default function AiInsightsPanel({ simData, activeScenario, faultTarget, aiForecast }) {
-  
+export default function AiInsightsPanel({ simData, activeScenario, faultTarget, aiForecast, setAutoPilot }) {
+  // Insight actions that have been engaged (id set). Clicking an action hands the recommendation
+  // to the autonomous controller (autoPilot) and marks it engaged — so the button does something.
+  const [engaged, setEngaged] = useState({});
+  const engage = (id) => { setEngaged((e) => ({ ...e, [id]: true })); if (setAutoPilot) setAutoPilot(true); };
+
   // Dynamically generate insights based on simulation state
   const insights = useMemo(() => {
     const generated = [];
@@ -159,21 +163,24 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
               </p>
               
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
-                <button style={{
-                  background: 'transparent',
+                <button
+                  onClick={() => engage(insight.id)}
+                  disabled={!!engaged[insight.id]}
+                  style={{
+                  background: engaged[insight.id] ? titleColor : 'transparent',
                   border: `1px solid ${border}`,
-                  color: titleColor,
+                  color: engaged[insight.id] ? '#000' : titleColor,
                   padding: '6px 12px',
                   borderRadius: '4px',
                   fontSize: '10px',
                   fontWeight: 'bold',
-                  cursor: 'pointer',
+                  cursor: engaged[insight.id] ? 'default' : 'pointer',
                   transition: 'all 0.2s ease',
                 }}
-                onMouseOver={(e) => { e.currentTarget.style.background = titleColor; e.currentTarget.style.color = '#000'; }}
-                onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = titleColor; }}
+                onMouseOver={(e) => { if (!engaged[insight.id]) { e.currentTarget.style.background = titleColor; e.currentTarget.style.color = '#000'; } }}
+                onMouseOut={(e) => { if (!engaged[insight.id]) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = titleColor; } }}
                 >
-                  {insight.action}
+                  {engaged[insight.id] ? '✓ ENGAGED' : insight.action}
                 </button>
               </div>
             </div>

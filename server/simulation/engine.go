@@ -152,7 +152,11 @@ func NewEngine() *Engine {
 				Occupancy:    rand.Intn(10),
 				BaseHeatGain: z.ThermalProperties.BaseHeatLoad,
 				SolarGainMult: z.ThermalProperties.SolarGainMultiplier,
-				CAir:         z.ThermalProperties.CAir,
+				// Floor CAir: some digitized zones (e.g. tiny "server rooms") carry an
+				// unrealistically small air capacitance that makes the explicit-Euler thermal
+				// integration unstable (runaway temps). A modest floor keeps it stable; steady
+				// state is unaffected since it depends on the heat balance, not CAir.
+				CAir:         math.Max(z.ThermalProperties.CAir, 5e5),
 				CWall:        4000000.0,
 				RIn:          z.ThermalProperties.RWall / 2,
 				ROut:         z.ThermalProperties.RWall / 2 + 0.1,
@@ -432,6 +436,13 @@ func (e *Engine) tick(dt float64) {
 
 			z.Temp += dTAirDt * dt
 			z.WallTemp += dTWallDt * dt
+
+			// Clamp to physically plausible bounds. Guards against numerical runaway when a
+			// (possibly mis-digitized) zone pairs a tiny CAir with a large heat load — without
+			// this, such a zone integrates to absurd temperatures (e.g. 200+°C) instead of
+			// just reading "hot / cooling-starved" like a real failing room.
+			z.Temp = math.Max(5.0, math.Min(50.0, z.Temp))
+			z.WallTemp = math.Max(5.0, math.Min(50.0, z.WallTemp))
 		}
 }
 

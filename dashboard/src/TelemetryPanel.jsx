@@ -2,9 +2,13 @@ import React, { useMemo, useState } from 'react';
 import { Activity, AlertTriangle, Zap, Target, CheckCircle } from 'lucide-react';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-export default function TelemetryPanel({ simData, loadHistory, activeScenario, faultTarget, onOpenMaintenance, autoPilot }) {
+export default function TelemetryPanel({ simData, loadHistory, activeScenario, faultTarget, onOpenMaintenance, autoPilot, setAutoPilot }) {
 
   const [activeChartMode, setActiveChartMode] = useState('office_dcv');
+  const [ticketDispatched, setTicketDispatched] = useState(false);
+  // Manual "apply" actions engage the autonomous controller, which performs the suggested
+  // setback / load-shed / flow change — so the button does the real thing instead of nothing.
+  const applySuggestion = () => setAutoPilot && setAutoPilot(true);
 
   const historicalData = useMemo(() => {
     const data = [];
@@ -104,14 +108,14 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
           </div>
         </div>
         
-        <div style={{ flex: 1, background: 'rgba(0,0,0,0.4)', borderRadius: '8px', padding: '12px', border: '1px solid var(--border-glass)' }}>
+        <div style={{ height: '260px', background: 'rgba(0,0,0,0.4)', borderRadius: '8px', padding: '12px', border: '1px solid var(--border-glass)' }}>
           <ResponsiveContainer width="100%" height="100%">
             <ScatterChart margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis type="number" dataKey="x" name={activeChartMode === 'office_dcv' ? 'CO₂' : 'IT Load'} unit={activeChartMode === 'office_dcv' ? ' ppm' : ' kW'} domain={['auto', 'auto']} stroke="var(--text-secondary)" fontSize={10} tickMargin={8} />
               <YAxis type="number" dataKey="y" name="Cooling" unit=" kW" domain={['auto', 'auto']} stroke="var(--text-secondary)" fontSize={10} width={45} />
               <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ background: '#111', border: '1px solid var(--border-glass)' }} />
-              <Scatter name="Historical Baseline" data={historicalData} fill="rgba(255,255,255,0.1)" isAnimationActive={false} />
+              <Scatter name="Historical Baseline" data={historicalData} fill="rgba(255,255,255,0.35)" isAnimationActive={false} />
               <Scatter name="Live Telemetry Node" data={currentData} fill="var(--accent-yellow)" isAnimationActive={false} />
             </ScatterChart>
           </ResponsiveContainer>
@@ -183,7 +187,8 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
                 </div>
               </div>
               {!autoPilot && (
-                <button 
+                <button
+                  onClick={applySuggestion}
                   style={{ width: '100%', background: 'transparent', border: '1px solid var(--accent-green)', color: 'var(--accent-green)', padding: '6px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold', letterSpacing: '1px', marginTop: '4px' }}
                 >
                   PREVIEW & APPLY SETBACK
@@ -212,7 +217,8 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
                 </div>
               </div>
               {!autoPilot && (
-                <button 
+                <button
+                  onClick={applySuggestion}
                   style={{ width: '100%', background: 'transparent', border: '1px solid orange', color: 'orange', padding: '6px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold', letterSpacing: '1px', marginTop: '4px' }}
                 >
                   PREVIEW & APPLY LOAD SHEDDING
@@ -239,7 +245,8 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
                 </div>
               </div>
               {!autoPilot && (
-                <button 
+                <button
+                  onClick={applySuggestion}
                   style={{ width: '100%', background: 'transparent', border: '1px solid var(--accent-yellow)', color: 'var(--accent-yellow)', padding: '6px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold', letterSpacing: '1px', marginTop: '4px' }}
                 >
                   PREVIEW & INCREASE FLOW
@@ -261,10 +268,12 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
                   </div>
                 </div>
               </div>
-              <button 
-                style={{ width: '100%', background: 'transparent', border: '1px solid var(--text-secondary)', color: 'var(--text-secondary)', padding: '6px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold', letterSpacing: '1px', marginTop: '4px' }}
+              <button
+                onClick={() => setTicketDispatched(true)}
+                disabled={ticketDispatched}
+                style={{ width: '100%', background: ticketDispatched ? 'rgba(0,255,0,0.08)' : 'transparent', border: `1px solid ${ticketDispatched ? 'var(--accent-green)' : 'var(--text-secondary)'}`, color: ticketDispatched ? 'var(--accent-green)' : 'var(--text-secondary)', padding: '6px', fontSize: '10px', cursor: ticketDispatched ? 'default' : 'pointer', borderRadius: '4px', fontWeight: 'bold', letterSpacing: '1px', marginTop: '4px' }}
               >
-                DISPATCH CALIBRATION TICKET (LOW PRIORITY)
+                {ticketDispatched ? '✓ CALIBRATION TICKET DISPATCHED' : 'DISPATCH CALIBRATION TICKET (LOW PRIORITY)'}
               </button>
             </div>
           )}
