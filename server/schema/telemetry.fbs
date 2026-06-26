@@ -1,0 +1,41 @@
+namespace Telemetry;
+
+table ZoneData {
+  id: string;
+  temp: float;
+  occupants: int;
+  load: float;
+}
+
+table VavData {
+  id: string;
+  airflow: float;
+  damper: float;
+}
+
+table AhuData {
+  id: string;
+  supplyTemp: float;
+  pressure: float;
+  status: string;
+  mode: string;
+}
+
+table GlobalData {
+  buildingLoadMw: float;
+  systemHealth: float;
+  totalOccupants: int;
+  coolingOutputMw: float;
+  plantCop: float;
+  energySavedMw: float;
+}
+
+table SimState {
+  timestamp: long;
+  zones: [ZoneData];
+  vavs: [VavData];
+  ahus: [AhuData];
+  global: GlobalData;
+}
+
+root_type SimState;

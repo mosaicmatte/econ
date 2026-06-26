@@ -1,0 +1,4621 @@
+{
+  "@context": {
+    "brick": "https://brickschema.org/schema/Brick#",
+    "bf": "https://brickschema.org/schema/BrickFrame#"
+  },
+  "nodes": [
+    {
+      "id": "ahu-main",
+      "type": "brick:AHU",
+      "label": "Main Rooftop AHU"
+    },
+    {
+      "id": "panel-lvl1",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L1"
+    },
+    {
+      "id": "zone-retail-east-lvl1",
+      "type": "brick:HVAC_Zone",
+      "label": "Retail East Level 1",
+      "bim_asset_id": "a5e0fdb5-137e-48eb-ab8e-4d877a0bda35"
+    },
+    {
+      "id": "zone-reception-lvl1",
+      "type": "brick:HVAC_Zone",
+      "label": "Reception Level 1",
+      "bim_asset_id": "725ac146-f711-4e08-8f69-6236a5f532b1"
+    },
+    {
+      "id": "zone-retail-west-lvl1",
+      "type": "brick:HVAC_Zone",
+      "label": "Retail West Level 1",
+      "bim_asset_id": "77ee7ac7-23a5-4312-9234-d761753acb4f"
+    },
+    {
+      "id": "zone-leasing-office-lvl1",
+      "type": "brick:HVAC_Zone",
+      "label": "Leasing Office Level 1",
+      "bim_asset_id": "7acd3bc2-d607-4b97-a326-fe126e902118"
+    },
+    {
+      "id": "zone-security-office-lvl1",
+      "type": "brick:HVAC_Zone",
+      "label": "Security Office Level 1",
+      "bim_asset_id": "6fe125ce-886d-40e6-bdd2-00ff82363fd2"
+    },
+    {
+      "id": "zone-main-lobby-lvl1",
+      "type": "brick:HVAC_Zone",
+      "label": "Main Lobby Level 1",
+      "bim_asset_id": "afb8a3fb-0f48-4214-89c5-41d782ee02bf"
+    },
+    {
+      "id": "zone-atrium-lvl1",
+      "type": "brick:HVAC_Zone",
+      "label": "Atrium Level 1",
+      "bim_asset_id": "8f839e43-3f41-479d-925c-4bb9f295b256"
+    },
+    {
+      "id": "zone-visitor-lounge-lvl1",
+      "type": "brick:HVAC_Zone",
+      "label": "Visitor Lounge Level 1",
+      "bim_asset_id": "81c65041-a448-4c0f-bf0a-1e20ef863796"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl1",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 1",
+      "bim_asset_id": "59fac26e-b887-43fd-b821-23b3a87d36a4"
+    },
+    {
+      "id": "panel-lvl2",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L2"
+    },
+    {
+      "id": "zone-north-west-office-lvl2",
+      "type": "brick:HVAC_Zone",
+      "label": "North-West Office Level 2",
+      "bim_asset_id": "5d250ed6-725a-416f-8a78-8b53e5de0a8e"
+    },
+    {
+      "id": "zone-north-perimeter-lvl2",
+      "type": "brick:HVAC_Zone",
+      "label": "North Perimeter Level 2",
+      "bim_asset_id": "c693a897-666d-429e-a223-6d64e0825a48"
+    },
+    {
+      "id": "zone-north-east-office-lvl2",
+      "type": "brick:HVAC_Zone",
+      "label": "North-East Office Level 2",
+      "bim_asset_id": "5057bb94-b508-4fe1-926b-132c4861a09f"
+    },
+    {
+      "id": "zone-west-conference-lvl2",
+      "type": "brick:HVAC_Zone",
+      "label": "West Conference Level 2",
+      "bim_asset_id": "f5bbb34e-36d9-4721-9ea9-de9af4b3b98a"
+    },
+    {
+      "id": "zone-east-conference-lvl2",
+      "type": "brick:HVAC_Zone",
+      "label": "East Conference Level 2",
+      "bim_asset_id": "f0d386f4-1825-428b-bbec-5a9ba7eec323"
+    },
+    {
+      "id": "zone-south-west-office-lvl2",
+      "type": "brick:HVAC_Zone",
+      "label": "South-West Office Level 2",
+      "bim_asset_id": "1d1adb4d-93b4-4617-b11a-986957c7a70f"
+    },
+    {
+      "id": "zone-south-perimeter-lvl2",
+      "type": "brick:HVAC_Zone",
+      "label": "South Perimeter Level 2",
+      "bim_asset_id": "43625667-406a-48c6-a9e0-3143f93e69a8"
+    },
+    {
+      "id": "zone-open-office-lvl2",
+      "type": "brick:HVAC_Zone",
+      "label": "Open Office Level 2",
+      "bim_asset_id": "716fff86-2bc0-4e0c-b8f7-405d4490e3f6"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl2",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 2",
+      "bim_asset_id": "6ff321e0-dfdb-4642-9581-a0a3d02b0fd4"
+    },
+    {
+      "id": "panel-lvl3",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L3"
+    },
+    {
+      "id": "zone-north-west-office-lvl3",
+      "type": "brick:HVAC_Zone",
+      "label": "North-West Office Level 3",
+      "bim_asset_id": "83e9ebea-86d5-438b-8803-c2a877d59cbc"
+    },
+    {
+      "id": "zone-north-perimeter-lvl3",
+      "type": "brick:HVAC_Zone",
+      "label": "North Perimeter Level 3",
+      "bim_asset_id": "fabe78f7-ab26-42d1-a538-a04461cfb040"
+    },
+    {
+      "id": "zone-north-east-office-lvl3",
+      "type": "brick:HVAC_Zone",
+      "label": "North-East Office Level 3",
+      "bim_asset_id": "4a13a164-3bde-47a8-83c5-f6049fba3c64"
+    },
+    {
+      "id": "zone-west-conference-lvl3",
+      "type": "brick:HVAC_Zone",
+      "label": "West Conference Level 3",
+      "bim_asset_id": "95a13bf3-fe0c-4694-a971-79a554a5a67d"
+    },
+    {
+      "id": "zone-east-conference-lvl3",
+      "type": "brick:HVAC_Zone",
+      "label": "East Conference Level 3",
+      "bim_asset_id": "35ca488a-00df-4d8d-88b1-6994f1e25176"
+    },
+    {
+      "id": "zone-south-west-office-lvl3",
+      "type": "brick:HVAC_Zone",
+      "label": "South-West Office Level 3",
+      "bim_asset_id": "285e02b6-a89d-41c4-971e-7445b382f3c6"
+    },
+    {
+      "id": "zone-south-perimeter-lvl3",
+      "type": "brick:HVAC_Zone",
+      "label": "South Perimeter Level 3",
+      "bim_asset_id": "f8481594-f461-4ed9-ba61-652d72c4f92a"
+    },
+    {
+      "id": "zone-open-office-lvl3",
+      "type": "brick:HVAC_Zone",
+      "label": "Open Office Level 3",
+      "bim_asset_id": "4893607f-4e6b-4b15-b570-3305a239d796"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl3",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 3",
+      "bim_asset_id": "f9e0f649-20b2-4dda-b475-cdffcf460bd7"
+    },
+    {
+      "id": "panel-lvl4",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L4"
+    },
+    {
+      "id": "zone-north-west-office-lvl4",
+      "type": "brick:HVAC_Zone",
+      "label": "North-West Office Level 4",
+      "bim_asset_id": "18ca44ab-832a-46f1-8ca6-2cd20568d466"
+    },
+    {
+      "id": "zone-north-perimeter-lvl4",
+      "type": "brick:HVAC_Zone",
+      "label": "North Perimeter Level 4",
+      "bim_asset_id": "1dabafce-373e-4e28-8c21-bc1cebb0e4ce"
+    },
+    {
+      "id": "zone-north-east-office-lvl4",
+      "type": "brick:HVAC_Zone",
+      "label": "North-East Office Level 4",
+      "bim_asset_id": "f9cfb6f1-57c9-4dfd-a062-b2850575ad37"
+    },
+    {
+      "id": "zone-west-conference-lvl4",
+      "type": "brick:HVAC_Zone",
+      "label": "West Conference Level 4",
+      "bim_asset_id": "9585188f-37ee-46ba-81b3-df7781bc1bc6"
+    },
+    {
+      "id": "zone-east-conference-lvl4",
+      "type": "brick:HVAC_Zone",
+      "label": "East Conference Level 4",
+      "bim_asset_id": "fba674e2-9cf0-46f8-8ec5-3ccb9c801ac1"
+    },
+    {
+      "id": "zone-south-west-office-lvl4",
+      "type": "brick:HVAC_Zone",
+      "label": "South-West Office Level 4",
+      "bim_asset_id": "833b3aae-8427-4da4-b424-bcbaa87cf3ce"
+    },
+    {
+      "id": "zone-south-perimeter-lvl4",
+      "type": "brick:HVAC_Zone",
+      "label": "South Perimeter Level 4",
+      "bim_asset_id": "08746103-6b8a-4ecb-9777-b05451670fb5"
+    },
+    {
+      "id": "zone-open-office-lvl4",
+      "type": "brick:HVAC_Zone",
+      "label": "Open Office Level 4",
+      "bim_asset_id": "3b1e0bb3-def0-42ab-a07c-3a8dbd1670ea"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl4",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 4",
+      "bim_asset_id": "fef4e7fc-7be3-4a87-883c-171e83f88b08"
+    },
+    {
+      "id": "panel-lvl5",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L5"
+    },
+    {
+      "id": "zone-north-west-office-lvl5",
+      "type": "brick:HVAC_Zone",
+      "label": "North-West Office Level 5",
+      "bim_asset_id": "d8411752-65b5-4adf-b8c1-1070051d1757"
+    },
+    {
+      "id": "zone-north-perimeter-lvl5",
+      "type": "brick:HVAC_Zone",
+      "label": "North Perimeter Level 5",
+      "bim_asset_id": "e47b2782-bd45-4043-a13e-41d8f4b4fbba"
+    },
+    {
+      "id": "zone-north-east-office-lvl5",
+      "type": "brick:HVAC_Zone",
+      "label": "North-East Office Level 5",
+      "bim_asset_id": "167d87bf-b5db-42f2-a1c8-bc6109ee9d31"
+    },
+    {
+      "id": "zone-west-conference-lvl5",
+      "type": "brick:HVAC_Zone",
+      "label": "West Conference Level 5",
+      "bim_asset_id": "df05e63b-11a1-4bee-92bd-49559a1b3c54"
+    },
+    {
+      "id": "zone-east-conference-lvl5",
+      "type": "brick:HVAC_Zone",
+      "label": "East Conference Level 5",
+      "bim_asset_id": "2b45346f-524e-415e-8b71-f717ad6e18bd"
+    },
+    {
+      "id": "zone-south-west-office-lvl5",
+      "type": "brick:HVAC_Zone",
+      "label": "South-West Office Level 5",
+      "bim_asset_id": "afd5fe2e-118c-42ea-ae35-2c7b3110ec57"
+    },
+    {
+      "id": "zone-south-perimeter-lvl5",
+      "type": "brick:HVAC_Zone",
+      "label": "South Perimeter Level 5",
+      "bim_asset_id": "21f424fa-64b3-444b-94aa-f861f4c23cad"
+    },
+    {
+      "id": "zone-open-office-lvl5",
+      "type": "brick:HVAC_Zone",
+      "label": "Open Office Level 5",
+      "bim_asset_id": "34d1d3c4-52c7-4902-9a5d-e4579919c28e"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl5",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 5",
+      "bim_asset_id": "2ad239ab-b0ca-40c4-a296-acdf9f2cb0fc"
+    },
+    {
+      "id": "panel-lvl6",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L6"
+    },
+    {
+      "id": "zone-noc-office-lvl6",
+      "type": "brick:HVAC_Zone",
+      "label": "NOC Office Level 6",
+      "bim_asset_id": "54ede62e-78e7-4f0f-8957-ec6711e64e37"
+    },
+    {
+      "id": "zone-server-room-a-lvl6",
+      "type": "brick:HVAC_Zone",
+      "label": "Server Room A Level 6",
+      "bim_asset_id": "c24f5d24-3c39-43d5-9e21-fc4e1093ed78"
+    },
+    {
+      "id": "zone-ups-room-lvl6",
+      "type": "brick:HVAC_Zone",
+      "label": "UPS Room Level 6",
+      "bim_asset_id": "bcbdb2e0-d409-4d9f-934f-1532bca52ed7"
+    },
+    {
+      "id": "zone-cold-aisle-lvl6",
+      "type": "brick:HVAC_Zone",
+      "label": "Cold Aisle Level 6",
+      "bim_asset_id": "4486da78-dd69-4d85-a931-df2d078143e5"
+    },
+    {
+      "id": "zone-server-room-b-lvl6",
+      "type": "brick:HVAC_Zone",
+      "label": "Server Room B Level 6",
+      "bim_asset_id": "ff6cc674-f11b-4189-889f-e7034a0b8012"
+    },
+    {
+      "id": "zone-pdu-room-lvl6",
+      "type": "brick:HVAC_Zone",
+      "label": "PDU Room Level 6",
+      "bim_asset_id": "2bd91c46-0582-4fe6-88c8-4b248cda679c"
+    },
+    {
+      "id": "zone-server-room-c-lvl6",
+      "type": "brick:HVAC_Zone",
+      "label": "Server Room C Level 6",
+      "bim_asset_id": "a318e0d1-eb07-4c49-ab91-bcf9792f4cbd"
+    },
+    {
+      "id": "zone-operations-lvl6",
+      "type": "brick:HVAC_Zone",
+      "label": "Operations Level 6",
+      "bim_asset_id": "6dc75e3b-d2a7-468d-a99a-ec71699d9ce4"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl6",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 6",
+      "bim_asset_id": "72aff87f-e969-4123-bed0-8f59d82645cd"
+    },
+    {
+      "id": "panel-lvl7",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L7"
+    },
+    {
+      "id": "zone-north-west-office-lvl7",
+      "type": "brick:HVAC_Zone",
+      "label": "North-West Office Level 7",
+      "bim_asset_id": "86bd7019-dc78-4a0d-adde-42407259f914"
+    },
+    {
+      "id": "zone-north-perimeter-lvl7",
+      "type": "brick:HVAC_Zone",
+      "label": "North Perimeter Level 7",
+      "bim_asset_id": "594830c1-d891-4567-a2d5-3f7aaea8f13d"
+    },
+    {
+      "id": "zone-north-east-office-lvl7",
+      "type": "brick:HVAC_Zone",
+      "label": "North-East Office Level 7",
+      "bim_asset_id": "e6c8721f-d012-46df-b1fd-9a09132361ce"
+    },
+    {
+      "id": "zone-west-conference-lvl7",
+      "type": "brick:HVAC_Zone",
+      "label": "West Conference Level 7",
+      "bim_asset_id": "ed69aac5-6aed-4245-8111-f3fc05fe1659"
+    },
+    {
+      "id": "zone-east-conference-lvl7",
+      "type": "brick:HVAC_Zone",
+      "label": "East Conference Level 7",
+      "bim_asset_id": "6c0e03f9-6fea-4c76-be0a-9a72fbb5b10f"
+    },
+    {
+      "id": "zone-south-west-office-lvl7",
+      "type": "brick:HVAC_Zone",
+      "label": "South-West Office Level 7",
+      "bim_asset_id": "7ddf8049-0cb0-49c4-89fb-4d579da5e6ec"
+    },
+    {
+      "id": "zone-south-perimeter-lvl7",
+      "type": "brick:HVAC_Zone",
+      "label": "South Perimeter Level 7",
+      "bim_asset_id": "a3d16839-ede7-4d1c-bbe8-cc8e7e57517f"
+    },
+    {
+      "id": "zone-open-office-lvl7",
+      "type": "brick:HVAC_Zone",
+      "label": "Open Office Level 7",
+      "bim_asset_id": "ac68ccbb-3f68-43b8-ab06-11e37c60b734"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl7",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 7",
+      "bim_asset_id": "c5fa1139-75d3-4cab-b1fd-1877e06f19c0"
+    },
+    {
+      "id": "panel-lvl8",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L8"
+    },
+    {
+      "id": "zone-north-west-office-lvl8",
+      "type": "brick:HVAC_Zone",
+      "label": "North-West Office Level 8",
+      "bim_asset_id": "b62dc3fd-2500-4160-9bc3-8479a0bfa264"
+    },
+    {
+      "id": "zone-north-perimeter-lvl8",
+      "type": "brick:HVAC_Zone",
+      "label": "North Perimeter Level 8",
+      "bim_asset_id": "06de9795-20de-4d51-9f96-a2b760f084dc"
+    },
+    {
+      "id": "zone-north-east-office-lvl8",
+      "type": "brick:HVAC_Zone",
+      "label": "North-East Office Level 8",
+      "bim_asset_id": "ee935c31-e73a-4ce3-9cc7-822ee72b1419"
+    },
+    {
+      "id": "zone-west-conference-lvl8",
+      "type": "brick:HVAC_Zone",
+      "label": "West Conference Level 8",
+      "bim_asset_id": "9e8e5d78-198c-49be-a341-c2285e26da6b"
+    },
+    {
+      "id": "zone-east-conference-lvl8",
+      "type": "brick:HVAC_Zone",
+      "label": "East Conference Level 8",
+      "bim_asset_id": "bca4ecb1-c3a2-4c5b-8d72-475443c219fc"
+    },
+    {
+      "id": "zone-south-west-office-lvl8",
+      "type": "brick:HVAC_Zone",
+      "label": "South-West Office Level 8",
+      "bim_asset_id": "bcd5ad6e-8fdb-42df-90af-8b993967c31b"
+    },
+    {
+      "id": "zone-south-perimeter-lvl8",
+      "type": "brick:HVAC_Zone",
+      "label": "South Perimeter Level 8",
+      "bim_asset_id": "ef6de9a7-7b0f-403d-b6c6-703d826fc1a9"
+    },
+    {
+      "id": "zone-open-office-lvl8",
+      "type": "brick:HVAC_Zone",
+      "label": "Open Office Level 8",
+      "bim_asset_id": "b56e66e4-1911-43f3-89c3-8022aabbfc10"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl8",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 8",
+      "bim_asset_id": "a9423581-32f8-4463-bb51-464946b1f8b8"
+    },
+    {
+      "id": "panel-lvl9",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L9"
+    },
+    {
+      "id": "zone-noc-office-lvl9",
+      "type": "brick:HVAC_Zone",
+      "label": "NOC Office Level 9",
+      "bim_asset_id": "f1b9410e-e0a9-4465-bf8e-83efeacf5a57"
+    },
+    {
+      "id": "zone-server-room-a-lvl9",
+      "type": "brick:HVAC_Zone",
+      "label": "Server Room A Level 9",
+      "bim_asset_id": "230899b0-efe9-4265-90bb-fc0b934cbde3"
+    },
+    {
+      "id": "zone-ups-room-lvl9",
+      "type": "brick:HVAC_Zone",
+      "label": "UPS Room Level 9",
+      "bim_asset_id": "c4cf8a91-dc91-4e2e-8f6e-bd56439ff1dd"
+    },
+    {
+      "id": "zone-cold-aisle-lvl9",
+      "type": "brick:HVAC_Zone",
+      "label": "Cold Aisle Level 9",
+      "bim_asset_id": "49ea2662-1dcd-4906-b9f1-efee9b76d6fe"
+    },
+    {
+      "id": "zone-server-room-b-lvl9",
+      "type": "brick:HVAC_Zone",
+      "label": "Server Room B Level 9",
+      "bim_asset_id": "c688bbef-bb54-416a-9d6e-18f970313226"
+    },
+    {
+      "id": "zone-pdu-room-lvl9",
+      "type": "brick:HVAC_Zone",
+      "label": "PDU Room Level 9",
+      "bim_asset_id": "91360a26-f379-4364-b428-73f606761fe1"
+    },
+    {
+      "id": "zone-server-room-c-lvl9",
+      "type": "brick:HVAC_Zone",
+      "label": "Server Room C Level 9",
+      "bim_asset_id": "c18d3560-62ec-4fc6-8eb5-9cb1a542a316"
+    },
+    {
+      "id": "zone-operations-lvl9",
+      "type": "brick:HVAC_Zone",
+      "label": "Operations Level 9",
+      "bim_asset_id": "300cd9db-a5f8-4fd2-8e3f-ade881267437"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl9",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 9",
+      "bim_asset_id": "92f1dd62-7772-45fa-9c9b-f4d4a25eca56"
+    },
+    {
+      "id": "panel-lvl10",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L10"
+    },
+    {
+      "id": "zone-north-west-office-lvl10",
+      "type": "brick:HVAC_Zone",
+      "label": "North-West Office Level 10",
+      "bim_asset_id": "6fd5519f-6d8a-43e3-92e1-827cf4348923"
+    },
+    {
+      "id": "zone-north-perimeter-lvl10",
+      "type": "brick:HVAC_Zone",
+      "label": "North Perimeter Level 10",
+      "bim_asset_id": "2e6a20d4-c081-45c6-a76a-257eed2d946c"
+    },
+    {
+      "id": "zone-north-east-office-lvl10",
+      "type": "brick:HVAC_Zone",
+      "label": "North-East Office Level 10",
+      "bim_asset_id": "bcf8271f-2acc-43db-b6d5-39a80ce12b03"
+    },
+    {
+      "id": "zone-west-conference-lvl10",
+      "type": "brick:HVAC_Zone",
+      "label": "West Conference Level 10",
+      "bim_asset_id": "1defd1f2-e486-4968-9e67-1f7d41809303"
+    },
+    {
+      "id": "zone-east-conference-lvl10",
+      "type": "brick:HVAC_Zone",
+      "label": "East Conference Level 10",
+      "bim_asset_id": "fd8b81e7-53e8-4a35-85cb-b02dd71474ce"
+    },
+    {
+      "id": "zone-south-west-office-lvl10",
+      "type": "brick:HVAC_Zone",
+      "label": "South-West Office Level 10",
+      "bim_asset_id": "de47e194-04a8-496b-aa2d-c2d26adaae24"
+    },
+    {
+      "id": "zone-south-perimeter-lvl10",
+      "type": "brick:HVAC_Zone",
+      "label": "South Perimeter Level 10",
+      "bim_asset_id": "59e84a35-3408-488c-b017-1378f7e64fb7"
+    },
+    {
+      "id": "zone-open-office-lvl10",
+      "type": "brick:HVAC_Zone",
+      "label": "Open Office Level 10",
+      "bim_asset_id": "a4e0880f-fec4-4266-adf9-5adf79c91389"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl10",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 10",
+      "bim_asset_id": "9e4c4d21-3618-4a1e-b53d-69cb3afa8dba"
+    },
+    {
+      "id": "panel-lvl11",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L11"
+    },
+    {
+      "id": "zone-executive-office-1-lvl11",
+      "type": "brick:HVAC_Zone",
+      "label": "Executive Office 1 Level 11",
+      "bim_asset_id": "a30e0757-2a96-4b7f-975a-d227c294d499"
+    },
+    {
+      "id": "zone-boardroom-lvl11",
+      "type": "brick:HVAC_Zone",
+      "label": "Boardroom Level 11",
+      "bim_asset_id": "27bd3f75-e97e-4460-beca-472731e5f0ea"
+    },
+    {
+      "id": "zone-executive-office-2-lvl11",
+      "type": "brick:HVAC_Zone",
+      "label": "Executive Office 2 Level 11",
+      "bim_asset_id": "63dd1540-c876-4c79-a102-5a9e486c446b"
+    },
+    {
+      "id": "zone-executive-office-3-lvl11",
+      "type": "brick:HVAC_Zone",
+      "label": "Executive Office 3 Level 11",
+      "bim_asset_id": "238a369a-7b9c-4185-a875-442a9b9f9528"
+    },
+    {
+      "id": "zone-executive-office-4-lvl11",
+      "type": "brick:HVAC_Zone",
+      "label": "Executive Office 4 Level 11",
+      "bim_asset_id": "b1e49a3c-2433-495b-9467-8a1f56db55f0"
+    },
+    {
+      "id": "zone-strategy-room-lvl11",
+      "type": "brick:HVAC_Zone",
+      "label": "Strategy Room Level 11",
+      "bim_asset_id": "4146ba39-cf58-459d-b38e-c94a4f0510cf"
+    },
+    {
+      "id": "zone-executive-lounge-lvl11",
+      "type": "brick:HVAC_Zone",
+      "label": "Executive Lounge Level 11",
+      "bim_asset_id": "61514d5a-c65a-4dbf-b37e-3e10b0fce477"
+    },
+    {
+      "id": "zone-assistant-pool-lvl11",
+      "type": "brick:HVAC_Zone",
+      "label": "Assistant Pool Level 11",
+      "bim_asset_id": "dc6339de-d9a3-4d73-88f1-52586f262a76"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl11",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 11",
+      "bim_asset_id": "2981850f-a5cc-4a7b-8360-76c3f6719723"
+    },
+    {
+      "id": "panel-lvl12",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L12"
+    },
+    {
+      "id": "zone-north-west-office-lvl12",
+      "type": "brick:HVAC_Zone",
+      "label": "North-West Office Level 12",
+      "bim_asset_id": "64cbd5ff-9a46-4a23-98cf-6df7dcfd7c0d"
+    },
+    {
+      "id": "zone-north-perimeter-lvl12",
+      "type": "brick:HVAC_Zone",
+      "label": "North Perimeter Level 12",
+      "bim_asset_id": "6b420bfe-e066-4d99-a00a-9767f2aeb44f"
+    },
+    {
+      "id": "zone-north-east-office-lvl12",
+      "type": "brick:HVAC_Zone",
+      "label": "North-East Office Level 12",
+      "bim_asset_id": "8fd316ce-a923-4f5c-97b1-fedb54b1de59"
+    },
+    {
+      "id": "zone-west-conference-lvl12",
+      "type": "brick:HVAC_Zone",
+      "label": "West Conference Level 12",
+      "bim_asset_id": "c36d6b77-2596-413f-b42a-49a9bda49daf"
+    },
+    {
+      "id": "zone-east-conference-lvl12",
+      "type": "brick:HVAC_Zone",
+      "label": "East Conference Level 12",
+      "bim_asset_id": "143b9fd7-f124-4a22-a8ab-e2c6b10cc581"
+    },
+    {
+      "id": "zone-south-west-office-lvl12",
+      "type": "brick:HVAC_Zone",
+      "label": "South-West Office Level 12",
+      "bim_asset_id": "77a59145-e231-4127-8462-21b7c3eebc26"
+    },
+    {
+      "id": "zone-south-perimeter-lvl12",
+      "type": "brick:HVAC_Zone",
+      "label": "South Perimeter Level 12",
+      "bim_asset_id": "07b59f00-d32d-4d91-9ca4-749e91734ba3"
+    },
+    {
+      "id": "zone-open-office-lvl12",
+      "type": "brick:HVAC_Zone",
+      "label": "Open Office Level 12",
+      "bim_asset_id": "5cb07337-fa22-415d-be4a-d12cfd2484c9"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl12",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 12",
+      "bim_asset_id": "b94a5271-3091-4d47-b2fe-3945d14ed861"
+    },
+    {
+      "id": "panel-lvl13",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L13"
+    },
+    {
+      "id": "zone-north-west-office-lvl13",
+      "type": "brick:HVAC_Zone",
+      "label": "North-West Office Level 13",
+      "bim_asset_id": "68d62d78-b147-4f75-b329-a6bf633f04ec"
+    },
+    {
+      "id": "zone-north-perimeter-lvl13",
+      "type": "brick:HVAC_Zone",
+      "label": "North Perimeter Level 13",
+      "bim_asset_id": "2dc5007a-7ced-44ae-8d65-744e5b3d620f"
+    },
+    {
+      "id": "zone-north-east-office-lvl13",
+      "type": "brick:HVAC_Zone",
+      "label": "North-East Office Level 13",
+      "bim_asset_id": "9a324c58-be28-4de0-8905-004d3fa64879"
+    },
+    {
+      "id": "zone-west-conference-lvl13",
+      "type": "brick:HVAC_Zone",
+      "label": "West Conference Level 13",
+      "bim_asset_id": "b149b319-4349-460a-87e9-c975c594c2ae"
+    },
+    {
+      "id": "zone-east-conference-lvl13",
+      "type": "brick:HVAC_Zone",
+      "label": "East Conference Level 13",
+      "bim_asset_id": "2dc36b2c-66e1-4f17-bf01-979a130f34ae"
+    },
+    {
+      "id": "zone-south-west-office-lvl13",
+      "type": "brick:HVAC_Zone",
+      "label": "South-West Office Level 13",
+      "bim_asset_id": "d9e66313-d98b-49c2-8a54-a529cc8a0533"
+    },
+    {
+      "id": "zone-south-perimeter-lvl13",
+      "type": "brick:HVAC_Zone",
+      "label": "South Perimeter Level 13",
+      "bim_asset_id": "16188cb0-0028-4689-a1f2-a637d456cae8"
+    },
+    {
+      "id": "zone-open-office-lvl13",
+      "type": "brick:HVAC_Zone",
+      "label": "Open Office Level 13",
+      "bim_asset_id": "e0c37a8f-f03a-411a-919d-f60b2a4ffb4a"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl13",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 13",
+      "bim_asset_id": "91704e0a-c2b9-42e3-9d9b-23a9f5cbb632"
+    },
+    {
+      "id": "panel-lvl14",
+      "type": "brick:Electrical_Panel",
+      "label": "Electrical Panel L14"
+    },
+    {
+      "id": "zone-ahu-room-lvl14",
+      "type": "brick:HVAC_Zone",
+      "label": "AHU Room Level 14",
+      "bim_asset_id": "dcfe9cad-41e8-4537-9213-d156a9c762af"
+    },
+    {
+      "id": "zone-chiller-plant-lvl14",
+      "type": "brick:HVAC_Zone",
+      "label": "Chiller Plant Level 14",
+      "bim_asset_id": "63b6591a-d7c2-4d49-a0b7-deceac70faed"
+    },
+    {
+      "id": "zone-cooling-tower-lvl14",
+      "type": "brick:HVAC_Zone",
+      "label": "Cooling Tower Level 14",
+      "bim_asset_id": "5f4bf67c-c6b1-4045-ac78-062d5d7fb84d"
+    },
+    {
+      "id": "zone-pump-room-lvl14",
+      "type": "brick:HVAC_Zone",
+      "label": "Pump Room Level 14",
+      "bim_asset_id": "f4a27355-1689-41b2-a9d9-25049c7bfea2"
+    },
+    {
+      "id": "zone-electrical-switchgear-lvl14",
+      "type": "brick:HVAC_Zone",
+      "label": "Electrical Switchgear Level 14",
+      "bim_asset_id": "73a56977-8fcd-4431-b83b-c70c55dc1b81"
+    },
+    {
+      "id": "zone-fan-room-lvl14",
+      "type": "brick:HVAC_Zone",
+      "label": "Fan Room Level 14",
+      "bim_asset_id": "85069afe-cddb-4a5b-acd6-15a90221536b"
+    },
+    {
+      "id": "zone-heat-exchanger-lvl14",
+      "type": "brick:HVAC_Zone",
+      "label": "Heat Exchanger Level 14",
+      "bim_asset_id": "8f8fb3c1-d477-4ed1-8191-1081ac5ebd58"
+    },
+    {
+      "id": "zone-bms-office-lvl14",
+      "type": "brick:HVAC_Zone",
+      "label": "BMS Office Level 14",
+      "bim_asset_id": "167b296f-ed18-479c-b7cf-fa762c359e65"
+    },
+    {
+      "id": "zone-core-elevator-lobby-lvl14",
+      "type": "brick:HVAC_Zone",
+      "label": "Core Elevator Lobby Level 14",
+      "bim_asset_id": "6b5a4259-d705-4bff-815a-f62451439bed"
+    }
+  ],
+  "relationships": [
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-retail-east-lvl1"
+    },
+    {
+      "source": "vav-retail-east-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-retail-east-lvl1"
+    },
+    {
+      "source": "panel-lvl1",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-retail-east-lvl1"
+    },
+    {
+      "source": "circuit_zone-retail-east-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-retail-east-lvl1"
+    },
+    {
+      "source": "zone-retail-east-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-retail-east-lvl1"
+    },
+    {
+      "source": "zone-retail-east-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-retail-east-lvl1"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-reception-lvl1"
+    },
+    {
+      "source": "vav-reception-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-reception-lvl1"
+    },
+    {
+      "source": "panel-lvl1",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-reception-lvl1"
+    },
+    {
+      "source": "circuit_zone-reception-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-reception-lvl1"
+    },
+    {
+      "source": "zone-reception-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-reception-lvl1"
+    },
+    {
+      "source": "zone-reception-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-reception-lvl1"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-retail-west-lvl1"
+    },
+    {
+      "source": "vav-retail-west-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-retail-west-lvl1"
+    },
+    {
+      "source": "panel-lvl1",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-retail-west-lvl1"
+    },
+    {
+      "source": "circuit_zone-retail-west-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-retail-west-lvl1"
+    },
+    {
+      "source": "zone-retail-west-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-retail-west-lvl1"
+    },
+    {
+      "source": "zone-retail-west-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-retail-west-lvl1"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-leasing-office-lvl1"
+    },
+    {
+      "source": "vav-leasing-office-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-leasing-office-lvl1"
+    },
+    {
+      "source": "panel-lvl1",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-leasing-office-lvl1"
+    },
+    {
+      "source": "circuit_zone-leasing-office-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-leasing-office-lvl1"
+    },
+    {
+      "source": "zone-leasing-office-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-leasing-office-lvl1"
+    },
+    {
+      "source": "zone-leasing-office-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-leasing-office-lvl1"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-security-office-lvl1"
+    },
+    {
+      "source": "vav-security-office-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-security-office-lvl1"
+    },
+    {
+      "source": "panel-lvl1",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-security-office-lvl1"
+    },
+    {
+      "source": "circuit_zone-security-office-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-security-office-lvl1"
+    },
+    {
+      "source": "zone-security-office-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-security-office-lvl1"
+    },
+    {
+      "source": "zone-security-office-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-security-office-lvl1"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-main-lobby-lvl1"
+    },
+    {
+      "source": "vav-main-lobby-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-main-lobby-lvl1"
+    },
+    {
+      "source": "panel-lvl1",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-main-lobby-lvl1"
+    },
+    {
+      "source": "circuit_zone-main-lobby-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-main-lobby-lvl1"
+    },
+    {
+      "source": "zone-main-lobby-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-main-lobby-lvl1"
+    },
+    {
+      "source": "zone-main-lobby-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-main-lobby-lvl1"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-atrium-lvl1"
+    },
+    {
+      "source": "vav-atrium-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-atrium-lvl1"
+    },
+    {
+      "source": "panel-lvl1",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-atrium-lvl1"
+    },
+    {
+      "source": "circuit_zone-atrium-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-atrium-lvl1"
+    },
+    {
+      "source": "zone-atrium-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-atrium-lvl1"
+    },
+    {
+      "source": "zone-atrium-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-atrium-lvl1"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-visitor-lounge-lvl1"
+    },
+    {
+      "source": "vav-visitor-lounge-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-visitor-lounge-lvl1"
+    },
+    {
+      "source": "panel-lvl1",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-visitor-lounge-lvl1"
+    },
+    {
+      "source": "circuit_zone-visitor-lounge-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-visitor-lounge-lvl1"
+    },
+    {
+      "source": "zone-visitor-lounge-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-visitor-lounge-lvl1"
+    },
+    {
+      "source": "zone-visitor-lounge-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-visitor-lounge-lvl1"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl1"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl1"
+    },
+    {
+      "source": "panel-lvl1",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl1"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl1",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl1"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl1"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl1",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl1"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-west-office-lvl2"
+    },
+    {
+      "source": "vav-north-west-office-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl2"
+    },
+    {
+      "source": "panel-lvl2",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-west-office-lvl2"
+    },
+    {
+      "source": "circuit_zone-north-west-office-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl2"
+    },
+    {
+      "source": "zone-north-west-office-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-west-office-lvl2"
+    },
+    {
+      "source": "zone-north-west-office-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-west-office-lvl2"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-perimeter-lvl2"
+    },
+    {
+      "source": "vav-north-perimeter-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl2"
+    },
+    {
+      "source": "panel-lvl2",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-perimeter-lvl2"
+    },
+    {
+      "source": "circuit_zone-north-perimeter-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl2"
+    },
+    {
+      "source": "zone-north-perimeter-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-perimeter-lvl2"
+    },
+    {
+      "source": "zone-north-perimeter-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-perimeter-lvl2"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-east-office-lvl2"
+    },
+    {
+      "source": "vav-north-east-office-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl2"
+    },
+    {
+      "source": "panel-lvl2",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-east-office-lvl2"
+    },
+    {
+      "source": "circuit_zone-north-east-office-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl2"
+    },
+    {
+      "source": "zone-north-east-office-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-east-office-lvl2"
+    },
+    {
+      "source": "zone-north-east-office-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-east-office-lvl2"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-west-conference-lvl2"
+    },
+    {
+      "source": "vav-west-conference-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl2"
+    },
+    {
+      "source": "panel-lvl2",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-west-conference-lvl2"
+    },
+    {
+      "source": "circuit_zone-west-conference-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl2"
+    },
+    {
+      "source": "zone-west-conference-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-west-conference-lvl2"
+    },
+    {
+      "source": "zone-west-conference-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-west-conference-lvl2"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-east-conference-lvl2"
+    },
+    {
+      "source": "vav-east-conference-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl2"
+    },
+    {
+      "source": "panel-lvl2",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-east-conference-lvl2"
+    },
+    {
+      "source": "circuit_zone-east-conference-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl2"
+    },
+    {
+      "source": "zone-east-conference-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-east-conference-lvl2"
+    },
+    {
+      "source": "zone-east-conference-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-east-conference-lvl2"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-west-office-lvl2"
+    },
+    {
+      "source": "vav-south-west-office-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl2"
+    },
+    {
+      "source": "panel-lvl2",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-west-office-lvl2"
+    },
+    {
+      "source": "circuit_zone-south-west-office-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl2"
+    },
+    {
+      "source": "zone-south-west-office-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-west-office-lvl2"
+    },
+    {
+      "source": "zone-south-west-office-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-west-office-lvl2"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-perimeter-lvl2"
+    },
+    {
+      "source": "vav-south-perimeter-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl2"
+    },
+    {
+      "source": "panel-lvl2",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-perimeter-lvl2"
+    },
+    {
+      "source": "circuit_zone-south-perimeter-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl2"
+    },
+    {
+      "source": "zone-south-perimeter-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-perimeter-lvl2"
+    },
+    {
+      "source": "zone-south-perimeter-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-perimeter-lvl2"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-open-office-lvl2"
+    },
+    {
+      "source": "vav-open-office-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl2"
+    },
+    {
+      "source": "panel-lvl2",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-open-office-lvl2"
+    },
+    {
+      "source": "circuit_zone-open-office-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl2"
+    },
+    {
+      "source": "zone-open-office-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-open-office-lvl2"
+    },
+    {
+      "source": "zone-open-office-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-open-office-lvl2"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl2"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl2"
+    },
+    {
+      "source": "panel-lvl2",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl2"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl2",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl2"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl2"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl2",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl2"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-west-office-lvl3"
+    },
+    {
+      "source": "vav-north-west-office-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl3"
+    },
+    {
+      "source": "panel-lvl3",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-west-office-lvl3"
+    },
+    {
+      "source": "circuit_zone-north-west-office-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl3"
+    },
+    {
+      "source": "zone-north-west-office-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-west-office-lvl3"
+    },
+    {
+      "source": "zone-north-west-office-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-west-office-lvl3"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-perimeter-lvl3"
+    },
+    {
+      "source": "vav-north-perimeter-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl3"
+    },
+    {
+      "source": "panel-lvl3",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-perimeter-lvl3"
+    },
+    {
+      "source": "circuit_zone-north-perimeter-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl3"
+    },
+    {
+      "source": "zone-north-perimeter-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-perimeter-lvl3"
+    },
+    {
+      "source": "zone-north-perimeter-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-perimeter-lvl3"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-east-office-lvl3"
+    },
+    {
+      "source": "vav-north-east-office-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl3"
+    },
+    {
+      "source": "panel-lvl3",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-east-office-lvl3"
+    },
+    {
+      "source": "circuit_zone-north-east-office-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl3"
+    },
+    {
+      "source": "zone-north-east-office-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-east-office-lvl3"
+    },
+    {
+      "source": "zone-north-east-office-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-east-office-lvl3"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-west-conference-lvl3"
+    },
+    {
+      "source": "vav-west-conference-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl3"
+    },
+    {
+      "source": "panel-lvl3",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-west-conference-lvl3"
+    },
+    {
+      "source": "circuit_zone-west-conference-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl3"
+    },
+    {
+      "source": "zone-west-conference-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-west-conference-lvl3"
+    },
+    {
+      "source": "zone-west-conference-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-west-conference-lvl3"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-east-conference-lvl3"
+    },
+    {
+      "source": "vav-east-conference-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl3"
+    },
+    {
+      "source": "panel-lvl3",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-east-conference-lvl3"
+    },
+    {
+      "source": "circuit_zone-east-conference-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl3"
+    },
+    {
+      "source": "zone-east-conference-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-east-conference-lvl3"
+    },
+    {
+      "source": "zone-east-conference-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-east-conference-lvl3"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-west-office-lvl3"
+    },
+    {
+      "source": "vav-south-west-office-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl3"
+    },
+    {
+      "source": "panel-lvl3",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-west-office-lvl3"
+    },
+    {
+      "source": "circuit_zone-south-west-office-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl3"
+    },
+    {
+      "source": "zone-south-west-office-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-west-office-lvl3"
+    },
+    {
+      "source": "zone-south-west-office-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-west-office-lvl3"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-perimeter-lvl3"
+    },
+    {
+      "source": "vav-south-perimeter-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl3"
+    },
+    {
+      "source": "panel-lvl3",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-perimeter-lvl3"
+    },
+    {
+      "source": "circuit_zone-south-perimeter-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl3"
+    },
+    {
+      "source": "zone-south-perimeter-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-perimeter-lvl3"
+    },
+    {
+      "source": "zone-south-perimeter-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-perimeter-lvl3"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-open-office-lvl3"
+    },
+    {
+      "source": "vav-open-office-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl3"
+    },
+    {
+      "source": "panel-lvl3",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-open-office-lvl3"
+    },
+    {
+      "source": "circuit_zone-open-office-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl3"
+    },
+    {
+      "source": "zone-open-office-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-open-office-lvl3"
+    },
+    {
+      "source": "zone-open-office-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-open-office-lvl3"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl3"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl3"
+    },
+    {
+      "source": "panel-lvl3",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl3"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl3",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl3"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl3"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl3",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl3"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-west-office-lvl4"
+    },
+    {
+      "source": "vav-north-west-office-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl4"
+    },
+    {
+      "source": "panel-lvl4",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-west-office-lvl4"
+    },
+    {
+      "source": "circuit_zone-north-west-office-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl4"
+    },
+    {
+      "source": "zone-north-west-office-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-west-office-lvl4"
+    },
+    {
+      "source": "zone-north-west-office-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-west-office-lvl4"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-perimeter-lvl4"
+    },
+    {
+      "source": "vav-north-perimeter-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl4"
+    },
+    {
+      "source": "panel-lvl4",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-perimeter-lvl4"
+    },
+    {
+      "source": "circuit_zone-north-perimeter-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl4"
+    },
+    {
+      "source": "zone-north-perimeter-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-perimeter-lvl4"
+    },
+    {
+      "source": "zone-north-perimeter-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-perimeter-lvl4"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-east-office-lvl4"
+    },
+    {
+      "source": "vav-north-east-office-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl4"
+    },
+    {
+      "source": "panel-lvl4",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-east-office-lvl4"
+    },
+    {
+      "source": "circuit_zone-north-east-office-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl4"
+    },
+    {
+      "source": "zone-north-east-office-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-east-office-lvl4"
+    },
+    {
+      "source": "zone-north-east-office-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-east-office-lvl4"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-west-conference-lvl4"
+    },
+    {
+      "source": "vav-west-conference-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl4"
+    },
+    {
+      "source": "panel-lvl4",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-west-conference-lvl4"
+    },
+    {
+      "source": "circuit_zone-west-conference-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl4"
+    },
+    {
+      "source": "zone-west-conference-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-west-conference-lvl4"
+    },
+    {
+      "source": "zone-west-conference-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-west-conference-lvl4"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-east-conference-lvl4"
+    },
+    {
+      "source": "vav-east-conference-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl4"
+    },
+    {
+      "source": "panel-lvl4",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-east-conference-lvl4"
+    },
+    {
+      "source": "circuit_zone-east-conference-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl4"
+    },
+    {
+      "source": "zone-east-conference-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-east-conference-lvl4"
+    },
+    {
+      "source": "zone-east-conference-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-east-conference-lvl4"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-west-office-lvl4"
+    },
+    {
+      "source": "vav-south-west-office-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl4"
+    },
+    {
+      "source": "panel-lvl4",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-west-office-lvl4"
+    },
+    {
+      "source": "circuit_zone-south-west-office-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl4"
+    },
+    {
+      "source": "zone-south-west-office-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-west-office-lvl4"
+    },
+    {
+      "source": "zone-south-west-office-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-west-office-lvl4"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-perimeter-lvl4"
+    },
+    {
+      "source": "vav-south-perimeter-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl4"
+    },
+    {
+      "source": "panel-lvl4",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-perimeter-lvl4"
+    },
+    {
+      "source": "circuit_zone-south-perimeter-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl4"
+    },
+    {
+      "source": "zone-south-perimeter-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-perimeter-lvl4"
+    },
+    {
+      "source": "zone-south-perimeter-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-perimeter-lvl4"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-open-office-lvl4"
+    },
+    {
+      "source": "vav-open-office-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl4"
+    },
+    {
+      "source": "panel-lvl4",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-open-office-lvl4"
+    },
+    {
+      "source": "circuit_zone-open-office-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl4"
+    },
+    {
+      "source": "zone-open-office-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-open-office-lvl4"
+    },
+    {
+      "source": "zone-open-office-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-open-office-lvl4"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl4"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl4"
+    },
+    {
+      "source": "panel-lvl4",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl4"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl4",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl4"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl4"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl4",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl4"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-west-office-lvl5"
+    },
+    {
+      "source": "vav-north-west-office-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl5"
+    },
+    {
+      "source": "panel-lvl5",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-west-office-lvl5"
+    },
+    {
+      "source": "circuit_zone-north-west-office-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl5"
+    },
+    {
+      "source": "zone-north-west-office-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-west-office-lvl5"
+    },
+    {
+      "source": "zone-north-west-office-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-west-office-lvl5"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-perimeter-lvl5"
+    },
+    {
+      "source": "vav-north-perimeter-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl5"
+    },
+    {
+      "source": "panel-lvl5",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-perimeter-lvl5"
+    },
+    {
+      "source": "circuit_zone-north-perimeter-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl5"
+    },
+    {
+      "source": "zone-north-perimeter-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-perimeter-lvl5"
+    },
+    {
+      "source": "zone-north-perimeter-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-perimeter-lvl5"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-east-office-lvl5"
+    },
+    {
+      "source": "vav-north-east-office-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl5"
+    },
+    {
+      "source": "panel-lvl5",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-east-office-lvl5"
+    },
+    {
+      "source": "circuit_zone-north-east-office-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl5"
+    },
+    {
+      "source": "zone-north-east-office-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-east-office-lvl5"
+    },
+    {
+      "source": "zone-north-east-office-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-east-office-lvl5"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-west-conference-lvl5"
+    },
+    {
+      "source": "vav-west-conference-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl5"
+    },
+    {
+      "source": "panel-lvl5",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-west-conference-lvl5"
+    },
+    {
+      "source": "circuit_zone-west-conference-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl5"
+    },
+    {
+      "source": "zone-west-conference-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-west-conference-lvl5"
+    },
+    {
+      "source": "zone-west-conference-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-west-conference-lvl5"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-east-conference-lvl5"
+    },
+    {
+      "source": "vav-east-conference-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl5"
+    },
+    {
+      "source": "panel-lvl5",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-east-conference-lvl5"
+    },
+    {
+      "source": "circuit_zone-east-conference-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl5"
+    },
+    {
+      "source": "zone-east-conference-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-east-conference-lvl5"
+    },
+    {
+      "source": "zone-east-conference-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-east-conference-lvl5"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-west-office-lvl5"
+    },
+    {
+      "source": "vav-south-west-office-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl5"
+    },
+    {
+      "source": "panel-lvl5",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-west-office-lvl5"
+    },
+    {
+      "source": "circuit_zone-south-west-office-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl5"
+    },
+    {
+      "source": "zone-south-west-office-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-west-office-lvl5"
+    },
+    {
+      "source": "zone-south-west-office-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-west-office-lvl5"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-perimeter-lvl5"
+    },
+    {
+      "source": "vav-south-perimeter-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl5"
+    },
+    {
+      "source": "panel-lvl5",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-perimeter-lvl5"
+    },
+    {
+      "source": "circuit_zone-south-perimeter-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl5"
+    },
+    {
+      "source": "zone-south-perimeter-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-perimeter-lvl5"
+    },
+    {
+      "source": "zone-south-perimeter-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-perimeter-lvl5"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-open-office-lvl5"
+    },
+    {
+      "source": "vav-open-office-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl5"
+    },
+    {
+      "source": "panel-lvl5",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-open-office-lvl5"
+    },
+    {
+      "source": "circuit_zone-open-office-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl5"
+    },
+    {
+      "source": "zone-open-office-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-open-office-lvl5"
+    },
+    {
+      "source": "zone-open-office-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-open-office-lvl5"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl5"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl5"
+    },
+    {
+      "source": "panel-lvl5",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl5"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl5",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl5"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl5"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl5",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl5"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-noc-office-lvl6"
+    },
+    {
+      "source": "vav-noc-office-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-noc-office-lvl6"
+    },
+    {
+      "source": "panel-lvl6",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-noc-office-lvl6"
+    },
+    {
+      "source": "circuit_zone-noc-office-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-noc-office-lvl6"
+    },
+    {
+      "source": "zone-noc-office-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-noc-office-lvl6"
+    },
+    {
+      "source": "zone-noc-office-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-noc-office-lvl6"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-server-room-a-lvl6"
+    },
+    {
+      "source": "vav-server-room-a-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-server-room-a-lvl6"
+    },
+    {
+      "source": "panel-lvl6",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-server-room-a-lvl6"
+    },
+    {
+      "source": "circuit_zone-server-room-a-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-server-room-a-lvl6"
+    },
+    {
+      "source": "zone-server-room-a-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-server-room-a-lvl6"
+    },
+    {
+      "source": "zone-server-room-a-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-server-room-a-lvl6"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-ups-room-lvl6"
+    },
+    {
+      "source": "vav-ups-room-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-ups-room-lvl6"
+    },
+    {
+      "source": "panel-lvl6",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-ups-room-lvl6"
+    },
+    {
+      "source": "circuit_zone-ups-room-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-ups-room-lvl6"
+    },
+    {
+      "source": "zone-ups-room-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-ups-room-lvl6"
+    },
+    {
+      "source": "zone-ups-room-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-ups-room-lvl6"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-cold-aisle-lvl6"
+    },
+    {
+      "source": "vav-cold-aisle-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-cold-aisle-lvl6"
+    },
+    {
+      "source": "panel-lvl6",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-cold-aisle-lvl6"
+    },
+    {
+      "source": "circuit_zone-cold-aisle-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-cold-aisle-lvl6"
+    },
+    {
+      "source": "zone-cold-aisle-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-cold-aisle-lvl6"
+    },
+    {
+      "source": "zone-cold-aisle-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-cold-aisle-lvl6"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-server-room-b-lvl6"
+    },
+    {
+      "source": "vav-server-room-b-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-server-room-b-lvl6"
+    },
+    {
+      "source": "panel-lvl6",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-server-room-b-lvl6"
+    },
+    {
+      "source": "circuit_zone-server-room-b-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-server-room-b-lvl6"
+    },
+    {
+      "source": "zone-server-room-b-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-server-room-b-lvl6"
+    },
+    {
+      "source": "zone-server-room-b-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-server-room-b-lvl6"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-pdu-room-lvl6"
+    },
+    {
+      "source": "vav-pdu-room-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-pdu-room-lvl6"
+    },
+    {
+      "source": "panel-lvl6",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-pdu-room-lvl6"
+    },
+    {
+      "source": "circuit_zone-pdu-room-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-pdu-room-lvl6"
+    },
+    {
+      "source": "zone-pdu-room-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-pdu-room-lvl6"
+    },
+    {
+      "source": "zone-pdu-room-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-pdu-room-lvl6"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-server-room-c-lvl6"
+    },
+    {
+      "source": "vav-server-room-c-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-server-room-c-lvl6"
+    },
+    {
+      "source": "panel-lvl6",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-server-room-c-lvl6"
+    },
+    {
+      "source": "circuit_zone-server-room-c-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-server-room-c-lvl6"
+    },
+    {
+      "source": "zone-server-room-c-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-server-room-c-lvl6"
+    },
+    {
+      "source": "zone-server-room-c-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-server-room-c-lvl6"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-operations-lvl6"
+    },
+    {
+      "source": "vav-operations-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-operations-lvl6"
+    },
+    {
+      "source": "panel-lvl6",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-operations-lvl6"
+    },
+    {
+      "source": "circuit_zone-operations-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-operations-lvl6"
+    },
+    {
+      "source": "zone-operations-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-operations-lvl6"
+    },
+    {
+      "source": "zone-operations-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-operations-lvl6"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl6"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl6"
+    },
+    {
+      "source": "panel-lvl6",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl6"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl6",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl6"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl6"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl6",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl6"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-west-office-lvl7"
+    },
+    {
+      "source": "vav-north-west-office-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl7"
+    },
+    {
+      "source": "panel-lvl7",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-west-office-lvl7"
+    },
+    {
+      "source": "circuit_zone-north-west-office-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl7"
+    },
+    {
+      "source": "zone-north-west-office-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-west-office-lvl7"
+    },
+    {
+      "source": "zone-north-west-office-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-west-office-lvl7"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-perimeter-lvl7"
+    },
+    {
+      "source": "vav-north-perimeter-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl7"
+    },
+    {
+      "source": "panel-lvl7",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-perimeter-lvl7"
+    },
+    {
+      "source": "circuit_zone-north-perimeter-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl7"
+    },
+    {
+      "source": "zone-north-perimeter-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-perimeter-lvl7"
+    },
+    {
+      "source": "zone-north-perimeter-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-perimeter-lvl7"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-east-office-lvl7"
+    },
+    {
+      "source": "vav-north-east-office-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl7"
+    },
+    {
+      "source": "panel-lvl7",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-east-office-lvl7"
+    },
+    {
+      "source": "circuit_zone-north-east-office-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl7"
+    },
+    {
+      "source": "zone-north-east-office-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-east-office-lvl7"
+    },
+    {
+      "source": "zone-north-east-office-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-east-office-lvl7"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-west-conference-lvl7"
+    },
+    {
+      "source": "vav-west-conference-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl7"
+    },
+    {
+      "source": "panel-lvl7",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-west-conference-lvl7"
+    },
+    {
+      "source": "circuit_zone-west-conference-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl7"
+    },
+    {
+      "source": "zone-west-conference-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-west-conference-lvl7"
+    },
+    {
+      "source": "zone-west-conference-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-west-conference-lvl7"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-east-conference-lvl7"
+    },
+    {
+      "source": "vav-east-conference-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl7"
+    },
+    {
+      "source": "panel-lvl7",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-east-conference-lvl7"
+    },
+    {
+      "source": "circuit_zone-east-conference-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl7"
+    },
+    {
+      "source": "zone-east-conference-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-east-conference-lvl7"
+    },
+    {
+      "source": "zone-east-conference-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-east-conference-lvl7"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-west-office-lvl7"
+    },
+    {
+      "source": "vav-south-west-office-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl7"
+    },
+    {
+      "source": "panel-lvl7",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-west-office-lvl7"
+    },
+    {
+      "source": "circuit_zone-south-west-office-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl7"
+    },
+    {
+      "source": "zone-south-west-office-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-west-office-lvl7"
+    },
+    {
+      "source": "zone-south-west-office-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-west-office-lvl7"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-perimeter-lvl7"
+    },
+    {
+      "source": "vav-south-perimeter-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl7"
+    },
+    {
+      "source": "panel-lvl7",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-perimeter-lvl7"
+    },
+    {
+      "source": "circuit_zone-south-perimeter-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl7"
+    },
+    {
+      "source": "zone-south-perimeter-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-perimeter-lvl7"
+    },
+    {
+      "source": "zone-south-perimeter-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-perimeter-lvl7"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-open-office-lvl7"
+    },
+    {
+      "source": "vav-open-office-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl7"
+    },
+    {
+      "source": "panel-lvl7",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-open-office-lvl7"
+    },
+    {
+      "source": "circuit_zone-open-office-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl7"
+    },
+    {
+      "source": "zone-open-office-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-open-office-lvl7"
+    },
+    {
+      "source": "zone-open-office-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-open-office-lvl7"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl7"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl7"
+    },
+    {
+      "source": "panel-lvl7",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl7"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl7",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl7"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl7"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl7",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl7"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-west-office-lvl8"
+    },
+    {
+      "source": "vav-north-west-office-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl8"
+    },
+    {
+      "source": "panel-lvl8",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-west-office-lvl8"
+    },
+    {
+      "source": "circuit_zone-north-west-office-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl8"
+    },
+    {
+      "source": "zone-north-west-office-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-west-office-lvl8"
+    },
+    {
+      "source": "zone-north-west-office-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-west-office-lvl8"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-perimeter-lvl8"
+    },
+    {
+      "source": "vav-north-perimeter-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl8"
+    },
+    {
+      "source": "panel-lvl8",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-perimeter-lvl8"
+    },
+    {
+      "source": "circuit_zone-north-perimeter-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl8"
+    },
+    {
+      "source": "zone-north-perimeter-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-perimeter-lvl8"
+    },
+    {
+      "source": "zone-north-perimeter-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-perimeter-lvl8"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-east-office-lvl8"
+    },
+    {
+      "source": "vav-north-east-office-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl8"
+    },
+    {
+      "source": "panel-lvl8",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-east-office-lvl8"
+    },
+    {
+      "source": "circuit_zone-north-east-office-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl8"
+    },
+    {
+      "source": "zone-north-east-office-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-east-office-lvl8"
+    },
+    {
+      "source": "zone-north-east-office-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-east-office-lvl8"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-west-conference-lvl8"
+    },
+    {
+      "source": "vav-west-conference-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl8"
+    },
+    {
+      "source": "panel-lvl8",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-west-conference-lvl8"
+    },
+    {
+      "source": "circuit_zone-west-conference-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl8"
+    },
+    {
+      "source": "zone-west-conference-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-west-conference-lvl8"
+    },
+    {
+      "source": "zone-west-conference-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-west-conference-lvl8"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-east-conference-lvl8"
+    },
+    {
+      "source": "vav-east-conference-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl8"
+    },
+    {
+      "source": "panel-lvl8",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-east-conference-lvl8"
+    },
+    {
+      "source": "circuit_zone-east-conference-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl8"
+    },
+    {
+      "source": "zone-east-conference-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-east-conference-lvl8"
+    },
+    {
+      "source": "zone-east-conference-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-east-conference-lvl8"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-west-office-lvl8"
+    },
+    {
+      "source": "vav-south-west-office-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl8"
+    },
+    {
+      "source": "panel-lvl8",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-west-office-lvl8"
+    },
+    {
+      "source": "circuit_zone-south-west-office-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl8"
+    },
+    {
+      "source": "zone-south-west-office-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-west-office-lvl8"
+    },
+    {
+      "source": "zone-south-west-office-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-west-office-lvl8"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-perimeter-lvl8"
+    },
+    {
+      "source": "vav-south-perimeter-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl8"
+    },
+    {
+      "source": "panel-lvl8",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-perimeter-lvl8"
+    },
+    {
+      "source": "circuit_zone-south-perimeter-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl8"
+    },
+    {
+      "source": "zone-south-perimeter-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-perimeter-lvl8"
+    },
+    {
+      "source": "zone-south-perimeter-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-perimeter-lvl8"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-open-office-lvl8"
+    },
+    {
+      "source": "vav-open-office-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl8"
+    },
+    {
+      "source": "panel-lvl8",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-open-office-lvl8"
+    },
+    {
+      "source": "circuit_zone-open-office-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl8"
+    },
+    {
+      "source": "zone-open-office-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-open-office-lvl8"
+    },
+    {
+      "source": "zone-open-office-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-open-office-lvl8"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl8"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl8"
+    },
+    {
+      "source": "panel-lvl8",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl8"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl8",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl8"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl8"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl8",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl8"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-noc-office-lvl9"
+    },
+    {
+      "source": "vav-noc-office-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-noc-office-lvl9"
+    },
+    {
+      "source": "panel-lvl9",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-noc-office-lvl9"
+    },
+    {
+      "source": "circuit_zone-noc-office-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-noc-office-lvl9"
+    },
+    {
+      "source": "zone-noc-office-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-noc-office-lvl9"
+    },
+    {
+      "source": "zone-noc-office-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-noc-office-lvl9"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-server-room-a-lvl9"
+    },
+    {
+      "source": "vav-server-room-a-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-server-room-a-lvl9"
+    },
+    {
+      "source": "panel-lvl9",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-server-room-a-lvl9"
+    },
+    {
+      "source": "circuit_zone-server-room-a-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-server-room-a-lvl9"
+    },
+    {
+      "source": "zone-server-room-a-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-server-room-a-lvl9"
+    },
+    {
+      "source": "zone-server-room-a-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-server-room-a-lvl9"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-ups-room-lvl9"
+    },
+    {
+      "source": "vav-ups-room-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-ups-room-lvl9"
+    },
+    {
+      "source": "panel-lvl9",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-ups-room-lvl9"
+    },
+    {
+      "source": "circuit_zone-ups-room-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-ups-room-lvl9"
+    },
+    {
+      "source": "zone-ups-room-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-ups-room-lvl9"
+    },
+    {
+      "source": "zone-ups-room-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-ups-room-lvl9"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-cold-aisle-lvl9"
+    },
+    {
+      "source": "vav-cold-aisle-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-cold-aisle-lvl9"
+    },
+    {
+      "source": "panel-lvl9",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-cold-aisle-lvl9"
+    },
+    {
+      "source": "circuit_zone-cold-aisle-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-cold-aisle-lvl9"
+    },
+    {
+      "source": "zone-cold-aisle-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-cold-aisle-lvl9"
+    },
+    {
+      "source": "zone-cold-aisle-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-cold-aisle-lvl9"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-server-room-b-lvl9"
+    },
+    {
+      "source": "vav-server-room-b-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-server-room-b-lvl9"
+    },
+    {
+      "source": "panel-lvl9",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-server-room-b-lvl9"
+    },
+    {
+      "source": "circuit_zone-server-room-b-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-server-room-b-lvl9"
+    },
+    {
+      "source": "zone-server-room-b-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-server-room-b-lvl9"
+    },
+    {
+      "source": "zone-server-room-b-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-server-room-b-lvl9"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-pdu-room-lvl9"
+    },
+    {
+      "source": "vav-pdu-room-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-pdu-room-lvl9"
+    },
+    {
+      "source": "panel-lvl9",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-pdu-room-lvl9"
+    },
+    {
+      "source": "circuit_zone-pdu-room-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-pdu-room-lvl9"
+    },
+    {
+      "source": "zone-pdu-room-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-pdu-room-lvl9"
+    },
+    {
+      "source": "zone-pdu-room-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-pdu-room-lvl9"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-server-room-c-lvl9"
+    },
+    {
+      "source": "vav-server-room-c-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-server-room-c-lvl9"
+    },
+    {
+      "source": "panel-lvl9",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-server-room-c-lvl9"
+    },
+    {
+      "source": "circuit_zone-server-room-c-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-server-room-c-lvl9"
+    },
+    {
+      "source": "zone-server-room-c-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-server-room-c-lvl9"
+    },
+    {
+      "source": "zone-server-room-c-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-server-room-c-lvl9"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-operations-lvl9"
+    },
+    {
+      "source": "vav-operations-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-operations-lvl9"
+    },
+    {
+      "source": "panel-lvl9",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-operations-lvl9"
+    },
+    {
+      "source": "circuit_zone-operations-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-operations-lvl9"
+    },
+    {
+      "source": "zone-operations-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-operations-lvl9"
+    },
+    {
+      "source": "zone-operations-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-operations-lvl9"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl9"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl9"
+    },
+    {
+      "source": "panel-lvl9",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl9"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl9",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl9"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl9"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl9",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl9"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-west-office-lvl10"
+    },
+    {
+      "source": "vav-north-west-office-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl10"
+    },
+    {
+      "source": "panel-lvl10",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-west-office-lvl10"
+    },
+    {
+      "source": "circuit_zone-north-west-office-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl10"
+    },
+    {
+      "source": "zone-north-west-office-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-west-office-lvl10"
+    },
+    {
+      "source": "zone-north-west-office-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-west-office-lvl10"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-perimeter-lvl10"
+    },
+    {
+      "source": "vav-north-perimeter-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl10"
+    },
+    {
+      "source": "panel-lvl10",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-perimeter-lvl10"
+    },
+    {
+      "source": "circuit_zone-north-perimeter-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl10"
+    },
+    {
+      "source": "zone-north-perimeter-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-perimeter-lvl10"
+    },
+    {
+      "source": "zone-north-perimeter-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-perimeter-lvl10"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-east-office-lvl10"
+    },
+    {
+      "source": "vav-north-east-office-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl10"
+    },
+    {
+      "source": "panel-lvl10",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-east-office-lvl10"
+    },
+    {
+      "source": "circuit_zone-north-east-office-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl10"
+    },
+    {
+      "source": "zone-north-east-office-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-east-office-lvl10"
+    },
+    {
+      "source": "zone-north-east-office-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-east-office-lvl10"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-west-conference-lvl10"
+    },
+    {
+      "source": "vav-west-conference-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl10"
+    },
+    {
+      "source": "panel-lvl10",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-west-conference-lvl10"
+    },
+    {
+      "source": "circuit_zone-west-conference-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl10"
+    },
+    {
+      "source": "zone-west-conference-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-west-conference-lvl10"
+    },
+    {
+      "source": "zone-west-conference-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-west-conference-lvl10"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-east-conference-lvl10"
+    },
+    {
+      "source": "vav-east-conference-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl10"
+    },
+    {
+      "source": "panel-lvl10",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-east-conference-lvl10"
+    },
+    {
+      "source": "circuit_zone-east-conference-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl10"
+    },
+    {
+      "source": "zone-east-conference-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-east-conference-lvl10"
+    },
+    {
+      "source": "zone-east-conference-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-east-conference-lvl10"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-west-office-lvl10"
+    },
+    {
+      "source": "vav-south-west-office-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl10"
+    },
+    {
+      "source": "panel-lvl10",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-west-office-lvl10"
+    },
+    {
+      "source": "circuit_zone-south-west-office-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl10"
+    },
+    {
+      "source": "zone-south-west-office-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-west-office-lvl10"
+    },
+    {
+      "source": "zone-south-west-office-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-west-office-lvl10"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-perimeter-lvl10"
+    },
+    {
+      "source": "vav-south-perimeter-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl10"
+    },
+    {
+      "source": "panel-lvl10",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-perimeter-lvl10"
+    },
+    {
+      "source": "circuit_zone-south-perimeter-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl10"
+    },
+    {
+      "source": "zone-south-perimeter-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-perimeter-lvl10"
+    },
+    {
+      "source": "zone-south-perimeter-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-perimeter-lvl10"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-open-office-lvl10"
+    },
+    {
+      "source": "vav-open-office-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl10"
+    },
+    {
+      "source": "panel-lvl10",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-open-office-lvl10"
+    },
+    {
+      "source": "circuit_zone-open-office-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl10"
+    },
+    {
+      "source": "zone-open-office-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-open-office-lvl10"
+    },
+    {
+      "source": "zone-open-office-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-open-office-lvl10"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl10"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl10"
+    },
+    {
+      "source": "panel-lvl10",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl10"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl10",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl10"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl10"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl10",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl10"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-executive-office-1-lvl11"
+    },
+    {
+      "source": "vav-executive-office-1-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-executive-office-1-lvl11"
+    },
+    {
+      "source": "panel-lvl11",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-executive-office-1-lvl11"
+    },
+    {
+      "source": "circuit_zone-executive-office-1-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-executive-office-1-lvl11"
+    },
+    {
+      "source": "zone-executive-office-1-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-executive-office-1-lvl11"
+    },
+    {
+      "source": "zone-executive-office-1-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-executive-office-1-lvl11"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-boardroom-lvl11"
+    },
+    {
+      "source": "vav-boardroom-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-boardroom-lvl11"
+    },
+    {
+      "source": "panel-lvl11",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-boardroom-lvl11"
+    },
+    {
+      "source": "circuit_zone-boardroom-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-boardroom-lvl11"
+    },
+    {
+      "source": "zone-boardroom-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-boardroom-lvl11"
+    },
+    {
+      "source": "zone-boardroom-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-boardroom-lvl11"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-executive-office-2-lvl11"
+    },
+    {
+      "source": "vav-executive-office-2-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-executive-office-2-lvl11"
+    },
+    {
+      "source": "panel-lvl11",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-executive-office-2-lvl11"
+    },
+    {
+      "source": "circuit_zone-executive-office-2-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-executive-office-2-lvl11"
+    },
+    {
+      "source": "zone-executive-office-2-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-executive-office-2-lvl11"
+    },
+    {
+      "source": "zone-executive-office-2-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-executive-office-2-lvl11"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-executive-office-3-lvl11"
+    },
+    {
+      "source": "vav-executive-office-3-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-executive-office-3-lvl11"
+    },
+    {
+      "source": "panel-lvl11",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-executive-office-3-lvl11"
+    },
+    {
+      "source": "circuit_zone-executive-office-3-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-executive-office-3-lvl11"
+    },
+    {
+      "source": "zone-executive-office-3-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-executive-office-3-lvl11"
+    },
+    {
+      "source": "zone-executive-office-3-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-executive-office-3-lvl11"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-executive-office-4-lvl11"
+    },
+    {
+      "source": "vav-executive-office-4-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-executive-office-4-lvl11"
+    },
+    {
+      "source": "panel-lvl11",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-executive-office-4-lvl11"
+    },
+    {
+      "source": "circuit_zone-executive-office-4-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-executive-office-4-lvl11"
+    },
+    {
+      "source": "zone-executive-office-4-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-executive-office-4-lvl11"
+    },
+    {
+      "source": "zone-executive-office-4-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-executive-office-4-lvl11"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-strategy-room-lvl11"
+    },
+    {
+      "source": "vav-strategy-room-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-strategy-room-lvl11"
+    },
+    {
+      "source": "panel-lvl11",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-strategy-room-lvl11"
+    },
+    {
+      "source": "circuit_zone-strategy-room-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-strategy-room-lvl11"
+    },
+    {
+      "source": "zone-strategy-room-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-strategy-room-lvl11"
+    },
+    {
+      "source": "zone-strategy-room-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-strategy-room-lvl11"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-executive-lounge-lvl11"
+    },
+    {
+      "source": "vav-executive-lounge-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-executive-lounge-lvl11"
+    },
+    {
+      "source": "panel-lvl11",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-executive-lounge-lvl11"
+    },
+    {
+      "source": "circuit_zone-executive-lounge-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-executive-lounge-lvl11"
+    },
+    {
+      "source": "zone-executive-lounge-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-executive-lounge-lvl11"
+    },
+    {
+      "source": "zone-executive-lounge-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-executive-lounge-lvl11"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-assistant-pool-lvl11"
+    },
+    {
+      "source": "vav-assistant-pool-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-assistant-pool-lvl11"
+    },
+    {
+      "source": "panel-lvl11",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-assistant-pool-lvl11"
+    },
+    {
+      "source": "circuit_zone-assistant-pool-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-assistant-pool-lvl11"
+    },
+    {
+      "source": "zone-assistant-pool-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-assistant-pool-lvl11"
+    },
+    {
+      "source": "zone-assistant-pool-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-assistant-pool-lvl11"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl11"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl11"
+    },
+    {
+      "source": "panel-lvl11",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl11"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl11",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl11"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl11"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl11",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl11"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-west-office-lvl12"
+    },
+    {
+      "source": "vav-north-west-office-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl12"
+    },
+    {
+      "source": "panel-lvl12",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-west-office-lvl12"
+    },
+    {
+      "source": "circuit_zone-north-west-office-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl12"
+    },
+    {
+      "source": "zone-north-west-office-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-west-office-lvl12"
+    },
+    {
+      "source": "zone-north-west-office-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-west-office-lvl12"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-perimeter-lvl12"
+    },
+    {
+      "source": "vav-north-perimeter-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl12"
+    },
+    {
+      "source": "panel-lvl12",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-perimeter-lvl12"
+    },
+    {
+      "source": "circuit_zone-north-perimeter-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl12"
+    },
+    {
+      "source": "zone-north-perimeter-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-perimeter-lvl12"
+    },
+    {
+      "source": "zone-north-perimeter-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-perimeter-lvl12"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-east-office-lvl12"
+    },
+    {
+      "source": "vav-north-east-office-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl12"
+    },
+    {
+      "source": "panel-lvl12",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-east-office-lvl12"
+    },
+    {
+      "source": "circuit_zone-north-east-office-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl12"
+    },
+    {
+      "source": "zone-north-east-office-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-east-office-lvl12"
+    },
+    {
+      "source": "zone-north-east-office-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-east-office-lvl12"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-west-conference-lvl12"
+    },
+    {
+      "source": "vav-west-conference-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl12"
+    },
+    {
+      "source": "panel-lvl12",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-west-conference-lvl12"
+    },
+    {
+      "source": "circuit_zone-west-conference-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl12"
+    },
+    {
+      "source": "zone-west-conference-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-west-conference-lvl12"
+    },
+    {
+      "source": "zone-west-conference-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-west-conference-lvl12"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-east-conference-lvl12"
+    },
+    {
+      "source": "vav-east-conference-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl12"
+    },
+    {
+      "source": "panel-lvl12",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-east-conference-lvl12"
+    },
+    {
+      "source": "circuit_zone-east-conference-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl12"
+    },
+    {
+      "source": "zone-east-conference-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-east-conference-lvl12"
+    },
+    {
+      "source": "zone-east-conference-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-east-conference-lvl12"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-west-office-lvl12"
+    },
+    {
+      "source": "vav-south-west-office-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl12"
+    },
+    {
+      "source": "panel-lvl12",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-west-office-lvl12"
+    },
+    {
+      "source": "circuit_zone-south-west-office-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl12"
+    },
+    {
+      "source": "zone-south-west-office-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-west-office-lvl12"
+    },
+    {
+      "source": "zone-south-west-office-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-west-office-lvl12"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-perimeter-lvl12"
+    },
+    {
+      "source": "vav-south-perimeter-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl12"
+    },
+    {
+      "source": "panel-lvl12",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-perimeter-lvl12"
+    },
+    {
+      "source": "circuit_zone-south-perimeter-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl12"
+    },
+    {
+      "source": "zone-south-perimeter-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-perimeter-lvl12"
+    },
+    {
+      "source": "zone-south-perimeter-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-perimeter-lvl12"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-open-office-lvl12"
+    },
+    {
+      "source": "vav-open-office-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl12"
+    },
+    {
+      "source": "panel-lvl12",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-open-office-lvl12"
+    },
+    {
+      "source": "circuit_zone-open-office-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl12"
+    },
+    {
+      "source": "zone-open-office-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-open-office-lvl12"
+    },
+    {
+      "source": "zone-open-office-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-open-office-lvl12"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl12"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl12"
+    },
+    {
+      "source": "panel-lvl12",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl12"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl12",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl12"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl12"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl12",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl12"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-west-office-lvl13"
+    },
+    {
+      "source": "vav-north-west-office-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl13"
+    },
+    {
+      "source": "panel-lvl13",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-west-office-lvl13"
+    },
+    {
+      "source": "circuit_zone-north-west-office-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-north-west-office-lvl13"
+    },
+    {
+      "source": "zone-north-west-office-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-west-office-lvl13"
+    },
+    {
+      "source": "zone-north-west-office-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-west-office-lvl13"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-perimeter-lvl13"
+    },
+    {
+      "source": "vav-north-perimeter-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl13"
+    },
+    {
+      "source": "panel-lvl13",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-perimeter-lvl13"
+    },
+    {
+      "source": "circuit_zone-north-perimeter-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-north-perimeter-lvl13"
+    },
+    {
+      "source": "zone-north-perimeter-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-perimeter-lvl13"
+    },
+    {
+      "source": "zone-north-perimeter-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-perimeter-lvl13"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-north-east-office-lvl13"
+    },
+    {
+      "source": "vav-north-east-office-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl13"
+    },
+    {
+      "source": "panel-lvl13",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-north-east-office-lvl13"
+    },
+    {
+      "source": "circuit_zone-north-east-office-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-north-east-office-lvl13"
+    },
+    {
+      "source": "zone-north-east-office-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-north-east-office-lvl13"
+    },
+    {
+      "source": "zone-north-east-office-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-north-east-office-lvl13"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-west-conference-lvl13"
+    },
+    {
+      "source": "vav-west-conference-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl13"
+    },
+    {
+      "source": "panel-lvl13",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-west-conference-lvl13"
+    },
+    {
+      "source": "circuit_zone-west-conference-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-west-conference-lvl13"
+    },
+    {
+      "source": "zone-west-conference-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-west-conference-lvl13"
+    },
+    {
+      "source": "zone-west-conference-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-west-conference-lvl13"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-east-conference-lvl13"
+    },
+    {
+      "source": "vav-east-conference-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl13"
+    },
+    {
+      "source": "panel-lvl13",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-east-conference-lvl13"
+    },
+    {
+      "source": "circuit_zone-east-conference-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-east-conference-lvl13"
+    },
+    {
+      "source": "zone-east-conference-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-east-conference-lvl13"
+    },
+    {
+      "source": "zone-east-conference-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-east-conference-lvl13"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-west-office-lvl13"
+    },
+    {
+      "source": "vav-south-west-office-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl13"
+    },
+    {
+      "source": "panel-lvl13",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-west-office-lvl13"
+    },
+    {
+      "source": "circuit_zone-south-west-office-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-south-west-office-lvl13"
+    },
+    {
+      "source": "zone-south-west-office-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-west-office-lvl13"
+    },
+    {
+      "source": "zone-south-west-office-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-west-office-lvl13"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-south-perimeter-lvl13"
+    },
+    {
+      "source": "vav-south-perimeter-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl13"
+    },
+    {
+      "source": "panel-lvl13",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-south-perimeter-lvl13"
+    },
+    {
+      "source": "circuit_zone-south-perimeter-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-south-perimeter-lvl13"
+    },
+    {
+      "source": "zone-south-perimeter-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-south-perimeter-lvl13"
+    },
+    {
+      "source": "zone-south-perimeter-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-south-perimeter-lvl13"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-open-office-lvl13"
+    },
+    {
+      "source": "vav-open-office-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl13"
+    },
+    {
+      "source": "panel-lvl13",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-open-office-lvl13"
+    },
+    {
+      "source": "circuit_zone-open-office-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-open-office-lvl13"
+    },
+    {
+      "source": "zone-open-office-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-open-office-lvl13"
+    },
+    {
+      "source": "zone-open-office-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-open-office-lvl13"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl13"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl13"
+    },
+    {
+      "source": "panel-lvl13",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl13"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl13",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl13"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl13"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl13",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl13"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-ahu-room-lvl14"
+    },
+    {
+      "source": "vav-ahu-room-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-ahu-room-lvl14"
+    },
+    {
+      "source": "panel-lvl14",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-ahu-room-lvl14"
+    },
+    {
+      "source": "circuit_zone-ahu-room-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-ahu-room-lvl14"
+    },
+    {
+      "source": "zone-ahu-room-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-ahu-room-lvl14"
+    },
+    {
+      "source": "zone-ahu-room-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-ahu-room-lvl14"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-chiller-plant-lvl14"
+    },
+    {
+      "source": "vav-chiller-plant-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-chiller-plant-lvl14"
+    },
+    {
+      "source": "panel-lvl14",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-chiller-plant-lvl14"
+    },
+    {
+      "source": "circuit_zone-chiller-plant-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-chiller-plant-lvl14"
+    },
+    {
+      "source": "zone-chiller-plant-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-chiller-plant-lvl14"
+    },
+    {
+      "source": "zone-chiller-plant-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-chiller-plant-lvl14"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-cooling-tower-lvl14"
+    },
+    {
+      "source": "vav-cooling-tower-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-cooling-tower-lvl14"
+    },
+    {
+      "source": "panel-lvl14",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-cooling-tower-lvl14"
+    },
+    {
+      "source": "circuit_zone-cooling-tower-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-cooling-tower-lvl14"
+    },
+    {
+      "source": "zone-cooling-tower-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-cooling-tower-lvl14"
+    },
+    {
+      "source": "zone-cooling-tower-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-cooling-tower-lvl14"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-pump-room-lvl14"
+    },
+    {
+      "source": "vav-pump-room-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-pump-room-lvl14"
+    },
+    {
+      "source": "panel-lvl14",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-pump-room-lvl14"
+    },
+    {
+      "source": "circuit_zone-pump-room-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-pump-room-lvl14"
+    },
+    {
+      "source": "zone-pump-room-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-pump-room-lvl14"
+    },
+    {
+      "source": "zone-pump-room-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-pump-room-lvl14"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-electrical-switchgear-lvl14"
+    },
+    {
+      "source": "vav-electrical-switchgear-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-electrical-switchgear-lvl14"
+    },
+    {
+      "source": "panel-lvl14",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-electrical-switchgear-lvl14"
+    },
+    {
+      "source": "circuit_zone-electrical-switchgear-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-electrical-switchgear-lvl14"
+    },
+    {
+      "source": "zone-electrical-switchgear-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-electrical-switchgear-lvl14"
+    },
+    {
+      "source": "zone-electrical-switchgear-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-electrical-switchgear-lvl14"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-fan-room-lvl14"
+    },
+    {
+      "source": "vav-fan-room-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-fan-room-lvl14"
+    },
+    {
+      "source": "panel-lvl14",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-fan-room-lvl14"
+    },
+    {
+      "source": "circuit_zone-fan-room-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-fan-room-lvl14"
+    },
+    {
+      "source": "zone-fan-room-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-fan-room-lvl14"
+    },
+    {
+      "source": "zone-fan-room-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-fan-room-lvl14"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-heat-exchanger-lvl14"
+    },
+    {
+      "source": "vav-heat-exchanger-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-heat-exchanger-lvl14"
+    },
+    {
+      "source": "panel-lvl14",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-heat-exchanger-lvl14"
+    },
+    {
+      "source": "circuit_zone-heat-exchanger-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-heat-exchanger-lvl14"
+    },
+    {
+      "source": "zone-heat-exchanger-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-heat-exchanger-lvl14"
+    },
+    {
+      "source": "zone-heat-exchanger-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-heat-exchanger-lvl14"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-bms-office-lvl14"
+    },
+    {
+      "source": "vav-bms-office-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-bms-office-lvl14"
+    },
+    {
+      "source": "panel-lvl14",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-bms-office-lvl14"
+    },
+    {
+      "source": "circuit_zone-bms-office-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-bms-office-lvl14"
+    },
+    {
+      "source": "zone-bms-office-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-bms-office-lvl14"
+    },
+    {
+      "source": "zone-bms-office-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-bms-office-lvl14"
+    },
+    {
+      "source": "ahu-main",
+      "predicate": "brick:feeds",
+      "target": "vav-core-elevator-lobby-lvl14"
+    },
+    {
+      "source": "vav-core-elevator-lobby-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl14"
+    },
+    {
+      "source": "panel-lvl14",
+      "predicate": "brick:feeds",
+      "target": "circuit_zone-core-elevator-lobby-lvl14"
+    },
+    {
+      "source": "circuit_zone-core-elevator-lobby-lvl14",
+      "predicate": "brick:feeds",
+      "target": "zone-core-elevator-lobby-lvl14"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "sensor_temp_zone-core-elevator-lobby-lvl14"
+    },
+    {
+      "source": "zone-core-elevator-lobby-lvl14",
+      "predicate": "brick:hasPoint",
+      "target": "camera_zone-core-elevator-lobby-lvl14"
+    }
+  ]
+}

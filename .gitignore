@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS
+.DS_Store
+
+# Edge/build artifacts
+edge/esp32/.pio/
+*.log
+.DS_Store
+*.pt
+*.mp4
+
+
+# Large Datasets & Training outputs
+ai_modules/branch_b_digitization/runs/
+ai_modules/branch_b_digitization/skeyspot/runs/
+ai_modules/branch_b_digitization/skeyspot/CubiCasa5k/
+ai_modules/branch_b_digitization/skeyspot/yolo_dataset/
+ai_modules/branch_b_digitization/skeyspot/mock_dataset/
+ai_modules/branch_b_digitization/skeyspot/data/
