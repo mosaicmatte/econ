@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Maintain dependencies for Node.js (Electron App)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Maintain dependencies for Python (Backend)
+  - package-ecosystem: "pip"
+    directory: "/backend" # Points to where your requirements.txt lives
+    schedule:
+      interval: "weekly"
