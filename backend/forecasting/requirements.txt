@@ -1,6 +1,6 @@
 # torch is also installed via the CPU-only wheel index in the Dockerfile (smaller image).
 torch>=2.2
-numpy>=1.26
+numpy>=2.5.1
 scikit-learn>=1.3
 joblib>=1.3
 fastapi>=0.110
