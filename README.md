@@ -6,6 +6,21 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-11 — Hardware-in-the-loop: physical ESP32 + Raspberry Pi Pico nodes
+>
+> **The twin now mirrors real hardware, not just the model.** Telemetry carrying a
+> genuinely measured temperature (new `tempReal` wire flag) pins the bound zone's
+> physics to the physical sensor — warm the chip with a fingertip and the dashboard
+> (and TimescaleDB history) follows in seconds, while the 2R1C model resumes seamlessly
+> the moment the node goes quiet. Each unknown board auto-binds to its own office zone,
+> so an ESP32 and a Pico demo side by side; bindings are inspectable at
+> `GET /api/hardware` and flagged with a ⚡ LIVE HARDWARE badge in the zone micro-HUD.
+> New `edge/pico` package: MicroPython node (RP2040 internal temp sensor, BOOTSEL
+> presence toggle, onboard-LED lights actuation) plus a USB-serial↔MQTT bridge that
+> gives the radio-less Pico full network presence — a Pico W connects over WiFi
+> directly. The ESP32 firmware gains zero-wiring touch presence (GPIO32) with instant
+> publish on change. Flash-and-demo guides: `edge/esp32/README.md`, `edge/pico/README.md`.
+>
 > ### 2026-07-11 — SkeySpot symbol detector: training complete, accuracy validated
 >
 > **The blueprint symbol detector is production-ready.** The SkeySpot `yolo11n` detector

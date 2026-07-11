@@ -14,8 +14,12 @@
 // Telemetry payload (what mqtt.go / yolo_tracker.py expect):
 //     {"zone":"Level 4","occupancy":N,"temperature":t,"humidity":h,"co2":c}
 //
-// Sensors are simulated by default so the node runs on a bare ESP32. Define
-// USE_REAL_SENSORS=1 (and wire DHT22 + PIR) for real readings.
+// Sensors are simulated by default so the node runs on a bare ESP32, but presence is
+// REAL out of the box: USE_TOUCH_PRESENCE reads the ESP32's capacitive touch pin
+// (GPIO32) — pinch a jumper wire on it and the zone shows occupied on the dashboard.
+// Define USE_REAL_SENSORS=1 (and wire DHT22 + PIR) for fully measured readings.
+// Telemetry marks "tempReal" so the engine only pins zone physics to measured
+// temperatures, never to the simulated placeholders.
 // -----------------------------------------------------------------------------
 
 #include <Arduino.h>
@@ -48,6 +52,17 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #define DHT_PIN 4
   #define PIR_PIN 5
   DHT dht(DHT_PIN, DHT22);
+#endif
+
+// Zero-wiring presence demo (ignored when USE_REAL_SENSORS=1): T9 = GPIO32 capacitive
+// touch. Touching the bare pin (or a jumper wire in it) drops the reading well below
+// the boot-time baseline -> occupied. Publishes immediately on change for a snappy demo.
+#define USE_TOUCH_PRESENCE 1
+#if !USE_REAL_SENSORS && USE_TOUCH_PRESENCE
+  const int TOUCH_PIN = T9;      // GPIO32
+  const int TOUCH_OCCUPANTS = 3; // headcount reported while touched
+  int touchBaseline = 0;         // calibrated in setup()
+  bool touchOccupied() { return touchRead(TOUCH_PIN) < touchBaseline * 6 / 10; }
 #endif
 
 WiFiClient   espClient;
@@ -130,20 +145,26 @@ void readAndPublish() {
 #else
   temperature = 22.0 + (random(0, 40) / 10.0);
   humidity    = 40.0 + random(0, 20);
-  occupancy   = random(0, 6);
-  co2         = 400 + random(0, 400);
+  #if USE_TOUCH_PRESENCE
+    occupancy = touchOccupied() ? TOUCH_OCCUPANTS : 0;  // real physical input
+  #else
+    occupancy = random(0, 6);
+  #endif
+  co2 = 400 + occupancy * 120 + random(0, 60);
 #endif
 
-  StaticJsonDocument<192> doc;
+  StaticJsonDocument<256> doc;
   doc["zone"]        = ZONE_LABEL;
   doc["occupancy"]   = occupancy;
   doc["temperature"] = round(temperature * 10) / 10.0;
   doc["humidity"]    = round(humidity * 10) / 10.0;
   doc["co2"]         = co2;
+  doc["source"]      = "esp32";
+  doc["tempReal"]    = USE_REAL_SENSORS ? true : false; // only measured temps may pin physics
   doc["lights"]      = lightsOn ? "ON" : "OFF";
   doc["setpoint"]    = hvacSetpointC;
 
-  char buf[224];
+  char buf[288];
   size_t n = serializeJson(doc, buf);
   client.publish(TELEMETRY_TOPIC, buf, n);
   Serial.printf("[mqtt] pub %s -> %s\n", TELEMETRY_TOPIC, buf);
@@ -175,6 +196,12 @@ void setup() {
 #if USE_REAL_SENSORS
   dht.begin();
   pinMode(PIR_PIN, INPUT);
+#elif USE_TOUCH_PRESENCE
+  // Calibrate the untouched touch level; a touch reads far below this baseline.
+  long acc = 0;
+  for (int i = 0; i < 16; i++) { acc += touchRead(TOUCH_PIN); delay(10); }
+  touchBaseline = acc / 16;
+  Serial.printf("[touch] baseline=%d threshold=%d (GPIO32)\n", touchBaseline, touchBaseline * 6 / 10);
 #endif
 
   snprintf(TELEMETRY_TOPIC, sizeof(TELEMETRY_TOPIC), "econ/telemetry/%s", ZONE_TOPIC);
@@ -199,6 +226,21 @@ void loop() {
   } else {
     client.loop();
     unsigned long now = millis();
+#if !USE_REAL_SENSORS && USE_TOUCH_PRESENCE
+    // Publish instantly when presence flips so the dashboard reacts in <0.2 s
+    // instead of waiting out the periodic interval.
+    static unsigned long lastTouchPoll = 0;
+    static bool lastTouched = false;
+    if (now - lastTouchPoll > 150) {
+      lastTouchPoll = now;
+      bool touched = touchOccupied();
+      if (touched != lastTouched) {
+        lastTouched = touched;
+        lastPublish = now;
+        readAndPublish();
+      }
+    }
+#endif
     if (now - lastPublish > PUBLISH_INTERVAL_MS) {
       lastPublish = now;
       readAndPublish();

@@ -256,6 +256,20 @@ function App() {
       .catch(err => console.error("Failed to load Brick ontology:", err));
   }, []);
 
+  // Physical edge nodes (ESP32 / Pico): poll which zones mirror real hardware so the
+  // micro-HUD can badge them. Stays an empty map when no node has ever reported.
+  const [hardwareNodes, setHardwareNodes] = useState({});
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetch('http://localhost:8080/api/hardware')
+      .then(res => res.json())
+      .then(list => { if (alive) setHardwareNodes(Object.fromEntries((list || []).map(n => [n.zoneId, n]))); })
+      .catch(() => {});
+    load();
+    const id = setInterval(load, 5000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+
   // Kick the 3D canvas after mount so it paints on load. The main building <Canvas> fills a
   // 100vw/vh wrapper that can measure 0 during initial layout, leaving R3F's render loop idle
   // until something forces a re-measure (previously: toggling airflow). A couple of resize
@@ -410,6 +424,24 @@ function App() {
               <button onClick={() => setSelectedZone(null)} style={{ background: 'transparent', border: '1px solid var(--accent-red)', borderRadius: '4px', padding: '4px 8px', color: 'var(--accent-red)', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}>EXIT [X]</button>
             </div>
             
+            {hardwareNodes[selectedZone] && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1rem' }}>
+                <span style={{
+                  fontSize: '9px', fontWeight: 'bold', letterSpacing: '0.06em', padding: '3px 8px', borderRadius: '4px',
+                  color: hardwareNodes[selectedZone].online ? 'var(--accent-green)' : 'var(--text-secondary)',
+                  border: `1px solid ${hardwareNodes[selectedZone].online ? 'var(--accent-green)' : 'var(--border-glass)'}`,
+                  background: hardwareNodes[selectedZone].online ? 'rgba(46, 204, 113, 0.08)' : 'transparent',
+                }}>
+                  ⚡ LIVE HARDWARE — {(hardwareNodes[selectedZone].source || 'edge').toUpperCase()}{hardwareNodes[selectedZone].online ? '' : ' (OFFLINE)'}
+                </span>
+                {hardwareNodes[selectedZone].tempPinned && (
+                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                    sensor {hardwareNodes[selectedZone].hwTemp.toFixed(1)}°C
+                  </span>
+                )}
+              </div>
+            )}
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><Users size={14}/> Est. CO₂ Level</span>

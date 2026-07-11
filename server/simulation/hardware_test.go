@@ -1,0 +1,195 @@
+package simulation
+
+import (
+	"testing"
+	"time"
+)
+
+// newTestEngine builds an engine with a tiny synthetic building. NewEngine is used so
+// every internal map is initialized exactly as in production; the data file is absent
+// under `go test`, which exercises the (intended) empty-building fallback.
+func newTestEngine() *Engine {
+	e := NewEngine()
+	for _, id := range []string{"zone-office-a", "zone-office-b", "zone-office-c"} {
+		e.Zones[id] = &ZoneSim{
+			Temp: 24, WallTemp: 24, Type: "office",
+			Setpoint: 24, BaseSetpoint: 24, Deadband: 1,
+			CAir: 5e5, CWall: 4e6, RIn: 0.001, ROut: 0.0011,
+			LightsOn: true,
+		}
+	}
+	e.Zones["zone-corridor-x"] = &ZoneSim{Temp: 24, Type: "corridor"}
+	return e
+}
+
+func fp(v float64) *float64 { return &v }
+func ip(v int) *int         { return &v }
+
+// Two physical boards with unknown identifiers must bind to two DIFFERENT office
+// zones, and the binding must be sticky across messages.
+func TestAssignDemoZoneDistinctAndSticky(t *testing.T) {
+	e := newTestEngine()
+
+	e.IngestTelemetry("Pico Lab", "pico_1", Measurement{Occupancy: ip(2), Source: "pico"})
+	e.IngestTelemetry("Level 4", "zone_1", Measurement{Occupancy: ip(3), Source: "esp32"})
+
+	picoZone, esp32Zone := "", ""
+	for id, z := range e.Zones {
+		switch z.MqttTopic {
+		case "pico_1":
+			picoZone = id
+		case "zone_1":
+			esp32Zone = id
+		}
+	}
+	if picoZone == "" || esp32Zone == "" {
+		t.Fatalf("nodes not bound: pico=%q esp32=%q", picoZone, esp32Zone)
+	}
+	if picoZone == esp32Zone {
+		t.Fatalf("both nodes bound to the same zone %q", picoZone)
+	}
+	if e.Zones[picoZone].Type != "office" || e.Zones[esp32Zone].Type != "office" {
+		t.Fatalf("demo nodes must bind to office zones, got %q and %q",
+			e.Zones[picoZone].Type, e.Zones[esp32Zone].Type)
+	}
+
+	// Sticky: the same identifier keeps resolving to the same zone.
+	e.IngestTelemetry("Pico Lab", "pico_1", Measurement{Occupancy: ip(0), Source: "pico"})
+	if e.Zones[picoZone].Occupancy != 0 {
+		t.Fatalf("second message did not land on the sticky zone %q", picoZone)
+	}
+}
+
+// A measured (tempReal) temperature must pull the zone's air temp to the sensor;
+// a simulated placeholder temperature must never touch the pin.
+func TestTempRealPinning(t *testing.T) {
+	e := newTestEngine()
+
+	e.IngestTelemetry("Pico Lab", "pico_1", Measurement{
+		Occupancy: ip(1), Temp: fp(30.0), Source: "pico", TempReal: true,
+	})
+
+	var z *ZoneSim
+	for _, zz := range e.Zones {
+		if zz.MqttTopic == "pico_1" {
+			z = zz
+		}
+	}
+	if z == nil {
+		t.Fatal("pico not bound")
+	}
+	if !z.hwFresh() || z.HwTemp != 30.0 {
+		t.Fatalf("expected fresh pin at 30.0, got fresh=%v temp=%v", z.hwFresh(), z.HwTemp)
+	}
+
+	// ~50 frames of the exponential pull (alpha 0.1) must converge from 24 to ~30.
+	e.mu.Lock()
+	for i := 0; i < 50; i++ {
+		e.applyHardware()
+	}
+	e.mu.Unlock()
+	if z.Temp < 29.5 {
+		t.Fatalf("zone temp did not converge to the sensor: %v", z.Temp)
+	}
+
+	// A fake temperature (tempReal=false, e.g. ESP32 sim mode) must not move the pin.
+	e.IngestTelemetry("Pico Lab", "pico_1", Measurement{
+		Occupancy: ip(1), Temp: fp(10.0), Source: "pico", TempReal: false,
+	})
+	if z.HwTemp != 30.0 {
+		t.Fatalf("simulated temp overwrote the pin: %v", z.HwTemp)
+	}
+}
+
+// A stale pin (node unplugged) must release the zone back to the thermal model, and
+// an explicit LWT "offline" must release it immediately.
+func TestStalenessAndOfflineRelease(t *testing.T) {
+	e := newTestEngine()
+	e.IngestTelemetry("Pico Lab", "pico_1", Measurement{
+		Occupancy: ip(1), Temp: fp(30.0), Source: "pico", TempReal: true,
+	})
+	var z *ZoneSim
+	for _, zz := range e.Zones {
+		if zz.MqttTopic == "pico_1" {
+			z = zz
+		}
+	}
+
+	z.HwTempAt = time.Now().Add(-hwStaleAfter - time.Second)
+	if z.hwFresh() {
+		t.Fatal("stale pin still reported fresh")
+	}
+	before := z.Temp
+	e.mu.Lock()
+	e.applyHardware()
+	e.mu.Unlock()
+	if z.Temp != before {
+		t.Fatal("applyHardware moved a stale-pinned zone")
+	}
+
+	// Fresh again, then LWT offline: pin must drop instantly.
+	e.IngestTelemetry("Pico Lab", "pico_1", Measurement{
+		Occupancy: ip(1), Temp: fp(30.0), Source: "pico", TempReal: true,
+	})
+	if !z.hwFresh() {
+		t.Fatal("expected fresh pin after re-ingest")
+	}
+	e.SetNodeStatus("pico_1", false)
+	if z.hwFresh() || z.HwOnline {
+		t.Fatalf("offline status did not release the pin: fresh=%v online=%v", z.hwFresh(), z.HwOnline)
+	}
+}
+
+// The /api/hardware snapshot must list bound zones (sorted), with pin state.
+func TestHardwareStatus(t *testing.T) {
+	e := newTestEngine()
+	e.IngestTelemetry("Pico Lab", "pico_1", Measurement{
+		Occupancy: ip(2), Temp: fp(27.5), Source: "pico", TempReal: true,
+	})
+	e.IngestTelemetry("Level 4", "zone_1", Measurement{
+		Occupancy: ip(3), Temp: fp(25.0), Source: "esp32", TempReal: false,
+	})
+
+	nodes := e.HardwareStatus()
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 bound nodes, got %d", len(nodes))
+	}
+	for i := 1; i < len(nodes); i++ {
+		if nodes[i-1].ZoneId > nodes[i].ZoneId {
+			t.Fatal("snapshot not sorted by zoneId")
+		}
+	}
+	byTopic := map[string]HardwareNode{}
+	for _, n := range nodes {
+		byTopic[n.Topic] = n
+	}
+	if n := byTopic["pico_1"]; !n.TempPinned || n.HwTemp != 27.5 || n.Source != "pico" || !n.Online {
+		t.Fatalf("pico snapshot wrong: %+v", n)
+	}
+	if n := byTopic["zone_1"]; n.TempPinned {
+		t.Fatalf("esp32 sim temp must not report a pin: %+v", n)
+	}
+}
+
+// The original CV entry point must keep working and must not pin temperature.
+func TestSetZoneOccupancyCompat(t *testing.T) {
+	e := newTestEngine()
+	e.SetZoneOccupancy("Level 4", "zone_1", 5)
+
+	var z *ZoneSim
+	for _, zz := range e.Zones {
+		if zz.MqttTopic == "zone_1" {
+			z = zz
+		}
+	}
+	if z == nil {
+		t.Fatal("cv node not bound")
+	}
+	if !z.Live || z.Occupancy != 5 {
+		t.Fatalf("occupancy ingestion broken: live=%v occ=%d", z.Live, z.Occupancy)
+	}
+	if z.HwSource != "cv" || z.hwFresh() {
+		t.Fatalf("cv ingestion must attribute source=cv and never pin: src=%q fresh=%v",
+			z.HwSource, z.hwFresh())
+	}
+}

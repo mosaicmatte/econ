@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -71,6 +72,17 @@ type ZoneSim struct {
 	LightsOn    bool   // last actuated lighting state
 	MqttTopic   string // telemetry suffix this zone was seen on (commands route back here)
 	OverrideUntil time.Time // Latch manual overrides so optimizer doesn't overwrite
+	// Hardware-in-the-loop (physical ESP32 / Pico nodes). While the bound node's
+	// measured temperature is fresh, the zone's air temp is pulled to the measurement
+	// instead of the 2R1C integration — the dashboard shows the physical room, not the
+	// model. Simulated placeholder temps never set HwTempAt (see Measurement.TempReal).
+	HwSource string    // node kind ("esp32", "pico", "cv", ...); empty = never bound
+	HwSeenAt time.Time // last telemetry of any kind from the bound node
+	HwTemp   float64   // last measured air temperature (valid only while HwTempAt is fresh)
+	HwTempAt time.Time // when HwTemp arrived; zero = node never sent a real temperature
+	HwHum    float64   // last measured relative humidity (%), surfaced via /api/hardware
+	HwCo2    float64   // last measured CO2 (ppm)
+	HwOnline bool      // broker LWT verdict from econ/status/<topic>
 }
 
 type VavSim struct {
@@ -97,6 +109,7 @@ type Engine struct {
 	Persist    func(zoneId, sensorType string, value float64)
 	lastDbSave time.Time
 	lastCmd    map[string]string // zoneId -> last command published (dedupe)
+	demoAssign map[string]string // edge-node identifier -> zoneId (sticky demo binding)
 }
 
 func NewEngine() *Engine {
@@ -108,6 +121,7 @@ func NewEngine() *Engine {
 		KFan:     0.01,
 		Scenario: "peak",
 		lastCmd:  make(map[string]string),
+		demoAssign: make(map[string]string),
 	}
 
 	data, err := os.ReadFile("./data/building-data.json")
@@ -200,22 +214,60 @@ var demoZoneAlias = map[string]string{
 	"Level 4": "zone-north-west-office-lvl4",
 }
 
-// SetZoneOccupancy ingests a real occupancy reading from the CV/edge layer (MQTT) and
-// marks the zone "live" so the physics + optimizer use real data instead of the random
-// seed. This is what makes the twin genuinely occupancy-driven.
-func (e *Engine) SetZoneOccupancy(zoneRef, topicSuffix string, count int) {
+// Measurement is one telemetry sample from a physical edge node (ESP32, Pico, CV
+// tracker). Pointer fields are nil when the node didn't report that quantity.
+// TempReal marks a genuinely measured temperature (DHT22, RP2040 die sensor, ...) as
+// opposed to a firmware's simulated placeholder — only real temperatures may pin the
+// zone's physics to the sensor.
+type Measurement struct {
+	Occupancy *int
+	Temp      *float64
+	Humidity  *float64
+	Co2       *float64
+	Source    string
+	TempReal  bool
+}
+
+// IngestTelemetry ingests one sample from the CV/edge layer (MQTT) and marks the zone
+// "live" so the physics + optimizer use real data instead of the random seed. This is
+// what makes the twin genuinely sensor-driven.
+func (e *Engine) IngestTelemetry(zoneRef, topicSuffix string, m Measurement) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	z := e.resolveZone(zoneRef)
 	if z == nil {
-		log.Printf("[occupancy] no zone matches %q; ignoring", zoneRef)
+		log.Printf("[telemetry] no zone matches %q; ignoring", zoneRef)
 		return
 	}
-	z.Occupancy = count
-	z.Live = true
+	if m.Occupancy != nil {
+		z.Occupancy = *m.Occupancy
+		z.Live = true
+	}
 	if topicSuffix != "" {
 		z.MqttTopic = topicSuffix
 	}
+	if m.Source != "" {
+		z.HwSource = m.Source
+	}
+	z.HwSeenAt = time.Now()
+	z.HwOnline = true
+	if m.Temp != nil && m.TempReal {
+		z.HwTemp = *m.Temp
+		z.HwTempAt = time.Now()
+	}
+	if m.Humidity != nil {
+		z.HwHum = *m.Humidity
+	}
+	if m.Co2 != nil {
+		z.HwCo2 = *m.Co2
+	}
+}
+
+// SetZoneOccupancy keeps the original CV-layer entry point (yolo_tracker.py publishes
+// occupancy-only messages): plain occupancy ingestion, attributed to the CV node.
+func (e *Engine) SetZoneOccupancy(zoneRef, topicSuffix string, count int) {
+	occ := count
+	e.IngestTelemetry(zoneRef, topicSuffix, Measurement{Occupancy: &occ, Source: "cv"})
 }
 
 // resolveZone maps an inbound identifier (real zoneId or demo alias) to a zone. Lock held.
@@ -229,24 +281,33 @@ func (e *Engine) resolveZone(ref string) *ZoneSim {
 		}
 	}
 	// Fallback: a regenerated building changes zoneIds, so an aliased id may not exist.
-	// Resolve any unknown demo identifier to a deterministic real office zone so the
-	// occupancy demo keeps working without re-wiring the alias table each time.
-	return e.firstOfficeZone()
+	// Assign each unknown identifier its own office zone so two physical boards (say an
+	// ESP32 and a Pico) demo side by side instead of both landing on the same fallback.
+	return e.assignDemoZone(ref)
 }
 
-// firstOfficeZone returns the lexicographically-smallest office zone (deterministic across
-// runs despite Go's randomized map iteration), or nil if the building has no office.
-func (e *Engine) firstOfficeZone() *ZoneSim {
-	best := ""
+// assignDemoZone gives an unrecognized edge-node identifier a stable, distinct office
+// zone: the first unknown node gets the lexicographically-smallest office, the second
+// the next one, and so on (deterministic despite Go's randomized map iteration; wraps
+// around if there are somehow more nodes than offices). Lock held.
+func (e *Engine) assignDemoZone(ref string) *ZoneSim {
+	if id, ok := e.demoAssign[ref]; ok {
+		return e.Zones[id]
+	}
+	offices := make([]string, 0, 16)
 	for id, z := range e.Zones {
-		if z.Type == "office" && (best == "" || id < best) {
-			best = id
+		if z.Type == "office" {
+			offices = append(offices, id)
 		}
 	}
-	if best == "" {
-		return nil
+	if len(offices) == 0 {
+		return nil // building without offices: nothing sensible to bind a demo node to
 	}
-	return e.Zones[best]
+	sort.Strings(offices)
+	id := offices[len(e.demoAssign)%len(offices)]
+	e.demoAssign[ref] = id
+	log.Printf("[edge] node %q bound to zone %s", ref, id)
+	return e.Zones[id]
 }
 
 const vacancyDelayTicks = 90 // ~3s at 30 FPS — stand-in for the real safety time-delay
@@ -295,6 +356,95 @@ func (e *Engine) actuate() {
 			}
 		}
 	}
+}
+
+// hwStaleAfter bounds how long a measured temperature keeps pinning a zone: past it the
+// node is presumed unplugged and the 2R1C model takes back over. Nodes publish every
+// 2–5 s, so 20 s tolerates a few dropped messages without flapping.
+const hwStaleAfter = 20 * time.Second
+
+// hwFresh reports whether this zone is currently pinned to a live measured temperature.
+func (z *ZoneSim) hwFresh() bool {
+	return !z.HwTempAt.IsZero() && time.Since(z.HwTempAt) < hwStaleAfter
+}
+
+// applyHardware pulls every hardware-bound zone's air temperature toward the physical
+// sensor reading — a fast exponential blend (~1 s at 30 FPS) rather than a hard jump,
+// so the dashboard never teleports. The thermal model keeps integrating underneath and
+// resumes control the moment telemetry goes stale, so unplugging a node degrades
+// gracefully back to simulation. Lock held.
+func (e *Engine) applyHardware() {
+	for _, z := range e.Zones {
+		if !z.hwFresh() {
+			continue
+		}
+		z.Temp += (z.HwTemp - z.Temp) * 0.1
+	}
+}
+
+// SetNodeStatus records the broker's Last-Will verdict for an edge node
+// (econ/status/<topic> -> "online"/"offline"). An offline node stops pinning its zone
+// immediately instead of waiting out the staleness window.
+func (e *Engine) SetNodeStatus(topicSuffix string, online bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, z := range e.Zones {
+		if z.MqttTopic != topicSuffix {
+			continue
+		}
+		z.HwOnline = online
+		if !online {
+			z.HwTempAt = time.Time{}
+		}
+	}
+}
+
+// HardwareNode is one physical edge-node binding as reported by GET /api/hardware.
+type HardwareNode struct {
+	ZoneId     string  `json:"zoneId"`
+	Topic      string  `json:"topic"`
+	Source     string  `json:"source"`
+	Online     bool    `json:"online"`
+	TempPinned bool    `json:"tempPinned"`
+	Occupancy  int     `json:"occupancy"`
+	ZoneTemp   float64 `json:"zoneTemp"`
+	HwTemp     float64 `json:"hwTemp"`
+	Humidity   float64 `json:"humidity"`
+	Co2        float64 `json:"co2"`
+	LightsOn   bool    `json:"lightsOn"`
+	Setpoint   float64 `json:"setpoint"`
+	AgeSec     float64 `json:"ageSec"`
+}
+
+// HardwareStatus snapshots every zone currently bound to a physical edge node, for the
+// dashboard's live-hardware indicators.
+func (e *Engine) HardwareStatus() []HardwareNode {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := []HardwareNode{}
+	for id, z := range e.Zones {
+		if z.HwSeenAt.IsZero() {
+			continue
+		}
+		age := time.Since(z.HwSeenAt).Seconds()
+		out = append(out, HardwareNode{
+			ZoneId:     id,
+			Topic:      z.MqttTopic,
+			Source:     z.HwSource,
+			Online:     z.HwOnline && age < 60,
+			TempPinned: z.hwFresh(),
+			Occupancy:  z.Occupancy,
+			ZoneTemp:   z.Temp,
+			HwTemp:     z.HwTemp,
+			Humidity:   z.HwHum,
+			Co2:        z.HwCo2,
+			LightsOn:   z.LightsOn,
+			Setpoint:   z.Setpoint,
+			AgeSec:     age,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ZoneId < out[j].ZoneId })
+	return out
 }
 
 func (e *Engine) AddClient(conn *websocket.Conn) {
@@ -365,6 +515,9 @@ func (e *Engine) Start() {
 			// to stable green states quickly, without getting stuck in a thermal limbo!
 			maxDev := 0.0
 			for _, z := range e.Zones {
+				if z.hwFresh() {
+					continue // pinned to a live sensor: deviation is reality, not "recovering"
+				}
 				sp := 24.0
 				if z.Type == "server-room" { sp = 22.0 }
 				if dev := math.Abs(z.Temp - sp); dev > maxDev {
@@ -382,6 +535,7 @@ func (e *Engine) Start() {
 		// Occupancy-driven optimizer + edge actuation (publishes only on state change).
 		e.mu.Lock()
 		e.actuate()
+		e.applyHardware()
 		e.mu.Unlock()
 
 		e.broadcast()

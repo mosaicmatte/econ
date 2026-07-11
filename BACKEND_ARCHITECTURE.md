@@ -36,6 +36,7 @@ The Go engine is the **single brain**. (The Python `raspberry_backend/server.py`
 | **TimescaleDB** | compose service `db` | — | `:5432` | engine `db.go` (history persist + `/api/history`) |
 | **Dashboard** | `econ/dashboard/` | React/Vite | dev `:5188` | engine WS+HTTP |
 | **ESP32 node** | `econ/edge/esp32/` / `esp32_node/` | C++/Arduino | — | MQTT broker |
+| **Pico node** | `econ/edge/pico/` | MicroPython (+ host `bridge.py`) | — | USB serial → MQTT broker (Pico W: WiFi direct) |
 | **YOLO tracker** | `econ/ai_modules/branch_a_occupancy/yolo_bytetrack/yolo_tracker.py` | Python | — | MQTT broker |
 
 All of `db`, `mqtt`, `server` come up together via `econ/server/docker-compose.yml`.
@@ -46,7 +47,7 @@ All of `db`, `mqtt`, `server` come up together via `econ/server/docker-compose.y
 
 ### 2.1 Files
 - `main.go` — HTTP routes (`/api/building-data`, `/api/ontology`), the `/ws` upgrade + scenario/override read loop (wrapped in `recover()` so a bad command can never crash the server), and `startMQTT(engine)`.
-- `mqtt.go` — paho client: subscribes `econ/telemetry/+`, parses `{"zone","occupancy"}`, calls `engine.SetZoneOccupancy`; sets `engine.Publish` to the MQTT publisher.
+- `mqtt.go` — paho client: subscribes `econ/telemetry/+` (occupancy + measured temperature/humidity/CO2 + `source`/`tempReal`, into `engine.IngestTelemetry`) and `econ/status/+` (node online/offline, into `engine.SetNodeStatus`); sets `engine.Publish` to the MQTT publisher.
 - `simulation/engine.go` — the physics engine, occupancy ingestion, actuation optimizer, global-metrics computation, FlatBuffers broadcast.
 - `schema/telemetry.fbs` — FlatBuffers IDL (source of truth for the wire format).
 - `schema/Telemetry/*.go` — generated Go FlatBuffers code.
@@ -123,10 +124,12 @@ SimState  { timestamp:long; zones:[ZoneData]; vavs:[VavData]; ahus:[AhuData]; gl
 
 | Direction | Topic | Payload | Producer | Consumer |
 |---|---|---|---|---|
-| telemetry IN | `econ/telemetry/<node>` | `{"zone":"...","occupancy":N,"temperature":..,"humidity":..,"co2":..}` | YOLO node / ESP32 | engine `mqtt.go` |
-| command OUT | `econ/commands/<zone>` | `LIGHTS_ON\|OFF;SETPOINT=<°C>` | engine `actuate()` / manual override | ESP32 |
+| telemetry IN | `econ/telemetry/<node>` | `{"zone":"...","occupancy":N,"temperature":..,"humidity":..,"co2":..,"source":"esp32","tempReal":true}` | YOLO node / ESP32 / Pico (via bridge) | engine `mqtt.go` |
+| status IN | `econ/status/<node>` | retained `online` / `offline` (MQTT Last Will) | ESP32 / Pico bridge | engine `mqtt.go` |
+| command OUT | `econ/commands/<zone>` | `LIGHTS_ON\|OFF;SETPOINT=<°C>` | engine `actuate()` / manual override | ESP32 / Pico |
 
 - Broker: `eclipse-mosquitto:2`, config `econ/server/mosquitto/mosquitto.conf` (`listener 1883`, `allow_anonymous true`). Harden auth before any real deployment.
+- Hardware-in-the-loop: telemetry with `tempReal:true` (a genuinely measured temperature — DHT22, RP2040 sensor) PINS the zone's air temp to the sensor (fast exponential pull in `applyHardware`, 20 s staleness window, instant release on an `offline` status). Simulated firmware temps stay `tempReal:false` and never touch the physics. Occupancy ingestion is unchanged for the CV node. Unknown node identifiers are auto-bound to distinct office zones (`assignDemoZone`), so multiple boards demo side by side; bindings are inspectable at `GET /api/hardware`.
 - Engine broker address: env `MQTT_BROKER` (`tcp://mqtt:1883` in compose; falls back to `tcp://localhost:1883`). A missing broker NEVER blocks the sim — occupancy just stays simulated.
 - Manual override path (DONE): the dashboard `ws.send`s a JSON like `{"action":"LIGHTS_OFF;SETPOINT=26.0","zone":"zone_1"}` (or a high-level verb `purge`/`cool`/`reset`); `main.go` parses it on the `/ws` read loop and calls `engine.PublishCommand`, which normalizes the action to the firmware's `LIGHTS_x;SETPOINT=y` format and publishes it on `econ/commands/<zone>`. Honors the report's human-in-the-loop veto. The override is transient — the occupancy optimizer reasserts control on the next tick (no hold/lock yet).
 
@@ -135,13 +138,15 @@ SimState  { timestamp:long; zones:[ZoneData]; vavs:[VavData]; ahus:[AhuData]; gl
 ## 5. HTTP endpoints (engine → dashboard bootstrap)
 - `GET /api/building-data` → `data/building-data.json` (floors, zones, polygons, hvacMapping, bim_asset_id).
 - `GET /api/ontology` → `data/brick-ontology.json` (Brick `brick:feeds` / `brick:hasPoint` graph driving the React-Flow systems map).
-- Both set `Access-Control-Allow-Origin: *`.
+- `GET /api/hardware` → zones currently bound to physical edge nodes (topic, source, online, `tempPinned`, latest readings). Dashboard polls it every 5 s for the ⚡ LIVE HARDWARE badge.
+- (plus `GET /api/history` — TimescaleDB sparklines — and `GET /api/forecast` — LSTM proxy.)
+- All set `Access-Control-Allow-Origin: *`.
 
 ---
 
 ## 6. Build / run / ops (READ THIS — the host has no `go` and no `flatc`)
 
-- **Everything Go is Docker-only.** `go`/`flatc` are not on PATH. To build/run the backend:
+- **Go now exists on the host** (`/usr/local/go/bin/go`, 1.22-compatible) — `go build` / `go test` / `go run .` work directly in `econ/server`. `flatc` is still Docker-only. The production path remains:
   ```sh
   cd econ/server && docker compose up -d --build server      # builds image + starts db, mqtt, server
   ```
@@ -162,6 +167,13 @@ docker exec server-mqtt-1 mosquitto_pub  -t econ/telemetry/zone_1 -m '{"zone":"L
 # ~3s later the engine emits: econ/commands/zone_1  LIGHTS_OFF;SETPOINT=26.0
 ```
 The mock payload is byte-identical to `yolo_tracker.py`, so swapping in the real camera is a no-op.
+
+Mock a physical node (what the ESP32/Pico firmware publishes — note `tempReal`):
+```sh
+docker exec server-mqtt-1 mosquitto_pub -t econ/telemetry/pico_1 \
+  -m '{"zone":"Pico Lab","occupancy":2,"temperature":27.4,"source":"pico","tempReal":true}'
+curl -s localhost:8080/api/hardware   # -> binding appears; zoneTemp converges to 27.4
+```
 
 ---
 

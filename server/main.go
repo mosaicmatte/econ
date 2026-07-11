@@ -53,6 +53,14 @@ func main() {
 	// 3. Peak-load forecast: proxy a live-telemetry window to the Python LSTM service.
 	http.HandleFunc("/api/forecast", forecastHandler(engine))
 
+	// 4. Physical edge nodes (ESP32 / Pico): which zones are hardware-bound right now.
+	// The dashboard polls this to badge zones that mirror a real device.
+	http.HandleFunc("/api/hardware", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		json.NewEncoder(w).Encode(engine.HardwareStatus())
+	})
+
 	// Connect to the MQTT broker: ingest real occupancy from the CV/edge layer and
 	// publish actuation commands to the ESP32. Non-blocking; the sim runs regardless.
 	startMQTT(engine)
