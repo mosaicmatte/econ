@@ -40,12 +40,17 @@ try:
 except Exception:
     led = machine.Pin(25, machine.Pin.OUT)
 
+# Optional wired presence: seat a jumper from GP16 to any GND pin -> occupied while
+# bridged. Rock-solid alternative to BOOTSEL, whose read must suspend flash + IRQs.
+presence_wire = machine.Pin(16, machine.Pin.IN, machine.Pin.PULL_UP)
+
 # State variables
 presence = False
 lights_state = False
 setpoint = 22.0
 last_btn_ms = 0
 btn_was_down = False
+last_btn_poll = 0
 last_pub_ms = 0
 
 def get_temperature():
@@ -60,9 +65,17 @@ def get_temperature():
 
 def check_button():
     # Toggle presence on the PRESS edge only (holding the button must not re-toggle).
-    global presence, last_btn_ms, btn_was_down
+    # Reading BOOTSEL suspends XIP flash and interrupts for a moment; hammering it
+    # while USB-CDC is streaming can deadlock the USB stack (observed live), so it is
+    # sampled at only 4 Hz — press for about half a second.
+    global presence, last_btn_ms, btn_was_down, last_btn_poll
     if not rp2 or not hasattr(rp2, "bootsel_button"):
         return False
+
+    now = time.ticks_ms()
+    if time.ticks_diff(now, last_btn_poll) < 250:
+        return False
+    last_btn_poll = now
 
     try:
         down = bool(rp2.bootsel_button())
@@ -70,13 +83,17 @@ def check_button():
         return False
 
     toggled = False
-    now = time.ticks_ms()
     if down and not btn_was_down and time.ticks_diff(now, last_btn_ms) > 300:
         last_btn_ms = now
         presence = not presence
         toggled = True
     btn_was_down = down
     return toggled
+
+
+def presence_active():
+    # BOOTSEL toggle OR the GP16-to-GND jumper: either means the zone is occupied.
+    return presence or presence_wire.value() == 0
 
 def flash_led():
     for _ in range(3):
@@ -110,7 +127,7 @@ def handle_command(cmd_str):
 def telemetry():
     return {
         "zone": ZONE_LABEL,
-        "occupancy": OCCUPIED_COUNT if presence else 0,
+        "occupancy": OCCUPIED_COUNT if presence_active() else 0,
         "temperature": round(get_temperature(), 1),
         "source": "pico",
         "tempReal": True,
@@ -118,36 +135,55 @@ def telemetry():
         "setpoint": setpoint
     }
 
-def run_serial():
+def publish_serial():
     global last_pub_ms
+    payload = telemetry()
+    payload["_topic"] = "econ/telemetry/" + ZONE_TOPIC
+    print(json.dumps(payload))
+    last_pub_ms = time.ticks_ms()
+
+
+def run_serial():
+    # Hardware watchdog: if anything ever wedges the loop (USB stack, blocking read),
+    # the board hard-reboots within 8 s and resumes publishing on its own.
+    wdt = machine.WDT(timeout=8000)
     poller = select.poll()
     poller.register(sys.stdin, select.POLLIN)
-    
+    rxbuf = ""
+    last_presence = presence_active()
+
     while True:
-        if check_button():
+        wdt.feed()
+
+        toggled = check_button()
+        cur = presence_active()
+        if toggled or cur != last_presence:
+            last_presence = cur
             flash_led()
-            payload = telemetry()
-            payload["_topic"] = "econ/telemetry/" + ZONE_TOPIC
-            print(json.dumps(payload))
-            last_pub_ms = time.ticks_ms()
-            
-        if poller.poll(0):
-            line = sys.stdin.readline().strip()
-            if line:
-                try:
-                    data = json.loads(line)
-                    if "_cmd" in data:
-                        handle_command(data["_cmd"])
-                except ValueError:
-                    pass
-                    
-        now = time.ticks_ms()
-        if time.ticks_diff(now, last_pub_ms) >= PUBLISH_S * 1000:
-            payload = telemetry()
-            payload["_topic"] = "econ/telemetry/" + ZONE_TOPIC
-            print(json.dumps(payload))
-            last_pub_ms = now
-            
+            publish_serial()
+
+        # Byte-wise, buffered stdin: poll() only promises ONE readable byte, so a
+        # blocking readline() here could hang the loop on a partial line forever.
+        while poller.poll(0):
+            ch = sys.stdin.read(1)
+            if not ch:
+                break
+            if ch == "\n":
+                line = rxbuf.strip()
+                rxbuf = ""
+                if line:
+                    try:
+                        data = json.loads(line)
+                        if "_cmd" in data:
+                            handle_command(data["_cmd"])
+                    except ValueError:
+                        pass
+            elif len(rxbuf) < 512:
+                rxbuf += ch
+
+        if time.ticks_diff(time.ticks_ms(), last_pub_ms) >= PUBLISH_S * 1000:
+            publish_serial()
+
         time.sleep(0.05)
 
 def run_wifi():
@@ -172,6 +208,11 @@ def run_wifi():
             return
         time.sleep(0.1)
 
+    # Armed only after WiFi is up (association can legitimately take >8 s); from here
+    # on the watchdog hard-reboots the board out of any freeze or wedged socket.
+    wdt = machine.WDT(timeout=8000)
+    last_presence = presence_active()
+
     while True:
         try:
             client_id = "econ-pico-" + ZONE_TOPIC
@@ -179,36 +220,38 @@ def run_wifi():
             client.set_last_will("econ/status/" + ZONE_TOPIC, b"offline", retain=True)
             client.connect()
             client.publish("econ/status/" + ZONE_TOPIC, b"online", retain=True)
-            
+
             def sub_cb(topic, msg):
                 try:
                     handle_command(msg.decode())
                 except Exception:
                     pass
-                    
+
             client.set_callback(sub_cb)
             client.subscribe("econ/commands/" + ZONE_TOPIC)
-            
+
             last_pub_ms = time.ticks_ms() - PUBLISH_S * 1000
-            
+
             while True:
+                wdt.feed()
                 client.check_msg()
-                
-                if check_button():
-                    flash_led()
+
+                toggled = check_button()
+                cur = presence_active()
+                now = time.ticks_ms()
+                if (toggled or cur != last_presence
+                        or time.ticks_diff(now, last_pub_ms) >= PUBLISH_S * 1000):
+                    if toggled or cur != last_presence:
+                        last_presence = cur
+                        flash_led()
                     payload = json.dumps(telemetry())
                     client.publish("econ/telemetry/" + ZONE_TOPIC, payload.encode())
                     last_pub_ms = time.ticks_ms()
-                    
-                now = time.ticks_ms()
-                if time.ticks_diff(now, last_pub_ms) >= PUBLISH_S * 1000:
-                    payload = json.dumps(telemetry())
-                    client.publish("econ/telemetry/" + ZONE_TOPIC, payload.encode())
-                    last_pub_ms = now
-                    
+
                 time.sleep(0.05)
-                
+
         except OSError:
+            wdt.feed()
             time.sleep(3)
 
 if __name__ == "__main__":

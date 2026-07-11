@@ -3,8 +3,12 @@
 | Component | Function |
 | :--- | :--- |
 | **RP2040 Internal Temp Sensor** | Provides real `tempReal` temperature reading |
-| **BOOTSEL Button** | Toggles presence state |
+| **BOOTSEL Button** | Toggles presence — press for ~half a second (sampled at 4 Hz, because each BOOTSEL read suspends flash + IRQs and hammering it can wedge the USB stack) |
+| **GP16 → GND jumper** (optional) | Wired presence: occupied while the jumper is seated — immune to the BOOTSEL caveat |
 | **Onboard LED** | Actuates zone lights |
+
+An 8 s hardware watchdog is armed in both run modes: if anything ever freezes the
+firmware (wedged USB, blocked read), the board reboots itself and resumes publishing.
 
 A plain Pico has no radio, so it speaks JSON over USB serial and `bridge.py` gives it an MQTT presence; a Pico W with WiFi configured connects to the broker directly without the bridge.
 
@@ -45,3 +49,9 @@ Run `cd econ/server && docker compose up -d` (broker on :1883), then run `cd eco
 
 ## Pico W
 No bridge is needed for a Pico W. Set `WIFI_SSID`, `WIFI_PASS`, and `MQTT_HOST` in `main.py`. Note that `umqtt.simple` ships in official Pico W builds; if it's missing, you can install it using `mpremote mip install umqtt.simple`.
+
+## Development note (watchdog)
+Once `main.py` is running, the watchdog cannot be disarmed — interrupting to a REPL
+still reboots the board within 8 s. `mpremote cp main.py :main.py` completes in ~2 s,
+so updates work normally; if a reboot bites mid-session, just rerun the command, or
+hold BOOTSEL while plugging in and copy via the bootloader instead.
