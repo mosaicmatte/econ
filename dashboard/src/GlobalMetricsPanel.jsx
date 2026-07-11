@@ -67,7 +67,7 @@ function DeltaCard({ title, icon: Icon, value, unit, delta, isGood, historyData,
   );
 }
 
-export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory, activeFloor, selectedNode, width = 320, setWidth, sendManualOverride }) {
+export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory, activeFloor, selectedNode, width = 320, setWidth, sendManualOverride, hardwareNodes = {} }) {
   const [zoneHistory, setZoneHistory] = React.useState([]);
 
   React.useEffect(() => {
@@ -137,16 +137,27 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
             title="TOTAL LOAD" icon={Zap} value={bldgLoad.toFixed(2)} unit="MW" 
             delta={loadDelta} isGood={false} historyData={loadHistory} dataKey="pwr" sparkColor="var(--accent-yellow)" 
           />
-          <DeltaCard 
-            title="OCCUPANCY" icon={Users} value={occupants} unit="Pax" 
-            delta={occDelta} isGood={true} historyData={loadHistory} dataKey="co2" sparkColor="var(--accent-blue)" 
+          <DeltaCard
+            title="OCCUPANCY" icon={Users} value={occupants} unit="Pax"
+            delta={occDelta} isGood={true} historyData={loadHistory} dataKey="co2" sparkColor="var(--accent-blue)"
           />
+
+          {/* Live savings from the engine's occupancy-driven setbacks (streamed energySavedMw) */}
+          <div style={{ background: 'rgba(34, 197, 94, 0.05)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '8px', padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: 'var(--text-secondary)' }}>
+              <Zap size={12} color="var(--accent-green)" /> ENERGY SAVED
+            </div>
+            <div style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--accent-green)', fontSize: '16px' }}>
+              {((simData.energySavedMw || 0) * 1000).toFixed(0)} <span style={{ fontSize: '10px' }}>kW</span>
+            </div>
+          </div>
 
           {/* Bullet Graphs */}
           <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '16px 12px 4px 12px' }}>
             <BulletGraph label="System Health" value={sysHealth} max={100} target={95} color={sysHealth < 80 ? 'var(--accent-red)' : 'var(--accent-green)'} unit="%" />
             <BulletGraph label="Avg Temperature" value={globalMetrics.avgTemp || 24} max={35} target={23.5} color="var(--accent-blue)" unit="°C" />
             <BulletGraph label="Active Cooling Capacity" value={coolingCapacityPct} max={100} target={60} color="var(--accent-yellow)" unit="%" />
+            <BulletGraph label="Plant COP" value={simData.plantCop || 0} max={4} target={3.4} color="var(--accent-green)" unit="COP" />
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: hasFault ? 'rgba(255,0,0,0.1)' : 'rgba(0,0,0,0.2)', border: hasFault ? '1px solid rgba(255,0,0,0.3)' : '1px solid var(--border-glass)', borderRadius: '8px', alignItems: 'center', transition: '0.3s' }}>
@@ -155,6 +166,24 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
                {criticalFaults}
             </div>
           </div>
+
+          {/* Physical edge nodes (ESP32 / Pico) currently bound into the twin */}
+          {Object.values(hardwareNodes || {}).length > 0 && (
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '12px' }}>
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 'bold', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                ⚡ EDGE HARDWARE
+              </div>
+              {Object.values(hardwareNodes).map((n) => (
+                <div key={n.zoneId} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 0', fontSize: '10px', fontFamily: 'monospace' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: n.online ? 'var(--accent-green)' : 'var(--text-muted)', boxShadow: n.online ? '0 0 4px var(--accent-green)' : 'none' }} />
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{(n.source || 'edge').toUpperCase()}</span>
+                  <span style={{ color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(n.zoneId || '').replace('zone-', '')}</span>
+                  {n.tempPinned && <span style={{ color: 'var(--accent-blue)' }}>{(n.hwTemp || 0).toFixed(1)}°C</span>}
+                  <span style={{ color: 'var(--text-secondary)' }}>{n.occupancy ?? 0}P</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Static Info */}
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', padding: '8px 12px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>

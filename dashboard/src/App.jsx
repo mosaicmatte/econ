@@ -691,6 +691,8 @@ function App() {
                   faultTarget={faultTarget}
                   aiForecast={aiForecast}
                   setAutoPilot={setAutoPilot}
+                  hardwareNodes={hardwareNodes}
+                  setSelectedZone={setSelectedZone}
                 />
               )}
             </div>
@@ -709,6 +711,7 @@ function App() {
         width={rightPanelWidth}
         setWidth={setRightPanelWidth}
         sendManualOverride={sendManualOverride}
+        hardwareNodes={hardwareNodes}
       />
 
       {maintenanceTarget && (
