@@ -629,10 +629,14 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
       const z = f.zones.find(zone => zone.zoneId === selectedZone);
       if (z) {
         let yOffset = f.level > activeFloor ? 30.0 : (f.level === activeFloor ? 5.0 : 0.0);
+        // Must mirror the render transform exactly: zone shapes are built at
+        // (px-20, py-20), rotateX(-90°) maps that to (px-20, ·, 20-py), and the
+        // whole tower sits in a group at (-30, 0, -20) — so world x = px-50 and
+        // world z = -py. (The old math sent the camera to a mirrored offset spot.)
         return {
-          x: z.centroid.x - 30,
+          x: z.centroid.x - 50,
           y: f.elevation + yOffset + 1.5,
-          z: z.centroid.y - 20
+          z: -z.centroid.y
         };
       }
     }

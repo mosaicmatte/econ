@@ -1,4 +1,4 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useMemo, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -9,8 +9,12 @@ import { flowKeyOf, heat } from './flowfield';
 // ConstrainedAirflow3D — volumetric (3D) airflow for one floor. Supply diffusers
 // inject at the CEILING, returns pull LOW near the core, windows relieve mid-height,
 // and full-height walls constrain everything — so the HVAC drives a real top-to-bottom
-// circulation you can orbit around. Manim style: heat-coloured 3D arrows + tracer
-// particles advecting through the room volume.
+// circulation you can orbit around. Manim style: heat-coloured 3D arrows.
+//
+// Perf notes (a digitized floor carries ~90 zones): every repeated fixture —
+// windows, diffuser plates, throw cones, return grilles, occupants — renders as ONE
+// instanced mesh (a handful of draw calls total instead of hundreds), occupant
+// density is capped, and the arrow pulse animates at 20 fps rather than every frame.
 // ----------------------------------------------------------------------------
 
 export default function ConstrainedAirflow3D({ floor, simState, layers = {} }) {
@@ -80,22 +84,45 @@ function Walls({ field }) {
   );
 }
 
-// Window panes on the envelope at sill height, oriented to the wall they sit on.
+// One instanced mesh of identical boxes placed once (static fixtures).
+function StaticInstances({ items, size, color, opacity = 1, place }) {
+  const ref = useRef();
+  const geo = useMemo(() => new THREE.BoxGeometry(size[0], size[1], size[2]), [size]);
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const dummy = new THREE.Object3D();
+    items.forEach((it, i) => {
+      place(dummy, it);
+      dummy.updateMatrix();
+      ref.current.setMatrixAt(i, dummy.matrix);
+    });
+    ref.current.instanceMatrix.needsUpdate = true;
+  }, [items, place]);
+  if (!items.length) return null;
+  return (
+    <instancedMesh key={items.length} ref={ref} args={[geo, null, items.length]}>
+      <meshBasicMaterial color={color} transparent={opacity < 1} opacity={opacity} toneMapped={false} />
+    </instancedMesh>
+  );
+}
+
+// Window panes on the envelope at sill height, split by wall orientation into two
+// instanced draws (was: one mesh per pane — 100+ draw calls on a digitized floor).
 function Windows({ field }) {
-  const { minX, maxX, minZ, maxZ } = field.grid;
+  const { minX, maxX } = field.grid;
   const eps = (maxX - minX) * 0.04;
+  const { vert, horiz } = useMemo(() => {
+    const vert = [], horiz = [];
+    field.windowSegments.forEach((w) => {
+      (Math.abs(w.x - minX) < eps || Math.abs(w.x - maxX) < eps ? vert : horiz).push(w);
+    });
+    return { vert, horiz };
+  }, [field, minX, maxX, eps]);
+  const place = useMemo(() => (dummy, w) => { dummy.position.set(w.x, 1.5, w.z); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); }, []);
   return (
     <group>
-      {field.windowSegments.map((w, i) => {
-        const onVertWall = Math.abs(w.x - minX) < eps || Math.abs(w.x - maxX) < eps;
-        const size = onVertWall ? [0.15, 1.6, 2.0] : [2.0, 1.6, 0.15];
-        return (
-          <mesh key={i} position={[w.x, 1.5, w.z]}>
-            <boxGeometry args={size} />
-            <meshBasicMaterial color="#36d6ff" transparent opacity={0.55} toneMapped={false} />
-          </mesh>
-        );
-      })}
+      <StaticInstances items={vert} size={[0.15, 1.6, 2.0]} color="#36d6ff" opacity={0.4} place={place} />
+      <StaticInstances items={horiz} size={[2.0, 1.6, 0.15]} color="#36d6ff" opacity={0.4} place={place} />
     </group>
   );
 }
@@ -122,69 +149,105 @@ function Electrical({ field }) {
   );
 }
 
-// Ceiling supply diffusers (with a downward throw cone) + low return grilles + ceiling duct.
+// Ceiling supply diffusers (plate + static throw cone, strength baked into the cone
+// scale) + low return grilles. All instanced with per-instance colour: 3 draw calls
+// regardless of how many fixtures the floor carries.
 function HvacFixtures({ field }) {
-  const { H } = field.grid;
-  const ringRefs = useRef([]);
-  useFrame((s) => {
-    const t = s.clock.elapsedTime;
-    field.diffusers3d.forEach((d, i) => {
-      const r = ringRefs.current[i]; if (!r) return;
-      const sc = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(t * 3 + i)) * Math.min(1, d.strength);
-      r.scale.set(sc, 1, sc);
+  const plateRef = useRef();
+  const coneRef = useRef();
+  const plateGeo = useMemo(() => new THREE.BoxGeometry(1.0, 0.18, 1.0), []);
+  const coneGeo = useMemo(() => {
+    const g = new THREE.ConeGeometry(0.6, 1.2, 12, 1, true);
+    g.translate(0, -0.7, 0);
+    return g;
+  }, []);
+  const diffusers = field.diffusers3d;
+
+  useLayoutEffect(() => {
+    if (!plateRef.current || !coneRef.current) return;
+    const dummy = new THREE.Object3D();
+    const color = new THREE.Color();
+    diffusers.forEach((d, i) => {
+      color.set(d.alert ? '#ff5a3c' : '#21d4ff');
+      dummy.position.set(d.x, d.y, d.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      plateRef.current.setMatrixAt(i, dummy.matrix);
+      plateRef.current.setColorAt(i, color);
+      const sc = 0.7 + 0.3 * Math.min(1, d.strength);
+      dummy.scale.set(sc, 1, sc);
+      dummy.updateMatrix();
+      coneRef.current.setMatrixAt(i, dummy.matrix);
+      coneRef.current.setColorAt(i, color);
     });
-  });
+    plateRef.current.instanceMatrix.needsUpdate = true;
+    coneRef.current.instanceMatrix.needsUpdate = true;
+    if (plateRef.current.instanceColor) plateRef.current.instanceColor.needsUpdate = true;
+    if (coneRef.current.instanceColor) coneRef.current.instanceColor.needsUpdate = true;
+  }, [diffusers]);
+
+  const placeReturn = useMemo(() => (dummy, r) => { dummy.position.set(r.x, 0.3, r.z); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); }, []);
+
   return (
     <group>
-      {field.diffusers3d.map((d, i) => (
-        <group key={i} position={[d.x, d.y, d.z]}>
-          <mesh>
-            <boxGeometry args={[1.0, 0.18, 1.0]} />
-            <meshBasicMaterial color={d.alert ? '#ff5a3c' : '#21d4ff'} toneMapped={false} />
-          </mesh>
-          {/* downward throw cone */}
-          <mesh ref={(el) => (ringRefs.current[i] = el)} position={[0, -0.7, 0]}>
-            <coneGeometry args={[0.6, 1.2, 16, 1, true]} />
-            <meshBasicMaterial color={d.alert ? '#ff5a3c' : '#21d4ff'} transparent opacity={0.18} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} />
-          </mesh>
-        </group>
-      ))}
-      {field.returns.map((r, i) => (
-        <mesh key={i} position={[r.x, 0.3, r.z]}>
-          <boxGeometry args={[1.1, 0.5, 1.1]} />
-          <meshBasicMaterial color="#ff8a3d" transparent opacity={0.85} toneMapped={false} />
-        </mesh>
-      ))}
+      {diffusers.length > 0 && (
+        <instancedMesh key={`p${diffusers.length}`} ref={plateRef} args={[plateGeo, null, diffusers.length]}>
+          <meshBasicMaterial toneMapped={false} />
+        </instancedMesh>
+      )}
+      {diffusers.length > 0 && (
+        <instancedMesh key={`c${diffusers.length}`} ref={coneRef} args={[coneGeo, null, diffusers.length]}>
+          <meshBasicMaterial transparent opacity={0.14} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} />
+        </instancedMesh>
+      )}
+      <StaticInstances items={field.returns} size={[1.1, 0.5, 1.1]} color="#ff8a3d" opacity={0.6} place={placeReturn} />
     </group>
   );
 }
 
+// Occupant markers, instanced and density-capped: a fully staffed digitized floor can
+// mean 400+ people, which as a forest of capsules buries the flow field the window
+// exists to show. An even sample keeps the distribution honest at a readable density.
+const MAX_OCCUPANTS_SHOWN = 140;
 function Occupants({ field }) {
-  const bodyGeo = useMemo(() => new THREE.CapsuleGeometry(0.28, 0.8, 4, 8), []);
+  const bodyGeo = useMemo(() => new THREE.CapsuleGeometry(0.22, 0.7, 4, 8), []);
   const ref = useRef();
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  const count = field.occupants.length;
-  const applied = useRef(null);
-  useFrame(() => {
-    if (!ref.current || !count) return;
-    if (applied.current === field.occupants) return; // positions are static per field
-    field.occupants.forEach((o, i) => { dummy.position.set(o.x, 0.8, o.z); dummy.updateMatrix(); ref.current.setMatrixAt(i, dummy.matrix); });
+  const shown = useMemo(() => {
+    const all = field.occupants;
+    if (all.length <= MAX_OCCUPANTS_SHOWN) return all;
+    const step = all.length / MAX_OCCUPANTS_SHOWN;
+    const out = [];
+    for (let i = 0; i < MAX_OCCUPANTS_SHOWN; i++) out.push(all[Math.floor(i * step)]);
+    return out;
+  }, [field]);
+
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const dummy = new THREE.Object3D();
+    shown.forEach((o, i) => {
+      dummy.position.set(o.x, 0.75, o.z);
+      dummy.updateMatrix();
+      ref.current.setMatrixAt(i, dummy.matrix);
+    });
     ref.current.instanceMatrix.needsUpdate = true;
-    applied.current = field.occupants;
-  });
-  if (!count) return null;
+  }, [shown]);
+
+  if (!shown.length) return null;
   return (
-    <instancedMesh key={count} ref={ref} args={[bodyGeo, null, count]}>
-      <meshBasicMaterial color="#ffd27f" toneMapped={false} />
+    <instancedMesh key={shown.length} ref={ref} args={[bodyGeo, null, shown.length]}>
+      <meshBasicMaterial color="#ffd27f" transparent opacity={0.85} toneMapped={false} />
     </instancedMesh>
   );
 }
 
 // 3D arrow field oriented by the full (vx,vy,vz) velocity, heat-coloured by speed.
+// The pulse animates at 20 fps — indistinguishable from per-frame, third of the CPU.
 function Arrows3D({ field }) {
   const ref = useRef();
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const UP = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  const lastTick = useRef(-1);
   const arrowGeo = useMemo(() => {
     const shaft = new THREE.CylinderGeometry(0.05, 0.05, 0.6, 6); shaft.translate(0, 0.3, 0);
     const head = new THREE.ConeGeometry(0.15, 0.32, 10); head.translate(0, 0.76, 0);
@@ -204,6 +267,8 @@ function Arrows3D({ field }) {
   useFrame((s) => {
     if (!ref.current || !count) return;
     const t = s.clock.elapsedTime;
+    if (t - lastTick.current < 0.05) return;
+    lastTick.current = t;
     for (let i = 0; i < count; i++) {
       const a = items[i];
       const pulse = 0.82 + 0.3 * Math.sin(t * 2 - a.phase);
@@ -223,4 +288,3 @@ function Arrows3D({ field }) {
     </instancedMesh>
   );
 }
-
