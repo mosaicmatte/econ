@@ -24,23 +24,23 @@ function Sparkline({ data, dataKey, color }) {
   );
 }
 
-function BulletGraph({ label, value, max, target, color, unit }) {
+function BulletGraph({ label, value, max, target, color, unit, isLast }) {
   const numValue = typeof value === 'number' ? value : parseFloat(value) || 0;
-  const percent = Math.min(100, (numValue / max) * 100);
-  const targetPercent = Math.min(100, (target / max) * 100);
+  const percent = Math.max(0, Math.min(100, (numValue / max) * 100));
+  const targetPercent = Math.max(0, Math.min(100, (target / max) * 100));
   return (
-    <div style={{ marginBottom: '12px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+    <div style={{ marginBottom: isLast ? 0 : '14px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '5px' }}>
         <span>{label}</span>
-        <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--text-primary)' }}>{numValue.toFixed(1)} {unit}</span>
+        <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--text-primary)' }}>
+          {numValue.toFixed(1)}{unit ? <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}> {unit}</span> : null}
+        </span>
       </div>
-      <div style={{ position: 'relative', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
-        {/* Safe Range Background */}
-        <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: '80%', background: 'rgba(255,255,255,0.02)' }} />
-        {/* Actual Value Bar */}
-        <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${percent}%`, background: color, transition: 'width 0.3s ease' }} />
-        {/* Target Marker */}
-        <div style={{ position: 'absolute', top: 0, left: `${targetPercent}%`, height: '100%', width: '2px', background: '#fff', zIndex: 10 }} />
+      {/* Track deliberately NOT overflow-hidden: the target tick extends above/below it so
+          it reads as a reference marker crossing the track, not a detached bar fragment. */}
+      <div style={{ position: 'relative', height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px' }}>
+        <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${percent}%`, background: color, borderRadius: '3px', transition: 'width 0.3s ease' }} />
+        <div style={{ position: 'absolute', top: '-4px', left: `calc(${targetPercent}% - 1px)`, height: '14px', width: '2px', background: 'rgba(255,255,255,0.85)', borderRadius: '1px' }} />
       </div>
     </div>
   );
@@ -153,11 +153,11 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
           </div>
 
           {/* Bullet Graphs */}
-          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '16px 12px 4px 12px' }}>
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '16px 12px' }}>
             <BulletGraph label="System Health" value={sysHealth} max={100} target={95} color={sysHealth < 80 ? 'var(--accent-red)' : 'var(--accent-green)'} unit="%" />
             <BulletGraph label="Avg Temperature" value={globalMetrics.avgTemp || 24} max={35} target={23.5} color="var(--accent-blue)" unit="°C" />
             <BulletGraph label="Active Cooling Capacity" value={coolingCapacityPct} max={100} target={60} color="var(--accent-yellow)" unit="%" />
-            <BulletGraph label="Plant COP" value={simData.plantCop || 0} max={4} target={3.4} color="var(--accent-green)" unit="COP" />
+            <BulletGraph label="Plant COP" value={simData.plantCop || 0} max={4} target={3.4} color="var(--accent-green)" unit="" isLast />
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: hasFault ? 'rgba(255,0,0,0.1)' : 'rgba(0,0,0,0.2)', border: hasFault ? '1px solid rgba(255,0,0,0.3)' : '1px solid var(--border-glass)', borderRadius: '8px', alignItems: 'center', transition: '0.3s' }}>
@@ -210,10 +210,10 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
             delta={0} isGood={true} historyData={zoneHistory} dataKey="co2" sparkColor="var(--accent-blue)" 
           />
 
-          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '16px 12px 4px 12px' }}>
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '16px 12px' }}>
             <BulletGraph label="Local Temp" value={parseFloat(selectedNode.data.temp)} max={35} target={24} color={selectedNode.data.alert ? 'var(--accent-red)' : 'var(--accent-yellow)'} unit="°C" />
             <BulletGraph label="Occupancy" value={selectedNode.data.occupancy} max={80} target={20} color="var(--accent-blue)" unit="Pax" />
-            <BulletGraph label="Integration Score" value={selectedNode.data.integration_score ?? 0} max={2} target={0.5} color="var(--accent-green)" unit="Idx" />
+            <BulletGraph label="Integration Score" value={selectedNode.data.integration_score ?? 0} max={2} target={0.5} color="var(--accent-green)" unit="Idx" isLast />
           </div>
 
           {/* Manual Override Panel */}
