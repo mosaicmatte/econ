@@ -39,7 +39,10 @@ def main():
             
         print(f"Opening serial port {port} at {BAUD} baud...")
         try:
-            ser = serial.Serial(port, BAUD, timeout=1.0)
+            # exclusive=True: a second bridge instance must fail loudly here instead of
+            # silently splitting the byte stream with this one (which garbles every
+            # line for both and flaps the node's online/offline status).
+            ser = serial.Serial(port, BAUD, timeout=1.0, exclusive=True)
         except serial.SerialException as e:
             print(f"Failed to open port: {e}. Retrying in 3s...")
             time.sleep(3)
