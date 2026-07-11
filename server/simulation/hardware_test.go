@@ -138,6 +138,25 @@ func TestStalenessAndOfflineRelease(t *testing.T) {
 	if z.hwFresh() || z.HwOnline {
 		t.Fatalf("offline status did not release the pin: fresh=%v online=%v", z.hwFresh(), z.HwOnline)
 	}
+
+	// A reconnecting node boots in its firmware default state, so a status
+	// transition must clear the command dedupe and force a re-send.
+	var zoneId string
+	for id, zz := range e.Zones {
+		if zz.MqttTopic == "pico_1" {
+			zoneId = id
+		}
+	}
+	e.mu.Lock()
+	e.lastCmd[zoneId] = "LIGHTS_OFF;SETPOINT=26.0"
+	e.mu.Unlock()
+	e.SetNodeStatus("pico_1", true)
+	e.mu.Lock()
+	_, still := e.lastCmd[zoneId]
+	e.mu.Unlock()
+	if still {
+		t.Fatal("status transition did not clear the command dedupe entry")
+	}
 }
 
 // The /api/hardware snapshot must list bound zones (sorted), with pin state.

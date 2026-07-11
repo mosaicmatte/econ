@@ -384,15 +384,19 @@ func (e *Engine) applyHardware() {
 
 // SetNodeStatus records the broker's Last-Will verdict for an edge node
 // (econ/status/<topic> -> "online"/"offline"). An offline node stops pinning its zone
-// immediately instead of waiting out the staleness window.
+// immediately instead of waiting out the staleness window. Any transition also clears
+// the zone's command-dedupe entry: a node that reboots comes back in its firmware
+// default state, so the optimizer must re-send the current command even if it is
+// unchanged from the engine's point of view.
 func (e *Engine) SetNodeStatus(topicSuffix string, online bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	for _, z := range e.Zones {
+	for id, z := range e.Zones {
 		if z.MqttTopic != topicSuffix {
 			continue
 		}
 		z.HwOnline = online
+		delete(e.lastCmd, id)
 		if !online {
 			z.HwTempAt = time.Time{}
 		}
