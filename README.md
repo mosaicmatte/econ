@@ -6,6 +6,16 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-11 — Live lighting state streams into the 3D twin
+>
+> **Zones now go dark when the engine cuts their lights.** The FlatBuffers wire schema
+> gained a backward-compatible `lightsOn` field (Go + TS bindings regenerated); the
+> engine re-broadcasts a zone the instant its lighting flips, the zone shader dims
+> lights-off zones to 30% brightness, and the zone micro-HUD shows a live LIGHTS row
+> (`ON` / `OFF · SETBACK`). Combined with the physical edge nodes this makes the
+> automation visible end to end: touch the ESP32's presence pin and the room lights up
+> in the twin; release it and the energy-saving setback visibly darkens it seconds later.
+>
 > ### 2026-07-11 — Hardware-in-the-loop: physical ESP32 + Raspberry Pi Pico nodes
 >
 > **The twin now mirrors real hardware, not just the model.** Telemetry carrying a

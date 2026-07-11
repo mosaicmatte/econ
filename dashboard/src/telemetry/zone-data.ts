@@ -44,8 +44,13 @@ load():number {
   return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
 }
 
+lightsOn():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : true;
+}
+
 static startZoneData(builder:flatbuffers.Builder) {
-  builder.startObject(4);
+  builder.startObject(5);
 }
 
 static addId(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset) {
@@ -64,17 +69,22 @@ static addLoad(builder:flatbuffers.Builder, load:number) {
   builder.addFieldFloat32(3, load, 0.0);
 }
 
+static addLightsOn(builder:flatbuffers.Builder, lightsOn:boolean) {
+  builder.addFieldInt8(4, +lightsOn, +true);
+}
+
 static endZoneData(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createZoneData(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset, temp:number, occupants:number, load:number):flatbuffers.Offset {
+static createZoneData(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset, temp:number, occupants:number, load:number, lightsOn:boolean):flatbuffers.Offset {
   ZoneData.startZoneData(builder);
   ZoneData.addId(builder, idOffset);
   ZoneData.addTemp(builder, temp);
   ZoneData.addOccupants(builder, occupants);
   ZoneData.addLoad(builder, load);
+  ZoneData.addLightsOn(builder, lightsOn);
   return ZoneData.endZoneData(builder);
 }
 }

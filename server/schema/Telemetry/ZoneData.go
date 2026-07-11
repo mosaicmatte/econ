@@ -85,8 +85,20 @@ func (rcv *ZoneData) MutateLoad(n float32) bool {
 	return rcv._tab.MutateFloat32Slot(10, n)
 }
 
+func (rcv *ZoneData) LightsOn() bool {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
+	if o != 0 {
+		return rcv._tab.GetBool(o + rcv._tab.Pos)
+	}
+	return true
+}
+
+func (rcv *ZoneData) MutateLightsOn(n bool) bool {
+	return rcv._tab.MutateBoolSlot(12, n)
+}
+
 func ZoneDataStart(builder *flatbuffers.Builder) {
-	builder.StartObject(4)
+	builder.StartObject(5)
 }
 func ZoneDataAddId(builder *flatbuffers.Builder, id flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(id), 0)
@@ -99,6 +111,9 @@ func ZoneDataAddOccupants(builder *flatbuffers.Builder, occupants int32) {
 }
 func ZoneDataAddLoad(builder *flatbuffers.Builder, load float32) {
 	builder.PrependFloat32Slot(3, load, 0.0)
+}
+func ZoneDataAddLightsOn(builder *flatbuffers.Builder, lightsOn bool) {
+	builder.PrependBoolSlot(4, lightsOn, true)
 }
 func ZoneDataEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

@@ -66,6 +66,7 @@ type ZoneSim struct {
 	BaseSetpoint      float64 // occupied setpoint; we set back from this when vacant
 	Deadband          float64
 	LastBroadcastTemp float64
+	LastBroadcastLights bool // last lighting state sent to clients (change forces a re-send)
 	// Occupancy-driven control (real data arrives over MQTT from the CV/edge layer)
 	Live        bool   // true once real occupancy has been received for this zone
 	VacantTicks int    // consecutive ticks at 0 occupancy (safety delay before setback)
@@ -179,6 +180,7 @@ func NewEngine() *Engine {
 				Deadband:     z.ThermalProperties.Deadband,
 				LastBroadcastTemp: 24.0,
 				LightsOn:     true,
+				LastBroadcastLights: true,
 			}
 		}
 	}
@@ -725,14 +727,18 @@ func (e *Engine) broadcast() {
 		zoneOffsets := make([]flatbuffers.UOffsetT, 0)
 		for id, z := range e.Zones {
 			noiseTemp := z.Temp + getNoise(0.08)
-			if math.Abs(noiseTemp-z.LastBroadcastTemp) > 0.05 {
+			// A lighting flip must stream even when the temperature hasn't moved past
+			// the dedupe threshold, or the 3D view would dim/undim a frame too late.
+			if math.Abs(noiseTemp-z.LastBroadcastTemp) > 0.05 || z.LightsOn != z.LastBroadcastLights {
 				z.LastBroadcastTemp = noiseTemp
+				z.LastBroadcastLights = z.LightsOn
 				idStr := builder.CreateString(id)
 				Telemetry.ZoneDataStart(builder)
 				Telemetry.ZoneDataAddId(builder, idStr)
 				Telemetry.ZoneDataAddTemp(builder, float32(noiseTemp))
 				Telemetry.ZoneDataAddOccupants(builder, int32(z.Occupancy))
 				Telemetry.ZoneDataAddLoad(builder, float32(z.BaseHeatGain/1000.0))
+				Telemetry.ZoneDataAddLightsOn(builder, z.LightsOn)
 				zoneOffsets = append(zoneOffsets, Telemetry.ZoneDataEnd(builder))
 			}
 		}

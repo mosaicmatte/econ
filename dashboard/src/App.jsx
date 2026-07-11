@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { Users, Wind, Box, Zap, AlertTriangle, Activity, Settings, Map, Camera, Cpu, Thermometer } from 'lucide-react';
+import { Users, Wind, Box, Zap, AlertTriangle, Activity, Settings, Map, Camera, Cpu, Thermometer, Lightbulb } from 'lucide-react';
 import { ReactFlow, Background, Controls, Handle, Position, applyNodeChanges, applyEdgeChanges, MarkerType } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import BuildingModel, { SingleFloorLayout } from './BuildingModel';
@@ -453,6 +453,12 @@ function App() {
                 <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><Activity size={14}/> Thermostat</span>
                 <span style={{ color: 'var(--accent-blue)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '14px' }}>
                   {simData.zones[selectedZone].temp.toFixed(1)}°C / {simData.zones[selectedZone].setpoint.toFixed(1)}°C
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><Lightbulb size={14}/> Lights</span>
+                <span style={{ color: simData.zones[selectedZone].lightsOn === false ? 'var(--text-secondary)' : 'var(--accent-green)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '14px' }}>
+                  {simData.zones[selectedZone].lightsOn === false ? 'OFF · SETBACK' : 'ON'}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

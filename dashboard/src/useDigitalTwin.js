@@ -48,6 +48,7 @@ export const getInitialSimData = () => {
         setpoint: z.thermalProperties?.setpoint || 24.0,
         deadband: z.thermalProperties?.deadband || 2.0,
         alert: false,
+        lightsOn: true, // live actuated state arrives from the backend stream
         occupancy: z.thermalProperties?.occupancy || 0, // real occupancy arrives from the backend stream
         integration_score: INTEGRATION_BY_TYPE[z.zoneType] || 0.6,
         baseHeatGain: z.thermalProperties?.internalHeatLoad || 0,
@@ -179,7 +180,7 @@ export function useDigitalTwin(onUpdate) {
             } else if ((isFaultMode && id === faultTargetRef.current) || temp > sp + db + CRITICAL_MARGIN) {
                 alert = true;
             }
-            newSimData.zones[id] = { ...newSimData.zones[id], temp, load: z.load(), occupancy: z.occupants(), alert };
+            newSimData.zones[id] = { ...newSimData.zones[id], temp, load: z.load(), occupancy: z.occupants(), lightsOn: z.lightsOn(), alert };
         }
       }
 

@@ -340,7 +340,8 @@ function ZoneRenderer({ zone, isActive, simState, isHovered, onHover, isSelected
         setpoint: { value: setpoint },
         deadband: { value: deadband },
         opacity: { value: isActive ? (isHovered ? 0.9 : 0.65) : 0.15 },
-        isPhysical: { value: isPhysical ? 1.0 : 0.0 }
+        isPhysical: { value: isPhysical ? 1.0 : 0.0 },
+        lightsOn: { value: 1.0 } // 1 lit, 0 dark — actuated lighting streamed from the engine
       },
       vertexShader: `
         varying vec2 vUv;
@@ -355,6 +356,7 @@ function ZoneRenderer({ zone, isActive, simState, isHovered, onHover, isSelected
         uniform float deadband;
         uniform float opacity;
         uniform float isPhysical;
+        uniform float lightsOn;
         varying vec2 vUv;
         
         vec3 heatmap(float deviation) {
@@ -374,6 +376,8 @@ function ZoneRenderer({ zone, isActive, simState, isHovered, onHover, isSelected
           vec3 heatColor = heatmap(deviation);
           vec3 physColor = vec3(0.2, 0.2, 0.2);
           vec3 finalColor = mix(heatColor, physColor, isPhysical);
+          // Lights-off zones go visibly dark (engine setback / manual veto).
+          finalColor *= mix(0.3, 1.0, lightsOn);
           float finalOpacity = mix(opacity, opacity * 0.1, isPhysical);
           gl_FragColor = vec4(finalColor, finalOpacity);
         }
@@ -389,18 +393,24 @@ function ZoneRenderer({ zone, isActive, simState, isHovered, onHover, isSelected
   // (opacity 0.15) just snap their uniform when the live temp actually moves, so the bulk of
   // the loop early-returns. No element is removed — only the redundant updates are.
   const lastLive = useRef(null);
+  const lastLights = useRef(null);
   useFrame((state) => {
     if (!material || !material.uniforms.temperature) return;
     const liveTemp = simState.zones[zone.zoneId]?.temp || setpoint;
+    const liveLights = simState.zones[zone.zoneId]?.lightsOn === false ? 0.0 : 1.0;
     if (isActive || alertState === true) {
       material.uniforms.temperature.value = THREE.MathUtils.lerp(material.uniforms.temperature.value, liveTemp, 0.05);
+      material.uniforms.lightsOn.value = THREE.MathUtils.lerp(material.uniforms.lightsOn.value, liveLights, 0.1);
       material.uniforms.opacity.value = alertState === true
         ? 0.65 + 0.3 * Math.sin(state.clock.elapsedTime * 8)
         : (isHovered ? 0.9 : 0.65);
-    } else if (lastLive.current === null || Math.abs(lastLive.current - liveTemp) > 0.05) {
+    } else if (lastLive.current === null || Math.abs(lastLive.current - liveTemp) > 0.05
+               || lastLights.current !== liveLights) {
       material.uniforms.temperature.value = liveTemp;
+      material.uniforms.lightsOn.value = liveLights;
       material.uniforms.opacity.value = 0.15;
       lastLive.current = liveTemp;
+      lastLights.current = liveLights;
     }
   });
 

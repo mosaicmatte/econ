@@ -5,6 +5,7 @@ table ZoneData {
   temp: float;
   occupants: int;
   load: float;
+  lightsOn: bool = true;  // appended field (backward-compatible); actuated lighting state
 }
 
 table VavData {

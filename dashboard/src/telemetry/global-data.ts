@@ -68,16 +68,31 @@ static addTotalOccupants(builder:flatbuffers.Builder, totalOccupants:number) {
   builder.addFieldInt32(2, totalOccupants, 0);
 }
 
+static addCoolingOutputMw(builder:flatbuffers.Builder, coolingOutputMw:number) {
+  builder.addFieldFloat32(3, coolingOutputMw, 0.0);
+}
+
+static addPlantCop(builder:flatbuffers.Builder, plantCop:number) {
+  builder.addFieldFloat32(4, plantCop, 0.0);
+}
+
+static addEnergySavedMw(builder:flatbuffers.Builder, energySavedMw:number) {
+  builder.addFieldFloat32(5, energySavedMw, 0.0);
+}
+
 static endGlobalData(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, systemHealth:number, totalOccupants:number):flatbuffers.Offset {
+static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, systemHealth:number, totalOccupants:number, coolingOutputMw:number, plantCop:number, energySavedMw:number):flatbuffers.Offset {
   GlobalData.startGlobalData(builder);
   GlobalData.addBuildingLoadMw(builder, buildingLoadMw);
   GlobalData.addSystemHealth(builder, systemHealth);
   GlobalData.addTotalOccupants(builder, totalOccupants);
+  GlobalData.addCoolingOutputMw(builder, coolingOutputMw);
+  GlobalData.addPlantCop(builder, plantCop);
+  GlobalData.addEnergySavedMw(builder, energySavedMw);
   return GlobalData.endGlobalData(builder);
 }
 }
