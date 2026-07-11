@@ -27,10 +27,11 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 
-// ---------------- CONFIG (edit these) ----------------
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
-const char* MQTT_HOST = "192.168.1.100";   // Raspberry Pi / broker LAN IP
+// ---------------- CONFIG ----------------
+// WiFi + broker address for THIS site live in src/wifi_secrets.h, which is gitignored
+// so credentials never reach the repo: copy src/wifi_secrets.example.h over and fill
+// it in (defines WIFI_SSID, WIFI_PASS, MQTT_HOST).
+#include "wifi_secrets.h"
 const int   MQTT_PORT = 1883;
 
 const char* ZONE_LABEL    = "Level 4";     // human label sent in telemetry
@@ -62,7 +63,20 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   const int TOUCH_PIN = T9;      // GPIO32
   const int TOUCH_OCCUPANTS = 3; // headcount reported while touched
   int touchBaseline = 0;         // calibrated in setup()
-  bool touchOccupied() { return touchRead(TOUCH_PIN) < touchBaseline * 6 / 10; }
+  bool touchState = false;       // debounced presence state
+  // A single threshold flaps when a bare-finger reading hovers right at the line
+  // (observed live: occupancy oscillating 3<->0 while held). Hysteresis — enter well
+  // below baseline, leave only after recovering most of the way — plus a requirement
+  // of 3 consecutive agreeing samples makes the state boringly stable.
+  bool touchOccupied() {
+    static int agree = 0;
+    int v = touchRead(TOUCH_PIN);
+    bool raw = touchState ? (v < touchBaseline * 82 / 100)   // stay until clearly released
+                          : (v < touchBaseline * 62 / 100);  // enter only on a firm touch
+    if (raw == touchState) { agree = 0; return touchState; }
+    if (++agree >= 3) { agree = 0; touchState = raw; }
+    return touchState;
+  }
 #endif
 
 WiFiClient   espClient;

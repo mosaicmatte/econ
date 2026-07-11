@@ -10,6 +10,8 @@ venv/
 
 # Edge/build artifacts
 edge/esp32/.pio/
+# Per-site WiFi credentials for the ESP32 firmware (copy wifi_secrets.example.h)
+edge/esp32/src/wifi_secrets.h
 *.log
 .DS_Store
 *.pt

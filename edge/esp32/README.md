@@ -17,19 +17,19 @@ a presence change), executes `LIGHTS_ON|OFF;SETPOINT=<°C>` from
 
 ## 1. Configure
 
-Edit the CONFIG block at the top of `src/main.cpp`:
+Credentials live in a gitignored header so they never reach the repo:
 
-```cpp
-const char* WIFI_SSID = "...";        // 2.4 GHz network (ESP32 has no 5 GHz)
-const char* WIFI_PASS = "...";
-const char* MQTT_HOST = "192.168.x.x"; // LAN IP of the machine running docker compose
-const char* ZONE_TOPIC = "zone_1";     // one unique suffix per board
+```bash
+cd econ/edge/esp32
+cp src/wifi_secrets.example.h src/wifi_secrets.h   # then fill in the three values
 ```
 
+`WIFI_SSID`/`WIFI_PASS` must be a **2.4 GHz** network (the ESP32 has no 5 GHz).
 `MQTT_HOST` is whatever machine hosts the Mosquitto broker — with the default stack
 that is the computer running `docker compose up` in `econ/server` (find its IP with
 `ipconfig getifaddr en0` on macOS). The compose file already exposes port 1883 to the
-LAN and the broker allows anonymous clients.
+LAN and the broker allows anonymous clients. Per-board identity (`ZONE_TOPIC`,
+`ZONE_LABEL`) stays at the top of `src/main.cpp` — give each board a unique suffix.
 
 ## 2. Flash
 
