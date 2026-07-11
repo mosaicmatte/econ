@@ -159,6 +159,17 @@ function HvacFixtures({ field }) {
   const coneGeo = useMemo(() => {
     const g = new THREE.ConeGeometry(0.6, 1.2, 12, 1, true);
     g.translate(0, -0.7, 0);
+    // Luminance gradient baked into vertex colors — bright at the diffuser mouth,
+    // fading toward the floor. Multiplied by the per-instance heat color it shows the
+    // supply rate as a static gradient instead of the old pulsing animation.
+    const pos = g.attributes.position;
+    const cols = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const t = Math.max(0, Math.min(1, (pos.getY(i) + 1.3) / 1.2)); // 0 tip -> 1 mouth
+      const l = 0.12 + 0.88 * t;
+      cols[i * 3] = l; cols[i * 3 + 1] = l; cols[i * 3 + 2] = l;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
     return g;
   }, []);
   const diffusers = field.diffusers3d;
@@ -168,17 +179,22 @@ function HvacFixtures({ field }) {
     const dummy = new THREE.Object3D();
     const color = new THREE.Color();
     diffusers.forEach((d, i) => {
-      color.set(d.alert ? '#ff5a3c' : '#21d4ff');
       dummy.position.set(d.x, d.y, d.z);
       dummy.rotation.set(0, 0, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
       plateRef.current.setMatrixAt(i, dummy.matrix);
-      plateRef.current.setColorAt(i, color);
-      const sc = 0.7 + 0.3 * Math.min(1, d.strength);
-      dummy.scale.set(sc, 1, sc);
-      dummy.updateMatrix();
       coneRef.current.setMatrixAt(i, dummy.matrix);
+      // Plate = equipment status (cyan / alarm red); cone = supply rate on the same
+      // heat scale as the arrows, so cone color reads directly against the flow field.
+      color.set(d.alert ? '#ff5a3c' : '#21d4ff');
+      plateRef.current.setColorAt(i, color);
+      if (d.alert) {
+        color.set('#ff5a3c');
+      } else {
+        const [hr, hg, hb] = heat(Math.min(1, d.strength));
+        color.setRGB(hr, hg, hb);
+      }
       coneRef.current.setColorAt(i, color);
     });
     plateRef.current.instanceMatrix.needsUpdate = true;
@@ -198,7 +214,7 @@ function HvacFixtures({ field }) {
       )}
       {diffusers.length > 0 && (
         <instancedMesh key={`c${diffusers.length}`} ref={coneRef} args={[coneGeo, null, diffusers.length]}>
-          <meshBasicMaterial transparent opacity={0.14} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} />
+          <meshBasicMaterial vertexColors transparent opacity={0.32} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} />
         </instancedMesh>
       )}
       <StaticInstances items={field.returns} size={[1.1, 0.5, 1.1]} color="#ff8a3d" opacity={0.6} place={placeReturn} />

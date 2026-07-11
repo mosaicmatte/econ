@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Users, Wind, Box, Zap, AlertTriangle, Activity, Settings, Map, Camera, Cpu, Thermometer, Lightbulb } from 'lucide-react';
-import { ReactFlow, Background, Controls, Handle, Position, applyNodeChanges, applyEdgeChanges, MarkerType } from '@xyflow/react';
+import { ReactFlow, Background, Controls, Handle, Position, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import BuildingModel, { SingleFloorLayout } from './BuildingModel';
 import buildingData from './building-data.json';
@@ -74,6 +74,46 @@ const VAVNode = ({ data, selected }) => (
   </div>
 );
 
+// Professional BMS-style terminal-unit card: one card per zone, merging the zone and
+// the VAV that feeds it (they map 1:1 here). Reads like an equipment-schedule row —
+// status LED + colored rail (green in-band / amber drifting / red alarm), temperature
+// against setpoint, occupancy, and the VAV airflow as a bar.
+const UnitNode = ({ data, selected }) => {
+  const temp = Number(data.temp || 0);
+  const dev = Math.abs(temp - (data.setpoint || 24)) / (data.deadband || 2);
+  const state = data.alert === true ? 'alarm' : (dev > 1 ? 'drift' : 'ok');
+  const c = state === 'alarm' ? 'var(--accent-red)' : state === 'drift' ? 'var(--accent-yellow)' : 'var(--accent-green)';
+  const flowFrac = Math.max(0, Math.min(1, (data.flowVal || 0) / 0.8));
+  return (
+    <div style={{
+      width: 148, background: 'rgba(13, 17, 20, 0.95)', borderRadius: 4, padding: '5px 7px',
+      border: `1px solid ${selected ? '#ffffff' : 'rgba(127, 139, 150, 0.35)'}`,
+      borderLeft: `3px solid ${c}`, fontFamily: 'monospace',
+      boxShadow: state === 'alarm' ? '0 0 10px rgba(255, 69, 58, 0.45)' : 'none',
+    }}>
+      <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+        <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {(data.label || '').toUpperCase()}
+        </span>
+        <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: '50%', background: c, boxShadow: `0 0 4px ${c}` }} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
+        <span style={{ fontSize: '9px', fontWeight: 700, color: c }}>{temp.toFixed(1)}°C</span>
+        <span style={{ fontSize: '8px', color: 'var(--text-muted)' }}>SP {(data.setpoint ?? 24).toFixed(0)}°</span>
+        <span style={{ fontSize: '8px', color: 'var(--text-secondary)' }}>{data.occupancy ?? 0} PAX</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
+        <span style={{ fontSize: '7px', color: 'var(--text-muted)', flexShrink: 0 }}>{data.vavLabel}</span>
+        <div style={{ flex: 1, height: 3, background: 'rgba(127, 139, 150, 0.25)', borderRadius: 2 }}>
+          <div style={{ width: `${flowFrac * 100}%`, height: '100%', background: 'var(--accent-blue)', borderRadius: 2, transition: 'width 0.5s' }} />
+        </div>
+        <span style={{ fontSize: '7px', color: 'var(--accent-blue)', flexShrink: 0 }}>{(data.flowVal || 0).toFixed(1)}</span>
+      </div>
+    </div>
+  );
+};
+
 const FloorplanNode = ({ data }) => {
   return (
     <div style={{ width: 800, height: 600, pointerEvents: 'none', position: 'relative' }}>
@@ -121,6 +161,7 @@ const nodeTypes = {
   zone: ThermalNode,
   ahu: AHUNode,
   vav: VAVNode,
+  unit: UnitNode,
   floorplan: FloorplanNode,
   camera: CameraNode,
   sensor: SensorNode,
@@ -128,28 +169,13 @@ const nodeTypes = {
   circuit: CircuitNode
 };
 
-const SCALE = 22; // Physical scaling multiplier
-
+// Professional riser layout: the AHU plant node sits on top and one terminal-unit
+// card per zone (zone + its feeding VAV merged — they map 1:1) fills a sorted grid
+// beneath it, like an equipment schedule. Replaces the old centroid-scattered boxes,
+// which overlapped unreadably on a 90-zone digitized floor.
 const buildTopologyFromSim = (simState, activeFloor, ontology) => {
   const nodes = [];
   const edges = [];
-
-  const floorObj = buildingData.floors.find(f => f.level === activeFloor);
-  const activeZonesData = floorObj ? floorObj.zones : [];
-
-  const activeZones = Object.values(simState.zones)
-    .filter(z => z.level === activeFloor);
-
-  nodes.push({
-    id: 'floorplan-bg', type: 'floorplan', position: { x: -400, y: -300 }, draggable: false,
-    data: { zones: activeZonesData }, zIndex: -1
-  });
-
-  // AHU root, placed outside the North perimeter of the floor plan
-  nodes.push({
-    id: 'ahu-main', type: 'ahu', position: { x: -45, y: -25 * SCALE - 40 },
-    data: { label: 'AHU-MAIN', status: simState.scenario === 'fault' ? 'FAULT' : 'NOMINAL', pressure: simState.ahuPressure }
-  });
 
   // Normalize the Brick ontology to {source, target, predicate}. Tolerates both the legacy
   // shape ({ relationships: [{source, predicate, target}] }) and the digitized-pipeline shape
@@ -160,58 +186,45 @@ const buildTopologyFromSim = (simState, activeFloor, ontology) => {
     target: r.target ?? r.object,
     predicate: r.predicate,
   }));
-  
-  activeZones.forEach((z) => {
-    // 1. Map physical 3D centroid coordinates to 2D React Flow canvas
-    // Subtracting 30 (width/2) and 20 (depth/2) centers the building around 0,0
-    const x = (z.centroid.x - 30) * SCALE;
-    const y = (z.centroid.y - 20) * SCALE;
 
-    const isServerFault = simState.scenario === 'fault' && z.type === 'server-room';
-    const isRem = simState.scenario === 'remediating' && (z.type === 'server-room' || z.type === 'core');
-    
-    // 2. SVG Linear Gradient Vector Colors
-    const gradientId = isServerFault ? 'flow-fault' : (isRem ? 'flow-rem' : 'flow-nominal');
-    const markerColor = isServerFault ? 'var(--accent-red)' : (isRem ? 'var(--accent-yellow)' : 'var(--accent-green)');
-    
-    const edgeStyle = { stroke: `url(#${gradientId})`, strokeWidth: 2, strokeDasharray: isServerFault ? '4 4' : '5 5' };
-    const markerEnd = { type: MarkerType.ArrowClosed, color: markerColor };
-    const className = !isServerFault ? 'edge-flow-vector-fast' : 'edge-flow-vector';
+  const activeZones = Object.values(simState.zones)
+    .filter(z => z.level === activeFloor)
+    .sort((a, b) => (a.label || a.id).localeCompare(b.label || b.id));
+
+  const PER_ROW = 9, STEP_X = 166, STEP_Y = 92;
+  const gridW = Math.min(Math.max(activeZones.length, 1), PER_ROW) * STEP_X - 18;
+
+  nodes.push({
+    id: 'ahu-main', type: 'ahu', draggable: false,
+    position: { x: gridW / 2 - 70, y: -130 },
+    data: { label: 'AHU-MAIN', status: simState.scenario === 'fault' ? 'FAULT' : 'NOMINAL', pressure: simState.ahuPressure }
+  });
+
+  activeZones.forEach((z, i) => {
+    const col = i % PER_ROW, row = Math.floor(i / PER_ROW);
+
+    // Topology driven by the Brick Schema semantic ontology: find the VAV feeding this zone.
+    const feedsRel = relationships.find(r => r.target === z.id && r.predicate === 'brick:feeds' && r.source.startsWith('vav'));
+    const vavId = feedsRel ? feedsRel.source : null;
+    const v = vavId ? simState.vavs[vavId] : null;
 
     nodes.push({
-      id: z.id, type: 'zone', position: { x: x - 60, y: y }, draggable: false,
+      id: z.id, type: 'unit', draggable: false,
+      position: { x: col * STEP_X, y: row * STEP_Y },
       data: {
         label: z.label, temp: z.temp, setpoint: z.setpoint, deadband: z.deadband,
-        occupancy: z.occupancy, alert: z.alert, integration_score: z.integration_score,
-        bim_asset_id: z.bim_asset_id
+        occupancy: z.occupancy, alert: z.alert,
+        vavId, vavLabel: vavId ? vavId.toUpperCase() : 'DIRECT',
+        flowVal: v?.flow || 0,
       }
     });
 
-    // 3. Topology mapping driven by Brick Schema semantic ontology!
-    // Find what feeds this zone in the graph
-    const feedsRel = relationships.find(r => r.target === z.id && r.predicate === 'brick:feeds' && r.source.startsWith('vav'));
-
-    if (feedsRel) {
-      const vavId = feedsRel.source;
-      const v = simState.vavs[vavId];
-      if (v) {
-        // Draw the VAV node
-        nodes.push({
-          id: v.id, type: 'vav', position: { x: x - 15, y: y - 80 }, draggable: false,
-          data: { label: v.id.toUpperCase(), flow: (v.flow || 0).toFixed(1) + ' m³/m' }
-        });
-        
-        // Find what feeds the VAV (usually the AHU)
-        const ahuRel = relationships.find(r => r.target === v.id && r.predicate === 'brick:feeds');
-        const sourceAhu = ahuRel ? ahuRel.source : 'ahu-main';
-
-        edges.push({ id: `e-${sourceAhu}-${v.id}`, source: sourceAhu, target: v.id, type: 'smoothstep', animated: true, className, style: edgeStyle, markerEnd, data: { isFlow: true } });
-        edges.push({ id: `e-${v.id}-${z.id}`, source: v.id, target: z.id, type: 'smoothstep', animated: true, className, style: edgeStyle, markerEnd, data: { isFlow: true } });
-      }
-    } else {
-      // Fallback if no relationship found
-      edges.push({ id: `e-ahu-${z.id}`, source: 'ahu-main', target: z.id, type: 'smoothstep', animated: true, className, style: edgeStyle, markerEnd, data: { isFlow: true } });
-    }
+    // One thin supply line per unit off the AHU — together they read as the supply bus.
+    edges.push({
+      id: `e-ahu-${z.id}`, source: 'ahu-main', target: z.id, type: 'step',
+      animated: false, style: { stroke: 'rgba(0, 163, 224, 0.16)', strokeWidth: 1 },
+      data: { isFlow: true },
+    });
   });
 
   return { nodes, edges };
@@ -281,11 +294,10 @@ function App() {
 
   const onSimUpdate = useCallback((newSimData, currentScenario) => {
     setNodes(nds => nds.map(n => {
-      if (n.type === 'zone' && newSimData.zones[n.id]) {
-          return { ...n, data: { ...n.data, temp: newSimData.zones[n.id].temp.toFixed(1), alert: newSimData.zones[n.id].alert } };
-      }
-      if (n.type === 'vav' && newSimData.vavs[n.id]) {
-          return { ...n, data: { ...n.data, flow: newSimData.vavs[n.id].flow.toFixed(1) + ' m³/m' } };
+      if (n.type === 'unit' && newSimData.zones[n.id]) {
+          const zz = newSimData.zones[n.id];
+          const v = n.data.vavId ? newSimData.vavs[n.data.vavId] : null;
+          return { ...n, data: { ...n.data, temp: zz.temp, alert: zz.alert, occupancy: zz.occupancy, flowVal: v ? v.flow : n.data.flowVal } };
       }
       if (n.type === 'ahu') {
           return { ...n, data: { ...n.data, pressure: newSimData.ahuPressure } };
@@ -293,18 +305,21 @@ function App() {
       return n;
     }));
 
+    // Professional restraint: the supply bus stays a calm thin line in normal
+    // operation and only animates (colored dashes) while a scenario is in flight.
     setEdges(eds => eds.map(e => {
       if (!e.data?.isFlow) return e;
       const isFault = currentScenario === 'fault';
       const isRem = currentScenario === 'remediating';
-      const gradientId = isFault ? 'flow-fault' : (isRem ? 'flow-rem' : 'flow-nominal');
-      const markerColor = isFault ? 'var(--accent-red)' : (isRem ? 'var(--accent-yellow)' : 'var(--accent-green)');
-      
       return {
          ...e,
-         className: !isFault ? 'edge-flow-vector-fast' : 'edge-flow-vector',
-         style: { ...e.style, stroke: `url(#${gradientId})`, strokeDasharray: isFault ? '4 4' : '5 5' },
-         markerEnd: { type: MarkerType.ArrowClosed, color: markerColor }
+         animated: isFault || isRem,
+         style: {
+           ...e.style,
+           stroke: isFault ? 'rgba(239, 68, 68, 0.45)' : isRem ? 'rgba(234, 179, 8, 0.45)' : 'rgba(0, 163, 224, 0.16)',
+           strokeDasharray: (isFault || isRem) ? '4 4' : undefined,
+         },
+         markerEnd: undefined,
       };
     }));
   }, []);
@@ -537,7 +552,7 @@ function App() {
               >
                  {showWindSim ? '⏸ HIDE AIRFLOW' : '🌬 SHOW AIRFLOW'}
               </button>
-              <span style={{ fontSize: '10px', color: 'var(--accent-blue)' }}>{nodes.length - 1} ACTIVE NODES</span>
+              <span style={{ fontSize: '10px', color: 'var(--accent-blue)' }}>{Math.max(0, nodes.length - 1)} TERMINAL UNITS · 1 AHU</span>
             </div>
           </div>
 
@@ -548,7 +563,7 @@ function App() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeClick={(e, node) => {
-              if (node.type === 'zone') setSelectedZone(node.id);
+              if (node.type === 'zone' || node.type === 'unit') setSelectedZone(node.id);
             }}
             nodeTypes={nodeTypes}
             fitView
@@ -556,7 +571,7 @@ function App() {
             proOptions={{ hideAttribution: true }}
             minZoom={0.1}
             maxZoom={1.5}
-            translateExtent={[[-1600, -800], [1600, 800]]}
+            translateExtent={[[-350, -400], [1900, 1400]]}
             nodesDraggable={false}
           >
             <Background gap={40} size={1} color="rgba(255,255,255,0.05)" />
