@@ -2,6 +2,8 @@ import React from 'react';
 import { Activity, Users, Thermometer, Zap, BarChart2 } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area } from 'recharts';
 import buildingData from './building-data.json';
+import { API_BASE } from './api';
+import { money, energyCostPerDay, touPeriod, touPeriodLabel } from './tariff';
 
 // Building design peak (MW electrical), derived once from the loaded building nameplate so the
 // "Active Cooling Capacity" bar scales with ANY building instead of a hard-coded constant.
@@ -72,7 +74,7 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
 
   React.useEffect(() => {
     if (selectedNode?.type === 'zone') {
-      fetch(`http://localhost:8080/api/history?zone=${selectedNode.id}`)
+      fetch(`${API_BASE}/api/history?zone=${selectedNode.id}`)
         .then(res => res.json())
         .then(data => {
           if (data && data.length > 0) setZoneHistory(data);
@@ -142,15 +144,54 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
             delta={occDelta} isGood={true} historyData={loadHistory} dataKey="co2" sparkColor="var(--accent-blue)"
           />
 
-          {/* Live savings from the engine's occupancy-driven setbacks (streamed energySavedMw) */}
-          <div style={{ background: 'rgba(34, 197, 94, 0.05)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '8px', padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: 'var(--text-secondary)' }}>
-              <Zap size={12} color="var(--accent-green)" /> ENERGY SAVED
-            </div>
-            <div style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--accent-green)', fontSize: '16px' }}>
-              {((simData.energySavedMw || 0) * 1000).toFixed(0)} <span style={{ fontSize: '10px' }}>kW</span>
-            </div>
-          </div>
+          {/* Live savings from the engine's occupancy-driven setbacks (streamed energySavedMw),
+              priced through the tariff model (see tariff.js) into $/day energy + $/mo demand. */}
+          {(() => {
+            const savedKw = (simData.energySavedMw || 0) * 1000;
+            return (
+              <div style={{ background: 'rgba(34, 197, 94, 0.05)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: '8px', padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: 'var(--text-secondary)' }}>
+                  <Zap size={12} color="var(--accent-green)" /> ENERGY SAVED
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--accent-green)', fontSize: '16px' }}>
+                    {savedKw.toFixed(0)} <span style={{ fontSize: '10px' }}>kW</span>
+                  </div>
+                  <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    ≈ {money(energyCostPerDay(savedKw))}/day ({touPeriodLabel(touPeriod())})
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* BESS Card */}
+          {simData.bessSocPct != null && (() => {
+            const dischMw = simData.bessDischargeMw || 0;
+            const soc = simData.bessSocPct || 0;
+            const charging = dischMw < -0.001;
+            const idle = Math.abs(dischMw) <= 0.001;
+            return (
+              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: 'var(--text-secondary)' }}>
+                    <Zap size={12} color="var(--accent-green)" /> BESS
+                  </div>
+                  <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    State of charge
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--accent-green)', fontSize: '16px' }}>
+                    {soc.toFixed(0)}<span style={{ fontSize: '10px' }}>%</span>
+                  </div>
+                  <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {idle ? 'idle' : charging ? `charging ${Math.abs(dischMw).toFixed(2)} MW` : `discharging ${dischMw.toFixed(2)} MW`}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Bullet Graphs */}
           <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '16px 12px' }}>

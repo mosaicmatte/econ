@@ -12,6 +12,7 @@ import AiInsightsPanel from './AiInsightsPanel';
 import * as flatbuffers from 'flatbuffers';
 import MobileImpactScreen from './MobileImpactScreen';
 import UIErrorBoundary from './UIErrorBoundary';
+import { API_BASE } from './api';
 import { SimState } from './telemetry';
 import { useDigitalTwin, FAULT_ZONES, DEFAULT_FAULT_TARGET } from './useDigitalTwin';
 import AirflowWindow from './AirflowWindow';
@@ -256,6 +257,16 @@ function App() {
   const [viewMode, setViewMode] = useState('hybrid');
   const ontologyRef = useRef(null);
 
+  // Phones get the lightweight live Impact screen instead of mounting the
+  // WebGL-heavy desktop stack (three canvases + React Flow on a 1350-zone building).
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 820px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 820px)');
+    const onChange = (e) => setIsMobile(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [liveLogs, setLiveLogs] = useState([]);
@@ -263,7 +274,7 @@ function App() {
   const activeFloorRef = useRef(activeFloor);
 
   useEffect(() => {
-    fetch('http://localhost:8080/api/ontology')
+    fetch(`${API_BASE}/api/ontology`)
       .then(res => res.json())
       .then(data => { setOntology(data); ontologyRef.current = data; })
       .catch(err => console.error("Failed to load Brick ontology:", err));
@@ -274,7 +285,7 @@ function App() {
   const [hardwareNodes, setHardwareNodes] = useState({});
   useEffect(() => {
     let alive = true;
-    const load = () => fetch('http://localhost:8080/api/hardware')
+    const load = () => fetch(`${API_BASE}/api/hardware`)
       .then(res => res.json())
       .then(list => { if (alive) setHardwareNodes(Object.fromEntries((list || []).map(n => [n.zoneId, n]))); })
       .catch(() => {});
@@ -371,6 +382,17 @@ function App() {
     : Object.values(simData.zones).find(z => z.alert === true || z.alert === 'REMEDIATING') || { label: 'Unknown Zone', temp: 0 };
 
   const selectedNode = nodes.find(n => n.selected);
+
+  // Small viewport: serve the live mobile Impact screen (same stream, no WebGL).
+  if (isMobile) {
+    return (
+      <MobileImpactScreen
+        simData={simData}
+        aiForecast={aiForecast}
+        hardwareNodes={hardwareNodes}
+      />
+    );
+  }
 
   return (
     <div className="hud-container">
@@ -693,6 +715,7 @@ function App() {
                   setAutoPilot={setAutoPilot}
                   hardwareNodes={hardwareNodes}
                   setSelectedZone={setSelectedZone}
+                  sendManualOverride={sendManualOverride}
                 />
               )}
             </div>

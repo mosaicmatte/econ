@@ -1,15 +1,24 @@
 import React, { useMemo, useState } from 'react';
 import { Brain, Zap, AlertTriangle, TrendingDown, ThermometerSnowflake, Activity, Radio } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { money, energyCostPerDay, peakShiftSavingPerMonth, rateStr } from './tariff';
 
-export default function AiInsightsPanel({ simData, activeScenario, faultTarget, aiForecast, setAutoPilot, hardwareNodes = {}, setSelectedZone }) {
+export default function AiInsightsPanel({ simData, activeScenario, faultTarget, aiForecast, setAutoPilot, hardwareNodes = {}, setSelectedZone, sendManualOverride }) {
   // Insight actions that have been engaged (id set). Clicking an action hands the recommendation
   // to the autonomous controller (autoPilot) and marks it engaged — so the button does something.
   const [engaged, setEngaged] = useState({});
   // Cards that carry live detail (forecast chart, model metrics, hardware nodes) expand inline
   // instead of engaging the controller.
   const [expanded, setExpanded] = useState({});
-  const engage = (id) => { setEngaged((e) => ({ ...e, [id]: true })); if (setAutoPilot) setAutoPilot(true); };
+  const engage = (id) => {
+    setEngaged((e) => ({ ...e, [id]: true }));
+    if (id === 'peak' && sendManualOverride) {
+      // Real actuation: the engine opens a 20-minute pre-cool window and drives every
+      // occupied zone below setpoint (commands go out to the physical edge nodes too).
+      sendManualOverride('precool', 'GLOBAL');
+    }
+    if (setAutoPilot) setAutoPilot(true);
+  };
   const toggle = (id) => setExpanded((e) => ({ ...e, [id]: !e[id] }));
 
   const hwList = Object.values(hardwareNodes || {});
@@ -64,14 +73,31 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       });
     }
 
+    // 2b. Physics-grounded AFDD: a sensor-bound room whose measured temperature has
+    // diverged from its sensor-free 2R1C shadow model — a fault, not a forecast.
+    const afddNodes = hwList.filter((n) => n.afddAlert);
+    if (afddNodes.length > 0) {
+      generated.push({
+        id: 'afdd',
+        type: 'critical',
+        icon: <AlertTriangle size={18} color="var(--accent-red)" />,
+        title: 'AFDD: Physics Divergence',
+        message: `${afddNodes.map((n) => (n.zoneId || '').replace('zone-', '')).join(', ')} reading ${afddNodes.map((n) => `${(n.residual || 0).toFixed(1)}°C`).join(', ')} away from the calibrated thermal model — possible coil/damper fault, blocked diffuser or open window.`,
+        action: 'DISPATCH TECHNICIAN'
+      });
+    }
+
     // 3. High Demand Period
     if (activeScenario === 'peak') {
+      // Pre-cooling's value in Vietnam is shifting cooling load off the expensive peak hours
+      // energy rate (~5% of cooling electrical load; see tariff.js).
+      const shedKw = 0.05 * Math.max(0, loadMw - 2.0) * 1000;
       generated.push({
         id: 'peak',
         type: 'warning',
         icon: <TrendingDown size={18} color="var(--accent-yellow)" />,
         title: 'High Grid Demand',
-        message: 'Grid load is nearing peak capacity. Pre-cooling sequence is recommended to offset afternoon prices.',
+        message: `Evening peak hours (17:30–22:30) are the costly window. Pre-cooling charges thermal mass during normal-rate hours so chillers coast through the peak — shifting ≈ ${shedKw.toFixed(0)} kW off peak hours saves roughly ${money(peakShiftSavingPerMonth(shedKw))}/month (peak ${rateStr('peak')}/kWh vs ${rateStr('normal')}/kWh normal).`,
         action: 'ACTIVATE PRE-COOLING'
       });
     }
@@ -122,7 +148,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       expandable: true,
       icon: <Brain size={18} color="var(--accent-green)" />,
       title: 'Autonomous Operations Nominal',
-      message: `Occupancy-driven setback controller is actively balancing comfort and energy. Live savings: ${savingsPct.toFixed(1)}% of plant load (${(savedMw * 1000).toFixed(0)} kW).`,
+      message: `Occupancy-driven setback controller is actively balancing comfort and energy. Live savings: ${savingsPct.toFixed(1)}% of plant load (${(savedMw * 1000).toFixed(0)} kW ≈ ${money(energyCostPerDay(savedMw * 1000))}/day).`,
       action: 'VIEW MODEL METRICS'
     });
 
@@ -156,6 +182,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
     if (id === 'general') {
       const rows = [
         ['Live savings', `${(savedMw * 1000).toFixed(0)} kW (${savingsPct.toFixed(1)}%)`],
+        ['Utility saving', `${money(energyCostPerDay(savedMw * 1000))}/day`],
         ['Plant COP', (simData.plantCop || 0).toFixed(2)],
         ['Cooling delivered', `${(simData.coolingOutputMw || 0).toFixed(2)} MW thermal`],
         ['Zones simulated', `${Object.keys(simData.zones || {}).length}`],
@@ -187,6 +214,11 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
               <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{(n.source || 'edge').toUpperCase()}</span>
               <span style={{ color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(n.zoneId || '').replace('zone-', '')}</span>
               {n.tempPinned && <span style={{ color: 'var(--accent-blue)' }}>{(n.hwTemp || 0).toFixed(1)}°C</span>}
+              {n.shadowTemp > 0 && (
+                <span title="AFDD residual: |measured − 2R1C shadow model|" style={{ color: n.afddAlert ? 'var(--accent-red)' : 'var(--text-muted)' }}>
+                  Δ{(n.residual || 0).toFixed(1)}°
+                </span>
+              )}
               <span style={{ color: 'var(--text-secondary)' }}>{n.occupancy ?? 0}P</span>
               <span style={{ color: n.lightsOn ? 'var(--accent-green)' : 'var(--text-muted)' }}>{n.lightsOn ? 'LIT' : 'DARK'}</span>
             </div>

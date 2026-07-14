@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { Activity, AlertTriangle, Zap, Target, CheckCircle } from 'lucide-react';
+import { Activity, AlertTriangle, Zap, CheckCircle } from 'lucide-react';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { money, energyCostPerDay, peakShiftSavingPerDay, peakShiftSavingPerMonth, touPeriod, touPeriodLabel } from './tariff';
 
 export default function TelemetryPanel({ simData, loadHistory, activeScenario, faultTarget, onOpenMaintenance, autoPilot, setAutoPilot }) {
 
   const [activeChartMode, setActiveChartMode] = useState('office_dcv');
-  const [ticketDispatched, setTicketDispatched] = useState(false);
   // Manual "apply" actions engage the autonomous controller, which performs the suggested
   // setback / load-shed / flow change — so the button does the real thing instead of nothing.
   const applySuggestion = () => setAutoPilot && setAutoPilot(true);
@@ -65,6 +65,20 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
   
   const unoccupiedWasting = Object.values(simData.zones).filter(z => z.occupancy === 0).slice(0, 1);
   const outOfBand = Object.values(simData.zones).filter(z => z.temp > z.setpoint + z.deadband && activeScenario !== 'fault');
+
+  // --- Cost model (see tariff.js) ---
+  const cop = simData.plantCop || 3.0;
+  // Cooling electrical draw = building load minus the fixed ~2 MW lighting/plug/fan
+  // baseline the engine bakes in; this is the load a shave/pre-cool actually addresses.
+  const coolingElectricalKw = Math.max(0, (simData.buildingLoadMw || 0) - 2.0) * 1000;
+  // Wasted electrical draw when a scheduled-occupied zone sits empty: mirrors the engine's
+  // own setback-savings formula (≈2 kW lighting + 25% of internal-gain cooling, at plant COP).
+  const zoneWasteKw = (z) => 2 + (0.25 * (z.load || 0)) / cop;
+  const rateLabel = touPeriodLabel(touPeriod()); // current EVN TOU band, e.g. "normal hours"
+  // Cooling load a 1°C deadband widen / pre-cool shifts OFF the daily peak window: ~5% of
+  // cooling electrical (a standard ~3–5%-per-°C HVAC rule of thumb). The value is the peak-vs-
+  // normal rate gap on that shifted energy, not a (non-existent in Vietnam) demand charge.
+  const shedKw = 0.05 * coolingElectricalKw;
 
   const getRCA = (zone) => {
     if (!zone) return { cause: 'Unknown error', blastRadius: 1, confidence: 0 };
@@ -179,9 +193,11 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
                     {autoPilot ? 'AUTONOMOUS ACTION' : 'SETPOINT OPTIMIZATION'}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.4 }}>
-                    {z.label} has been unoccupied for 45m. Power draw remains at 100% baseline.
+                    {z.label} is unoccupied but still drawing an estimated {zoneWasteKw(z).toFixed(1)} kW (lighting + cooling of internal gains).
                     <div style={{ marginTop: '4px', color: 'var(--accent-green)' }}>
-                      {autoPilot ? 'Auto-Adjusted setpoint to 26°C. Saving ~$12/day.' : 'Financial Impact: Wasting ~$12/day.'}
+                      {autoPilot
+                        ? `Setback engaged — saving ≈ ${money(energyCostPerDay(zoneWasteKw(z)))}/day at the current ${rateLabel} rate.`
+                        : `Financial impact ≈ ${money(energyCostPerDay(zoneWasteKw(z)))}/day at the current ${rateLabel} rate.`}
                     </div>
                   </div>
                 </div>
@@ -207,11 +223,11 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
                     {autoPilot ? 'AUTONOMOUS LOAD SHEDDING' : 'PEAK SHAVING OPPORTUNITY'}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-primary)', marginTop: '4px', lineHeight: 1.4 }}>
-                    Total building load ({simData.buildingLoadMw.toFixed(2)} MW) is approaching peak demand threshold.
+                    Total building load ({simData.buildingLoadMw.toFixed(2)} MW) — the 17:30–22:30 peak hours are the costly window.
                     <div style={{ marginTop: '4px', color: autoPilot ? 'var(--accent-green)' : 'var(--text-secondary)' }}>
-                      {autoPilot 
-                        ? 'Auto-widened deadbands by 1°C in non-critical zones. Avoided Demand Charge: ~$450.' 
-                        : 'Suggested: Widen deadbands by 1°C in non-critical zones. Avoided Demand Charge: ~$450.'}
+                      {autoPilot
+                        ? `Pre-cooling shifts ≈ ${shedKw.toFixed(0)} kW of cooling out of peak hours into normal-rate hours — saving ≈ ${money(peakShiftSavingPerDay(shedKw))}/day (${money(peakShiftSavingPerMonth(shedKw))}/month) on peak-hour energy.`
+                        : `Widen deadbands 1°C / pre-cool before 17:30 → shift ≈ ${shedKw.toFixed(0)} kW off peak hours, saving ≈ ${money(peakShiftSavingPerDay(shedKw))}/day (${money(peakShiftSavingPerMonth(shedKw))}/month).`}
                     </div>
                   </div>
                 </div>
@@ -254,29 +270,6 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
               )}
             </div>
           ))}
-
-          {/* 3. Sensor Calibration Warning Insight */}
-          {(!isFault) && (
-            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '6px', padding: '12px' }}>
-               <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                <Target size={16} color="var(--text-secondary)" style={{ marginTop: '2px', flexShrink: 0 }} />
-                <div>
-                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', letterSpacing: '0.5px' }}>SENSOR DEGRADATION WARNING</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.4 }}>
-                    CO₂ sensor in L10 Core Lobby exhibits erratic variance (+/- 150ppm vs baseline). 
-                    <div style={{ marginTop: '4px' }}>Impact: Minor control loop oscillation.</div>
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={() => setTicketDispatched(true)}
-                disabled={ticketDispatched}
-                style={{ width: '100%', background: ticketDispatched ? 'rgba(0,255,0,0.08)' : 'transparent', border: `1px solid ${ticketDispatched ? 'var(--accent-green)' : 'var(--text-secondary)'}`, color: ticketDispatched ? 'var(--accent-green)' : 'var(--text-secondary)', padding: '6px', fontSize: '10px', cursor: ticketDispatched ? 'default' : 'pointer', borderRadius: '4px', fontWeight: 'bold', letterSpacing: '1px', marginTop: '4px' }}
-              >
-                {ticketDispatched ? '✓ CALIBRATION TICKET DISPATCHED' : 'DISPATCH CALIBRATION TICKET (LOW PRIORITY)'}
-              </button>
-            </div>
-          )}
 
           {/* Nominal Status Fallback */}
           {!isFault && unoccupiedWasting.length === 0 && outOfBand.length === 0 && simData.buildingLoadMw <= 3.0 && (

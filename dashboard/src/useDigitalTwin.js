@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import * as flatbuffers from 'flatbuffers';
 import { SimState } from './telemetry';
 import buildingData from './building-data.json';
+import { API_BASE, WS_URL } from './api';
 
 const INTEGRATION_BY_TYPE = {
   'server-room': 1.05,
@@ -25,7 +26,7 @@ export const FAULT_ZONES = (() => {
 export const DEFAULT_FAULT_TARGET = FAULT_ZONES[0]?.id || '';
 
 export const getInitialSimData = () => {
-  const data = { scenario: 'peak', ahuPressure: 500, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, vavs: {}, zones: {}, logs: [] };
+  const data = { scenario: 'peak', ahuPressure: 500, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, bessDischargeMw: 0, bessSocPct: 0, vavs: {}, zones: {}, logs: [] };
   buildingData.floors.forEach(floor => {
     floor.zones.forEach(z => {
       let cx = 20, cy = 20;
@@ -75,7 +76,7 @@ export function useDigitalTwin(onUpdate) {
   // [GEMINI IMPLEMENTATION START]
   // Fetch TimescaleDB history on mount
   useEffect(() => {
-    fetch('http://localhost:8080/api/history')
+    fetch(`${API_BASE}/api/history`)
       .then(res => res.json())
       .then(data => {
         if (data && data.length > 0) {
@@ -97,12 +98,13 @@ export function useDigitalTwin(onUpdate) {
   // (buildingLoadMw, coolingOutputMw, plantCop, energySavedMw, totalOccupants) or computed
   // from the live per-zone temperatures. No fabricated ratios.
   const globalMetrics = useMemo(() => {
-    const empty = { occupants: 0, avgTemp: 0, buildingLoadMw: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, gridPowerMw: 0 };
+    const empty = { occupants: 0, avgTemp: 0, buildingLoadMw: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, gridPowerMw: 0, bessDischargeMw: 0, bessSocPct: 0 };
     if (!simData || !simData.zones) return empty;
     let tempSum = 0;
     const zones = Object.values(simData.zones);
     zones.forEach(z => { tempSum += parseFloat(z.temp) || 24.0; });
     const bldgLoad = simData.buildingLoadMw || 0;
+    const bessDischarge = simData.bessDischargeMw || 0;
     return {
       occupants: simData.totalOccupants || 0,
       avgTemp: zones.length ? (tempSum / zones.length).toFixed(1) : 0,
@@ -110,7 +112,9 @@ export function useDigitalTwin(onUpdate) {
       coolingOutputMw: simData.coolingOutputMw || 0, // thermal cooling delivered (MW)
       plantCop: simData.plantCop || 0,               // chiller-plant coefficient of performance
       energySavedMw: simData.energySavedMw || 0,     // saved by occupancy-driven setback
-      gridPowerMw: bldgLoad,                          // no on-site generation -> grid = load
+      bessDischargeMw: bessDischarge,                 // + discharging to grid, - charging
+      bessSocPct: simData.bessSocPct || 0,            // battery state of charge (0..100)
+      gridPowerMw: Math.max(0, bldgLoad - bessDischarge), // battery discharge offsets grid draw
     };
   }, [simData]);
 
@@ -144,7 +148,7 @@ export function useDigitalTwin(onUpdate) {
   // [GEMINI IMPLEMENTATION END]
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8080/ws');
+    const ws = new WebSocket(WS_URL);
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
 
@@ -202,6 +206,9 @@ export function useDigitalTwin(onUpdate) {
         newSimData.coolingOutputMw = g.coolingOutputMw();
         newSimData.plantCop = g.plantCop();
         newSimData.energySavedMw = g.energySavedMw();
+        // BESS: + discharging to grid (shaving), - charging. gridPowerMw = load - discharge.
+        newSimData.bessDischargeMw = g.bessDischargeMw();
+        newSimData.bessSocPct = g.bessSocPct();
 
         const nowMs = Date.now();
         if (nowMs - lastHistUpdateRef.current > 1000) {
@@ -238,7 +245,7 @@ export function useDigitalTwin(onUpdate) {
   // Fetch AI Forecast periodically
   useEffect(() => {
     const fetchForecast = () => {
-      fetch('http://localhost:8080/api/forecast')
+      fetch(`${API_BASE}/api/forecast`)
         .then(res => {
           if (!res.ok) throw new Error('Forecast unavailable');
           return res.json();
