@@ -1,139 +1,161 @@
-import cv2
+"""ECON Branch-A occupancy tracker: YOLOv8 + ByteTrack line-crossing counter.
+
+Publishes real occupancy into the same edge wire contract the ESP32/Pico nodes use,
+so a webcam pointed at a doorway becomes one more hardware node on the twin:
+
+  * telemetry -> econ/telemetry/<topic>   {"zone", "occupancy", "source": "cv"}
+  * liveness  -> econ/status/<topic>      retained online/offline + Last Will
+
+Occupancy-only by design: the engine attributes it to source "cv" and never lets it
+pin zone physics (that is reserved for genuinely measured temperatures).
+
+Run on the laptop webcam:   python3 yolo_tracker.py --source 0
+Run on demo footage:        python3 yolo_tracker.py --source people-detection.mp4
+Headless (no cv2 window):   python3 yolo_tracker.py --source 0 --headless
+"""
+
+import argparse
 import json
 import logging
 import time
-from typing import Dict, Any
 
+import cv2
 from ultralytics import YOLO
 import supervision as sv
 import paho.mqtt.client as mqtt
 
-# ---------------------------------------------------------
-# CONFIGURATION
-# ---------------------------------------------------------
-MQTT_BROKER = "127.0.0.1"
-MQTT_PORT = 1883
-MQTT_TOPIC = "econ/telemetry/zone_1"
-
-# Use YOLOv8n (nano) for speed. It will auto-download the weights.
-# YOLOv11 can be used similarly if weights are provided.
-MODEL_NAME = "yolov8n.pt"
-
-# Coordinates for the virtual line (e.g., a doorway)
-# Adjust these based on the actual camera resolution and angle
-LINE_START = sv.Point(50, 300)
-LINE_END = sv.Point(550, 300)
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("YOLO-Tracker")
 
-# ---------------------------------------------------------
-# MQTT SETUP
-# ---------------------------------------------------------
-mqtt_client = mqtt.Client()
+parser = argparse.ArgumentParser(description="ECON CV occupancy node (YOLO + ByteTrack)")
+parser.add_argument("--source", default="people-detection.mp4",
+                    help="video file path, or a webcam index like 0")
+parser.add_argument("--zone", default="Level 4", help="zone label sent as 'zone'")
+parser.add_argument("--topic", default="zone_1", help="MQTT topic suffix for this node")
+parser.add_argument("--broker", default="127.0.0.1")
+parser.add_argument("--port", type=int, default=1883)
+parser.add_argument("--model", default="yolov8n.pt", help="ultralytics weights (auto-downloads)")
+parser.add_argument("--device", default="mps",
+                    help="inference device: mps (Apple GPU), cuda, or cpu")
+parser.add_argument("--line", default="50,300,550,300",
+                    help="counting line as x1,y1,x2,y2 in frame pixels (crossing = in/out)")
+parser.add_argument("--headless", action="store_true", help="no preview window (servers/SSH)")
+args = parser.parse_args()
 
-def setup_mqtt():
+TELEMETRY_TOPIC = f"econ/telemetry/{args.topic}"
+STATUS_TOPIC = f"econ/status/{args.topic}"
+HEARTBEAT_SEC = 5.0  # re-publish period so the twin's freshness tracking sees us alive
+
+
+def make_mqtt_client():
+    cid = f"econ-cv-{args.topic}"
+    try:  # paho-mqtt 2.x renamed the constructor contract
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id=cid)
+    except AttributeError:
+        client = mqtt.Client(client_id=cid)
+    client.will_set(STATUS_TOPIC, "offline", retain=True)
+
+    def on_connect(c, *rest):
+        c.publish(STATUS_TOPIC, "online", retain=True)
+        logger.info("Connected to MQTT broker at %s:%d as %s", args.broker, args.port, cid)
+
+    client.on_connect = on_connect
+    client.reconnect_delay_set(min_delay=1, max_delay=10)
     try:
-        mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        mqtt_client.loop_start()
-        logger.info("Connected to MQTT Broker")
+        client.connect_async(args.broker, args.port, 60)
+        client.loop_start()
     except Exception as e:
-        logger.error(f"Could not connect to MQTT Broker: {e}")
-        logger.info("Will run locally without MQTT publishing.")
+        logger.error("MQTT unavailable (%s); running locally without publishing.", e)
+    return client
 
-def publish_occupancy(zone: str, count: int):
-    payload = json.dumps({
-        "zone": zone,
-        "occupancy": count,
-        "temperature": 24.5, # Static for demo
-        "humidity": 50.0,
-        "co2": 450
-    })
-    if mqtt_client.is_connected():
-        mqtt_client.publish(MQTT_TOPIC, payload)
-        logger.info(f"Published to {MQTT_TOPIC}: {payload}")
 
-# ---------------------------------------------------------
-# MAIN PIPELINE
-# ---------------------------------------------------------
-def run_tracking_pipeline(source=0):
-    # Load the YOLO model
-    logger.info(f"Loading {MODEL_NAME}...")
-    model = YOLO(MODEL_NAME)
+def publish_occupancy(client, count: int):
+    payload = json.dumps({"zone": args.zone, "occupancy": count, "source": "cv"})
+    if client.is_connected():
+        client.publish(TELEMETRY_TOPIC, payload)
+        logger.info("Published to %s: %s", TELEMETRY_TOPIC, payload)
 
-    # Initialize the ByteTrack tracker
+
+def run_tracking_pipeline(client):
+    logger.info("Loading %s ...", args.model)
+    model = YOLO(args.model)
+    device = args.device
+
     tracker = sv.ByteTrack()
+    x1, y1, x2, y2 = (int(v) for v in args.line.split(","))
+    line_zone = sv.LineZone(start=sv.Point(x1, y1), end=sv.Point(x2, y2))
 
-    # Initialize LineZone to count crossing events
-    line_zone = sv.LineZone(start=LINE_START, end=LINE_END)
-    
-    # Annotators for visualization
     box_annotator = sv.BoxAnnotator()
     label_annotator = sv.LabelAnnotator()
     line_zone_annotator = sv.LineZoneAnnotator()
 
-    # Open video capture (webcam or file)
+    # "0" / "1" on the command line means a live camera index, anything else a file.
+    source = int(args.source) if args.source.isdigit() else args.source
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
-        logger.error(f"Failed to open video source: {source}")
+        logger.error("Failed to open video source: %r", source)
         return
 
-    logger.info("Starting video stream. Press 'q' to quit.")
-    
-    # To prevent spamming MQTT, we only publish when count changes
-    last_count = 0
-    
+    logger.info("Tracking %r -> zone %r (topic %s). Press 'q' to quit.",
+                source, args.zone, args.topic)
+
+    last_count = -1  # force an initial publish so the zone binds immediately
+    last_publish = 0.0
+
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        # Run YOLO inference on Mac Mini M4 GPU (mps)
-        # classes=[0] ensures we only detect 'person'
-        results = model(frame, classes=[0], device="mps", verbose=False)[0]
-        
-        # Convert ultralytics results to supervision format
+        # classes=[0] restricts detection to 'person'. If the requested device isn't
+        # available in this torch build (e.g. mps on Linux), fall back to CPU once.
+        try:
+            results = model(frame, classes=[0], device=device, verbose=False)[0]
+        except Exception as e:
+            if device != "cpu":
+                logger.warning("Device %r failed (%s); falling back to cpu.", device, e)
+                device = "cpu"
+                continue
+            raise
+
         detections = sv.Detections.from_ultralytics(results)
-        
-        # Update tracker with detections
         detections = tracker.update_with_detections(detections)
-        
-        # Trigger line zone counting
         line_zone.trigger(detections=detections)
-        
-        # Calculate net occupancy (in - out)
-        # Assuming crossing from top to bottom is "in"
+
+        # Net occupancy: crossings in minus crossings out, floored at zero.
         current_occupancy = max(0, line_zone.in_count - line_zone.out_count)
-        
-        if current_occupancy != last_count:
-            publish_occupancy("Level 4", current_occupancy)
+
+        # Publish on change, plus a heartbeat so staleness tracking sees a live node.
+        now = time.time()
+        if current_occupancy != last_count or now - last_publish >= HEARTBEAT_SEC:
+            publish_occupancy(client, current_occupancy)
             last_count = current_occupancy
+            last_publish = now
 
-        # Visualization (Draw on frame)
-        labels = [
-            f"#{tracker_id} Person"
-            for tracker_id in detections.tracker_id
-        ]
-        
-        frame = box_annotator.annotate(scene=frame, detections=detections)
-        frame = label_annotator.annotate(scene=frame, detections=detections, labels=labels)
-        frame = line_zone_annotator.annotate(frame, line_counter=line_zone)
-        
-        # Display live occupancy on the top left
-        cv2.putText(frame, f"Occupancy: {current_occupancy}", (20, 50), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-
-        # Show the video feed
-        cv2.imshow("EcoSync AI - YOLOv11/ByteTrack Occupancy", frame)
-
-        # Press 'q' to quit
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        if not args.headless:
+            labels = [f"#{tid} Person" for tid in detections.tracker_id]
+            frame = box_annotator.annotate(scene=frame, detections=detections)
+            frame = label_annotator.annotate(scene=frame, detections=detections, labels=labels)
+            frame = line_zone_annotator.annotate(frame, line_counter=line_zone)
+            cv2.putText(frame, f"Occupancy: {current_occupancy}", (20, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.imshow("ECON CV Node - YOLO/ByteTrack Occupancy", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
 
     cap.release()
-    cv2.destroyAllWindows()
+    if not args.headless:
+        cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
-    setup_mqtt()
-    # Replace '0' with a video file path to test on pre-recorded footage
-    run_tracking_pipeline(source="people-detection.mp4")
+    mqtt_client = make_mqtt_client()
+    try:
+        run_tracking_pipeline(mqtt_client)
+    finally:
+        try:
+            mqtt_client.publish(STATUS_TOPIC, "offline", retain=True).wait_for_publish(timeout=2)
+        except Exception:
+            pass
+        mqtt_client.loop_stop()
+        mqtt_client.disconnect()
