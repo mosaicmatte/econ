@@ -113,8 +113,32 @@ func (rcv *GlobalData) MutateEnergySavedMw(n float32) bool {
 	return rcv._tab.MutateFloat32Slot(14, n)
 }
 
+func (rcv *GlobalData) BessDischargeMw() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(16))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *GlobalData) MutateBessDischargeMw(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(16, n)
+}
+
+func (rcv *GlobalData) BessSocPct() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(18))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *GlobalData) MutateBessSocPct(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(18, n)
+}
+
 func GlobalDataStart(builder *flatbuffers.Builder) {
-	builder.StartObject(6)
+	builder.StartObject(8)
 }
 func GlobalDataAddBuildingLoadMw(builder *flatbuffers.Builder, buildingLoadMw float32) {
 	builder.PrependFloat32Slot(0, buildingLoadMw, 0.0)
@@ -133,6 +157,12 @@ func GlobalDataAddPlantCop(builder *flatbuffers.Builder, plantCop float32) {
 }
 func GlobalDataAddEnergySavedMw(builder *flatbuffers.Builder, energySavedMw float32) {
 	builder.PrependFloat32Slot(5, energySavedMw, 0.0)
+}
+func GlobalDataAddBessDischargeMw(builder *flatbuffers.Builder, bessDischargeMw float32) {
+	builder.PrependFloat32Slot(6, bessDischargeMw, 0.0)
+}
+func GlobalDataAddBessSocPct(builder *flatbuffers.Builder, bessSocPct float32) {
+	builder.PrependFloat32Slot(7, bessSocPct, 0.0)
 }
 func GlobalDataEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

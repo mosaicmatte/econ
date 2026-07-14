@@ -179,7 +179,7 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 		Pwr  float64 `json:"pwr"`
 		Co2  float64 `json:"co2"`
 	}
-	var res []histItem
+	res := []histItem{} // non-nil so an empty result marshals as [] rather than null
 	for rows.Next() {
 		var item histItem
 		if err := rows.Scan(&item.Time, &item.Pwr, &item.Co2); err == nil {

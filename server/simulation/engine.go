@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -84,6 +85,13 @@ type ZoneSim struct {
 	HwHum    float64   // last measured relative humidity (%), surfaced via /api/hardware
 	HwCo2    float64   // last measured CO2 (ppm)
 	HwOnline bool      // broker LWT verdict from econ/status/<topic>
+	// Physics-grounded AFDD (roadmap challenge 2): while a real sensor pins this zone,
+	// ShadowTemp keeps integrating the pure 2R1C model with NO sensor pull. The smoothed
+	// |measured − modeled| residual is the fault signal — a healthy room tracks its
+	// physics, a faulty one (blocked coil, stuck damper, open window) diverges. Needs no
+	// training data or fault labels.
+	ShadowTemp  float64 // sensor-free model twin of Temp (0 = not yet seeded)
+	ResidualEma float64 // smoothed |HwTemp − ShadowTemp| in °C
 }
 
 type VavSim struct {
@@ -111,6 +119,14 @@ type Engine struct {
 	lastDbSave time.Time
 	lastCmd    map[string]string // zoneId -> last command published (dedupe)
 	demoAssign map[string]string // edge-node identifier -> zoneId (sticky demo binding)
+	// Forecast-driven pre-cooling: while now < PreCoolUntil the optimizer drives every
+	// occupied zone below its base setpoint, charging the building's thermal mass ahead
+	// of a predicted demand peak so the chillers can shed load when it lands.
+	PreCoolUntil time.Time
+	// Battery Energy Storage System: charges off-peak, discharges on peak to shave grid draw.
+	Bess       Battery
+	lastLoadMw float64   // latest computed building electrical load (MW), fed to BESS dispatch
+	lastBessAt time.Time // wall-clock of the last BESS integration step
 }
 
 func NewEngine() *Engine {
@@ -123,6 +139,8 @@ func NewEngine() *Engine {
 		Scenario: "peak",
 		lastCmd:  make(map[string]string),
 		demoAssign: make(map[string]string),
+		Bess:       NewBattery(),
+		lastBessAt: time.Now(),
 	}
 
 	data, err := os.ReadFile("./data/building-data.json")
@@ -256,6 +274,11 @@ func (e *Engine) IngestTelemetry(zoneRef, topicSuffix string, m Measurement) {
 	if m.Temp != nil && m.TempReal {
 		z.HwTemp = *m.Temp
 		z.HwTempAt = time.Now()
+		if z.ShadowTemp == 0 {
+			// First real measurement: seed the shadow model at reality so the AFDD
+			// residual starts near zero and only grows on genuine divergence.
+			z.ShadowTemp = *m.Temp
+		}
 	}
 	if m.Humidity != nil {
 		z.HwHum = *m.Humidity
@@ -314,11 +337,21 @@ func (e *Engine) assignDemoZone(ref string) *ZoneSim {
 
 const vacancyDelayTicks = 90 // ~3s at 30 FPS — stand-in for the real safety time-delay
 
+const (
+	// preCoolDelta is how far below the occupied setpoint zones run during a
+	// forecast-triggered pre-cool window.
+	preCoolDelta = 1.5 // °C
+	// afddThreshold flags a zone whose measured temperature has drifted this far
+	// (smoothed) from its sensor-free 2R1C shadow model.
+	afddThreshold = 2.0 // °C
+)
+
 // actuate runs the occupancy-driven optimizer for every live (instrumented) zone: a zone
 // that has been empty past the safety delay is set back (warmer setpoint, which lowers
 // cooling load and shows up as a drop on the dashboard) and its lights are commanded off;
 // a reoccupied zone is restored. Commands publish to the edge (ESP32) only on change.
 func (e *Engine) actuate() {
+	preCool := time.Now().Before(e.PreCoolUntil)
 	for id, z := range e.Zones {
 		if !z.Live {
 			continue
@@ -337,6 +370,10 @@ func (e *Engine) actuate() {
 		desiredSp := z.BaseSetpoint
 		if vacant {
 			desiredSp = z.BaseSetpoint + 4.0 // energy-saving setback
+		} else if preCool {
+			// Forecast says a demand peak is coming: run occupied zones slightly cold
+			// now (cheap thermal-mass charge) so chillers can shed load at the peak.
+			desiredSp = z.BaseSetpoint - preCoolDelta
 		}
 		z.Setpoint = desiredSp
 		z.LightsOn = desiredLights
@@ -381,6 +418,13 @@ func (e *Engine) applyHardware() {
 			continue
 		}
 		z.Temp += (z.HwTemp - z.Temp) * 0.1
+		// AFDD residual: how far the measured room has drifted from the sensor-free
+		// shadow model. Slow EMA (~2 s time constant at 30 FPS) rejects sensor noise
+		// while still catching real faults in well under a minute.
+		if z.ShadowTemp != 0 {
+			r := math.Abs(z.HwTemp - z.ShadowTemp)
+			z.ResidualEma += (r - z.ResidualEma) * 0.02
+		}
 	}
 }
 
@@ -405,6 +449,26 @@ func (e *Engine) SetNodeStatus(topicSuffix string, online bool) {
 	}
 }
 
+// StartPreCool opens (or extends) a pre-cooling window: for its duration the optimizer
+// drives every occupied zone preCoolDelta below its base setpoint, charging the
+// building's thermal mass ahead of a forecast demand peak. Called by the LSTM poller
+// (precool.go) and by the dashboard's "pre-cool" action. Returns when the window ends.
+func (e *Engine) StartPreCool(d time.Duration) time.Time {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if until := time.Now().Add(d); until.After(e.PreCoolUntil) {
+		e.PreCoolUntil = until
+	}
+	return e.PreCoolUntil
+}
+
+// PreCoolStatus reports whether a pre-cool window is active and when it ends.
+func (e *Engine) PreCoolStatus() (bool, time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return time.Now().Before(e.PreCoolUntil), e.PreCoolUntil
+}
+
 // HardwareNode is one physical edge-node binding as reported by GET /api/hardware.
 type HardwareNode struct {
 	ZoneId     string  `json:"zoneId"`
@@ -420,6 +484,10 @@ type HardwareNode struct {
 	LightsOn   bool    `json:"lightsOn"`
 	Setpoint   float64 `json:"setpoint"`
 	AgeSec     float64 `json:"ageSec"`
+	// Physics-grounded AFDD outputs (zero until the zone's first real temperature).
+	ShadowTemp float64 `json:"shadowTemp"`
+	Residual   float64 `json:"residual"`
+	AfddAlert  bool    `json:"afddAlert"`
 }
 
 // HardwareStatus snapshots every zone currently bound to a physical edge node, for the
@@ -447,6 +515,9 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 			LightsOn:   z.LightsOn,
 			Setpoint:   z.Setpoint,
 			AgeSec:     age,
+			ShadowTemp: z.ShadowTemp,
+			Residual:   z.ResidualEma,
+			AfddAlert:  z.ShadowTemp != 0 && z.ResidualEma > afddThreshold,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ZoneId < out[j].ZoneId })
@@ -534,19 +605,26 @@ func (e *Engine) Start() {
 				dt = 2.0 // 60x speed recovery!
 			}
 		}
-		e.mu.Unlock()
-
+		// Physics + optimizer + hardware pinning run as ONE critical section: the MQTT
+		// ingestion and HTTP snapshot goroutines mutate/read the same zone state under
+		// e.mu, so integrating outside the lock (as before) was a data race.
 		e.tick(dt)
 
 		// Occupancy-driven optimizer + edge actuation (publishes only on state change).
-		e.mu.Lock()
 		e.actuate()
 		e.applyHardware()
+
+		// BESS dispatch: TOU-driven charge/discharge against the last computed building load,
+		// integrated on real wall-clock time so the state of charge trends realistically.
+		now := time.Now()
+		e.Bess.Dispatch(now.Sub(e.lastBessAt).Seconds(), e.lastLoadMw, touBand(now))
+		e.lastBessAt = now
 		e.mu.Unlock()
 
 		e.broadcast()
 	}
 }
+// tick integrates one thermal step. Called only from Start's loop with e.mu held.
 func (e *Engine) tick(dt float64) {
 		// Thermodynamics
 		for _, v := range e.Vavs {
@@ -603,6 +681,20 @@ func (e *Engine) tick(dt float64) {
 			// just reading "hot / cooling-starved" like a real failing room.
 			z.Temp = math.Max(5.0, math.Min(50.0, z.Temp))
 			z.WallTemp = math.Max(5.0, math.Min(50.0, z.WallTemp))
+
+			// Physics-grounded AFDD: integrate the sensor-free shadow twin with the
+			// same 2R1C dynamics and cooling law, but never pulled toward the hardware
+			// measurement (applyHardware skips it). Divergence between the measured
+			// room and this twin is the fault signal.
+			if z.ShadowTemp != 0 {
+				qCoolShadow := flowRatio * qNominalTotal * ((z.ShadowTemp - 12.0) / (sp - 12.0))
+				if qCoolShadow < 0 {
+					qCoolShadow = 0
+				}
+				dShadowDt := ((z.WallTemp-z.ShadowTemp)/(z.RIn*z.CAir) + (qInternal-qCoolShadow)/z.CAir)
+				z.ShadowTemp += dShadowDt * dt
+				z.ShadowTemp = math.Max(5.0, math.Min(50.0, z.ShadowTemp))
+			}
 		}
 }
 
@@ -645,6 +737,9 @@ func (e *Engine) ForecastWindow(seqLen int) [][]float64 {
 }
 
 func (e *Engine) broadcast() {
+		// Metrics + serialization read (and update LastBroadcast*) zone state, so they
+		// run under the lock; the websocket writes below happen outside it.
+		e.mu.Lock()
 		// ---- Live global metrics (all derived from current zone state) ----
 		totalHeatW := 0.0    // total thermal load the plant must remove (W)
 		totalOccupants := 0
@@ -694,6 +789,10 @@ func (e *Engine) broadcast() {
 		const baseElectricalMW = 2.0             // lighting + plug + fans baseline
 		buildingLoadMW := coolingElectricalMW + baseElectricalMW
 		energySavedMW := (savedLightingW + savedThermalW/plantCop) / 1e6
+		// Feed the load to the BESS dispatcher (read next tick) and snapshot battery state.
+		e.lastLoadMw = buildingLoadMW
+		bessDischargeMW := e.Bess.DischargeMw
+		bessSocPct := e.Bess.Soc * 100.0
 
 		// System health = mean per-zone comfort (severity-weighted), per the report's discomfort
 		// model. Bounded [0,100]; the discrete "active critical faults" count handles alarms.
@@ -716,6 +815,16 @@ func (e *Engine) broadcast() {
 			for id, z := range e.Zones {
 				e.Persist(id, "temp", z.Temp)
 				e.Persist(id, "occupancy", float64(z.Occupancy))
+				// Environmentals from a live physical node (humidity %, CO2 ppm) get
+				// their own history series while the node's telemetry is fresh.
+				if !z.HwSeenAt.IsZero() && time.Since(z.HwSeenAt) < hwStaleAfter {
+					if z.HwHum > 0 {
+						e.Persist(id, "humidity", z.HwHum)
+					}
+					if z.HwCo2 > 0 {
+						e.Persist(id, "co2", z.HwCo2)
+					}
+				}
 			}
 		}
 		// [GEMINI IMPLEMENTATION END]
@@ -775,6 +884,8 @@ func (e *Engine) broadcast() {
 		Telemetry.GlobalDataAddCoolingOutputMw(builder, float32(coolingOutputMW))
 		Telemetry.GlobalDataAddPlantCop(builder, float32(plantCop))
 		Telemetry.GlobalDataAddEnergySavedMw(builder, float32(energySavedMW))
+		Telemetry.GlobalDataAddBessDischargeMw(builder, float32(bessDischargeMW))
+		Telemetry.GlobalDataAddBessSocPct(builder, float32(bessSocPct))
 		globalPos := Telemetry.GlobalDataEnd(builder)
 
 		// Build SimState
@@ -788,15 +899,28 @@ func (e *Engine) broadcast() {
 		builder.Finish(simStatePos)
 		buf := builder.FinishedBytes()
 
-		e.mu.Lock()
-		for client := range e.Clients {
-			err := client.WriteMessage(websocket.BinaryMessage, buf)
-			if err != nil {
-				client.Close()
-				delete(e.Clients, client)
-			}
+		conns := make([]*websocket.Conn, 0, len(e.Clients))
+		for c := range e.Clients {
+			conns = append(conns, c)
 		}
 		e.mu.Unlock()
+
+		// Network writes happen OUTSIDE the lock: a slow websocket client must never
+		// stall the simulation loop or MQTT ingestion.
+		var dead []*websocket.Conn
+		for _, client := range conns {
+			if err := client.WriteMessage(websocket.BinaryMessage, buf); err != nil {
+				client.Close()
+				dead = append(dead, client)
+			}
+		}
+		if len(dead) > 0 {
+			e.mu.Lock()
+			for _, c := range dead {
+				delete(e.Clients, c)
+			}
+			e.mu.Unlock()
+		}
 	}
 
 // [GEMINI IMPLEMENTATION START]
@@ -821,9 +945,38 @@ func (e *Engine) PublishCommand(action, zoneRef string) {
 	}
 
 	cmd := normalizeOverride(action, z)
+	if z != nil {
+		// Mirror the veto onto the twin's own state immediately — the 3D lighting,
+		// /api/hardware and the optimizer's view must reflect the human command during
+		// the latch, not only after the optimizer reasserts control.
+		applyCommandToZone(z, cmd)
+	}
 	log.Printf("[override] manual command %q (from %q) to %s (latched 15m)", cmd, action, topic)
 	if e.Publish != nil {
 		e.Publish("econ/commands/"+topic, cmd)
+	}
+}
+
+// applyCommandToZone applies a firmware-format command string to the engine's zone
+// state. Mirrors the edge firmware's parser: ;-separated LIGHTS_x / SETPOINT= /
+// HVAC_SET: tokens, unknown tokens ignored. Lock held by the caller.
+func applyCommandToZone(z *ZoneSim, cmd string) {
+	for _, tok := range strings.Split(cmd, ";") {
+		tok = strings.TrimSpace(tok)
+		switch {
+		case tok == "LIGHTS_ON":
+			z.LightsOn = true
+		case tok == "LIGHTS_OFF":
+			z.LightsOn = false
+		case strings.HasPrefix(tok, "SETPOINT="):
+			if v, err := strconv.ParseFloat(tok[len("SETPOINT="):], 64); err == nil {
+				z.Setpoint = v
+			}
+		case strings.HasPrefix(tok, "HVAC_SET:"):
+			if v, err := strconv.ParseFloat(tok[len("HVAC_SET:"):], 64); err == nil {
+				z.Setpoint = v
+			}
+		}
 	}
 }
 

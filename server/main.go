@@ -61,11 +61,16 @@ func main() {
 		json.NewEncoder(w).Encode(engine.HardwareStatus())
 	})
 
+	// 5. Forecast-driven pre-cooling: GET = window status, POST = open a window now.
+	// The background poller (precool.go) opens windows automatically off the LSTM.
+	http.HandleFunc("/api/precool", precoolHandler(engine))
+
 	// Connect to the MQTT broker: ingest real occupancy from the CV/edge layer and
 	// publish actuation commands to the ESP32. Non-blocking; the sim runs regardless.
 	startMQTT(engine)
 
 	go engine.Start()
+	go precoolLoop(engine)
 
 	// 2. WebSocket endpoint for telemetry streaming
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -118,6 +123,13 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, engine *simulation.
 				var override map[string]string
 				if err := json.Unmarshal(msg, &override); err == nil {
 					if action, ok := override["action"]; ok {
+						if action == "precool" {
+							// Building-wide strategy, not a per-zone veto: open a
+							// pre-cool window ahead of the predicted demand peak.
+							until := engine.StartPreCool(precoolWindow)
+							log.Printf("[precool] dashboard opened window until %s", until.Format("15:04:05"))
+							return
+						}
 						if zone, ok := override["zone"]; ok {
 							engine.PublishCommand(action, zone)
 							return

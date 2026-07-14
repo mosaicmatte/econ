@@ -29,6 +29,8 @@ table GlobalData {
   coolingOutputMw: float;
   plantCop: float;
   energySavedMw: float;
+  bessDischargeMw: float = 0;  // appended: + discharging to grid, - charging (0 = no BESS)
+  bessSocPct: float = 0;       // appended: battery state of charge, 0..100
 }
 
 table SimState {

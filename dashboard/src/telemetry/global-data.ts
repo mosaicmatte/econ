@@ -52,8 +52,18 @@ energySavedMw():number {
   return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
 }
 
+bessDischargeMw():number {
+  const offset = this.bb!.__offset(this.bb_pos, 16);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
+bessSocPct():number {
+  const offset = this.bb!.__offset(this.bb_pos, 18);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
 static startGlobalData(builder:flatbuffers.Builder) {
-  builder.startObject(6);
+  builder.startObject(8);
 }
 
 static addBuildingLoadMw(builder:flatbuffers.Builder, buildingLoadMw:number) {
@@ -80,12 +90,20 @@ static addEnergySavedMw(builder:flatbuffers.Builder, energySavedMw:number) {
   builder.addFieldFloat32(5, energySavedMw, 0.0);
 }
 
+static addBessDischargeMw(builder:flatbuffers.Builder, bessDischargeMw:number) {
+  builder.addFieldFloat32(6, bessDischargeMw, 0.0);
+}
+
+static addBessSocPct(builder:flatbuffers.Builder, bessSocPct:number) {
+  builder.addFieldFloat32(7, bessSocPct, 0.0);
+}
+
 static endGlobalData(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, systemHealth:number, totalOccupants:number, coolingOutputMw:number, plantCop:number, energySavedMw:number):flatbuffers.Offset {
+static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, systemHealth:number, totalOccupants:number, coolingOutputMw:number, plantCop:number, energySavedMw:number, bessDischargeMw:number, bessSocPct:number):flatbuffers.Offset {
   GlobalData.startGlobalData(builder);
   GlobalData.addBuildingLoadMw(builder, buildingLoadMw);
   GlobalData.addSystemHealth(builder, systemHealth);
@@ -93,6 +111,8 @@ static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, syst
   GlobalData.addCoolingOutputMw(builder, coolingOutputMw);
   GlobalData.addPlantCop(builder, plantCop);
   GlobalData.addEnergySavedMw(builder, energySavedMw);
+  GlobalData.addBessDischargeMw(builder, bessDischargeMw);
+  GlobalData.addBessSocPct(builder, bessSocPct);
   return GlobalData.endGlobalData(builder);
 }
 }
