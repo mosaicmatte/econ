@@ -78,6 +78,7 @@ For each `Live` zone:
 - Tracks `VacantTicks`. Vacant = occupancy ≤ 0 for ≥ `vacancyDelayTicks` (90 ≈ 3 s — the report's safety time-delay; raise for production).
 - Vacant → `Setpoint = BaseSetpoint + 4°C` (energy-saving setback, lowers cooling load) and `LIGHTS_OFF`. Occupied → restore `BaseSetpoint` and `LIGHTS_ON`.
 - Publishes `econ/commands/<zone>` = `LIGHTS_ON|OFF;SETPOINT=<°C>` **only when the command changes** (`lastCmd` dedupe). This is what the ESP32 actuates on.
+- Pre-cool: while `now < Engine.PreCoolUntil`, occupied zones run `BaseSetpoint − 1.5 °C` (vacant setback still wins). Windows open via `StartPreCool` from three paths: the LSTM poller (`precool.go`, every 5 min, trigger `PRECOOL_TRIGGER_MW` default 2.0), the dashboard's ws `{"action":"precool"}`, or `POST /api/precool`.
 
 ### 2.6 Global metrics (computed in `broadcast`, all REAL)
 Computed each tick from current zone state — these are what the dashboard shows:
@@ -130,6 +131,10 @@ SimState  { timestamp:long; zones:[ZoneData]; vavs:[VavData]; ahus:[AhuData]; gl
 
 - Broker: `eclipse-mosquitto:2`, config `econ/server/mosquitto/mosquitto.conf` (`listener 1883`, `allow_anonymous true`). Harden auth before any real deployment.
 - Hardware-in-the-loop: telemetry with `tempReal:true` (a genuinely measured temperature — DHT22, RP2040 sensor) PINS the zone's air temp to the sensor (fast exponential pull in `applyHardware`, 20 s staleness window, instant release on an `offline` status). Simulated firmware temps stay `tempReal:false` and never touch the physics. Occupancy ingestion is unchanged for the CV node. Unknown node identifiers are auto-bound to distinct office zones (`assignDemoZone`), so multiple boards demo side by side; bindings are inspectable at `GET /api/hardware`.
+- Node humidity/CO2 readings persist to TimescaleDB as their own `humidity` / `co2` series (once per second, only while the node's telemetry is fresh).
+- Manual vetoes (`PublishCommand`) are mirrored onto the engine's own zone state via `applyCommandToZone` — the 3D lighting, `/api/hardware`, and optimizer view reflect the human command during the 15-minute latch, not just after it expires.
+- Physics-grounded AFDD (roadmap challenge 2): every pinned zone also integrates a sensor-free `ShadowTemp` twin (same 2R1C + cooling law, never pulled toward the sensor); `applyHardware` maintains `ResidualEma = EMA(|HwTemp − ShadowTemp|)` and `/api/hardware` raises `afddAlert` past 2 °C. No training data — divergence from calibrated physics IS the fault signal. The AI Insights panel renders alerting nodes as a red card + per-node `Δ` residual chips.
+- Concurrency: the sim loop runs physics + optimizer + hardware pinning as one `e.mu` critical section, and `broadcast` computes/serializes under the lock with websocket writes OUTSIDE it (a slow client can't stall the engine; verified with `go test -race`).
 - Engine broker address: env `MQTT_BROKER` (`tcp://mqtt:1883` in compose; falls back to `tcp://localhost:1883`). A missing broker NEVER blocks the sim — occupancy just stays simulated.
 - Manual override path (DONE): the dashboard `ws.send`s a JSON like `{"action":"LIGHTS_OFF;SETPOINT=26.0","zone":"zone_1"}` (or a high-level verb `purge`/`cool`/`reset`); `main.go` parses it on the `/ws` read loop and calls `engine.PublishCommand`, which normalizes the action to the firmware's `LIGHTS_x;SETPOINT=y` format and publishes it on `econ/commands/<zone>`. Honors the report's human-in-the-loop veto. The override is transient — the occupancy optimizer reasserts control on the next tick (no hold/lock yet).
 
@@ -139,7 +144,8 @@ SimState  { timestamp:long; zones:[ZoneData]; vavs:[VavData]; ahus:[AhuData]; gl
 - `GET /api/building-data` → `data/building-data.json` (floors, zones, polygons, hvacMapping, bim_asset_id).
 - `GET /api/ontology` → `data/brick-ontology.json` (Brick `brick:feeds` / `brick:hasPoint` graph driving the React-Flow systems map).
 - `GET /api/hardware` → zones currently bound to physical edge nodes (topic, source, online, `tempPinned`, latest readings). Dashboard polls it every 5 s for the ⚡ LIVE HARDWARE badge.
-- (plus `GET /api/history` — TimescaleDB sparklines — and `GET /api/forecast` — LSTM proxy.)
+- `GET/POST /api/precool` → pre-cool window status / manual open (`?minutes=`, default 20, cap 240).
+- (plus `GET /api/history` — TimescaleDB sparklines, `[]` when a zone has no rows — and `GET /api/forecast` — LSTM proxy.)
 - All set `Access-Control-Allow-Origin: *`.
 
 ---
@@ -189,7 +195,9 @@ curl -s localhost:8080/api/hardware   # -> binding appears; zoneTemp converges t
 | Mosquitto broker in compose | ✅ |
 | Manual override (dashboard → command) | ✅ implemented (`engine.PublishCommand`, §4) |
 | TimescaleDB history persistence + `/api/history` | ✅ implemented (`db.go`, batched async writer) |
-| YOLO `device=mps` webcam + ByteTrack | ⛔ needs the user's Mac M4 |
+| Physics-grounded AFDD (shadow 2R1C residual + alert) | ✅ implemented + unit-tested |
+| Forecast→actuation pre-cooling (LSTM poller + window) | ✅ implemented + unit-tested |
+| YOLO `device=mps` webcam + ByteTrack | ✅ CLI ready (`--source 0`, LWT status, cpu fallback) — needs a camera to run |
 | Physical ESP32 flash + relay | ⛔ needs hardware |
 | Branch B: PDF/CAD → `building-data.json` digitization | ✅ implemented (CubiCasa5K YOLOv11 + segmenter) |
 
@@ -200,6 +208,7 @@ curl -s localhost:8080/api/hardware   # -> binding appears; zoneTemp converges t
 econ/server/
   main.go                     HTTP routes, /ws loop, startMQTT
   mqtt.go                     MQTT client: telemetry IN, command publisher OUT
+  precool.go                  LSTM→pre-cool poller + /api/precool handler
   simulation/engine.go        physics, occupancy, actuate(), broadcast(), global metrics
   schema/telemetry.fbs        FlatBuffers IDL (wire format source of truth)
   schema/Telemetry/*.go       generated Go codecs

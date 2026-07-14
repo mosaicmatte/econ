@@ -6,6 +6,39 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-13 — Physics-grounded AFDD + forecast-driven pre-cooling + webcam CV node
+>
+> **The AI layer now closes the loop.** Every hardware-bound zone runs a sensor-free
+> *shadow twin* — the same 2R1C physics, never pulled toward the measurement — and the
+> smoothed |measured − modeled| residual is a fault signal that needs zero training
+> data: a healthy room tracks its physics, a blocked coil or open window diverges and
+> trips a red AFDD card (threshold 2 °C, surfaced per node in `/api/hardware` and the
+> AI Insights panel). The LSTM forecaster now *actuates*: a background poller feeds it
+> the live telemetry window every 5 minutes and, when the predicted peak crosses
+> `PRECOOL_TRIGGER_MW`, opens a 20-minute pre-cool window that drives every occupied
+> zone 1.5 °C below setpoint — charging thermal mass ahead of the peak — with the same
+> window one click away on the High-Grid-Demand card (`{"action":"precool"}` over
+> WebSocket, or `POST /api/precool`). The YOLO/ByteTrack tracker joined the edge
+> contract too: `--source 0` points it at a live webcam and it publishes occupancy-only
+> `source:"cv"` telemetry with retained online/offline status, making a doorway camera
+> just another node on the twin.
+>
+> ### 2026-07-12 — Operator UX pass: pro topology, live panels, real mobile view
+>
+> **The control surfaces caught up with the engine.** The Level topology is now a
+> professional riser schematic — one sorted terminal-unit card per zone (status LED,
+> temp vs setpoint, occupancy, VAV airflow bar) beneath the AHU, replacing 181
+> floorplan-scattered overlapping boxes — and clicking a card flies the 3D camera to
+> the room (the zoom target transform was mirrored; fixed). The airflow window now
+> renders in ~6 instanced draw calls with density-capped occupant markers, and
+> diffuser cones show supply rate as a static heat gradient instead of pulsing.
+> AI Insights gained a hardware-in-the-loop card (inspect + fly-to physical nodes),
+> an inline LSTM forecast chart, and a real model-metrics grid; the Enterprise
+> Overview gained live ENERGY SAVED, a Plant COP gauge, and an ⚡ EDGE HARDWARE list.
+> And phones finally get a real experience: viewports ≤ 820 px automatically serve a
+> live mobile Impact screen (savings donut, load vs predicted peak, occupancy by
+> level, edge nodes) instead of the WebGL-heavy desktop stack.
+>
 > ### 2026-07-11 — Live lighting state streams into the 3D twin
 >
 > **Zones now go dark when the engine cuts their lights.** The FlatBuffers wire schema
@@ -191,16 +224,17 @@ During **Sprint 1 (Core Architecture & Simulation)**, we built a robust and high
    - **Thermodynamic Characteristic Chart:** A real-time auto-scaling Recharts scatter plot showing CO₂ vs Power. The live telemetry dots dynamically follow the ideal thermodynamic slope under normal conditions, but violently break away from the baseline during injected faults to visibly demonstrate anomalies.
    - **Live Terminal Logging:** The Telemetry Logs tab renders a hacker-style real-time terminal of up to 30 active zones, showcasing live temperatures, loads, and occupancy streaming directly from the WASM engine.
 
-7. **Mobile UI Adaptation (Tesla-Style)**
-   - Designed a responsive `MobileApp.jsx` interface imitating the Tesla app layout for rapid macro-level facility monitoring.
-   - Implemented an immersive top-down isometric camera angle for the 3D map, locking the view from the highest floor down to prevent horizon clipping.
-   - Generated and applied a seamless, zero-margin vector sky gradient with a crescent moon, eliminating the hard 2D horizon line to merge perfectly with the 3D viewport's dark background.
-   - Built bottom-drawer drill-downs to allow tapping on zones and revealing live telemetry metrics without leaving the 3D map context.
+7. **Mobile UI Adaptation (Live Impact Screen)**
+   - Viewports ≤ 820 px are automatically served `MobileImpactScreen.jsx` — a lightweight, phone-first face of the twin that skips the WebGL stack entirely (three canvases + React Flow would crush a phone on a 1350-zone building).
+   - Every card is fed by the same live FlatBuffers stream as the desktop: an autonomous-savings donut (engine `energySavedMw`), current load against the LSTM-predicted peak, and a live occupancy-by-level chart.
+   - Physical edge nodes (ESP32 / Pico) appear with online status, pinned temperature, and occupancy — the hardware demo works from a phone.
+   - Headline stat strip (load MW, occupants, system health) updates in real time at the top of the screen.
 
-8. **Edge Hardware Integration (ESP32 & Raspberry Pi)**
-   - **ESP32 Edge Node (`C++`):** Developed firmware to simulate and publish physical sensor data (PIR/Occupancy, Temp, CO2) over MQTT, and listen for physical actuator commands (Relays, IR emitters).
-   - **Raspberry Pi Gateway (`Python`):** Built a local edge server to host the MQTT broker and run local automation logic. E.g., automatically dispatching a `LIGHTS_OFF` MQTT payload back to the ESP32 the moment occupancy drops to 0.
-   - **Live WebSocket Feed:** The Raspberry Pi bridges the MQTT hardware layer with a local WebSocket server, streaming physical state directly into the React dashboard.
+8. **Edge Hardware Integration (ESP32, Raspberry Pi Pico & Pi Gateway)**
+   - **ESP32 Edge Node (`C++`):** Production firmware with zero-wiring capacitive touch presence (GPIO32, hysteresis + debounce), optional DHT22/PIR real sensors, `LIGHTS_x;SETPOINT=y` actuation, MQTT Last-Will liveness, and per-site credentials in a gitignored header.
+   - **Raspberry Pi Pico Node (MicroPython):** RP2040 internal temperature sensor (real `tempReal` data), BOOTSEL presence toggle, onboard-LED lights actuation, an 8 s hardware watchdog for self-recovery, and a USB-serial↔MQTT bridge that gives the radio-less Pico full network presence (a Pico W connects over WiFi directly).
+   - **Hardware-in-the-loop engine:** telemetry flagged `tempReal:true` pins the bound zone's physics to the physical sensor (graceful release on staleness or LWT offline); unknown boards auto-bind to distinct office zones; reconnecting boards get the current command re-sent; live bindings at `GET /api/hardware`.
+   - **Raspberry Pi Gateway (`Python`):** Mosquitto broker host plus an autonomous failsafe rules engine — if the Go brain goes offline, vacant zones are still set back locally (`;SRC=FAILSAFE` tagged commands).
 ## 🛠️ How to Run (Detailed Guide)
 
 ### Prerequisites
@@ -221,7 +255,9 @@ docker-compose up -d --build
 
 # Verify the containers are running
 docker ps
-# You should see two containers: 'server-server-1' (Port 8080) and 'server-db-1' (Port 5432)
+# You should see four containers: 'server-server-1' (engine, :8080), 'server-db-1'
+# (TimescaleDB, :5432), 'server-mqtt-1' (Mosquitto broker, :1883) and
+# 'server-forecasting-1' (Python LSTM service, :8000)
 
 # (Optional) Follow the backend logs to see incoming WebSocket connections
 docker logs -f server-server-1
@@ -271,9 +307,12 @@ npm run dev -- --host
    ```
 3. Open Safari or Chrome on your phone, and type in that exact **Network URL** (e.g., `http://192.168.1.5:5173`).
 
-The site will load and automatically switch to the `MobileApp` layout because it detects your phone's screen size!
+On viewports ≤ 820 px the site automatically serves the live mobile **Impact screen**
+instead of the WebGL-heavy desktop stack: an autonomous-savings donut (streamed
+`energySavedMw`), current load against the LSTM's predicted peak, occupancy by level,
+and any physical edge nodes — all fed by the same WebSocket stream as the desktop twin.
 
-*(Note: You can also simulate the mobile view on your desktop browser by right-clicking -> Inspect and toggling the "Device Emulation" icon).*
+*(Note: You can also preview it on desktop by right-clicking → Inspect and toggling the "Device Emulation" icon, or simply narrowing the browser window below 820 px).*
 
 ### 4. Testing the Backend via CLI Dashboard
 For backend testing and telemetry debugging, you can use the standalone Go CLI Dashboard (htop-style).
@@ -299,6 +338,30 @@ pip install streamlit opencv-python networkx
 streamlit run app.py
 ```
 *Note: The AI will autonomously grid-search OpenCV parameters to mathematically derive the Space Syntax Dual Graph of the blueprint.*
+
+**From blueprint to live twin (headless pipeline):** the Streamlit app is exploratory — the production path turns any floorplan image into the exact `building-data.json` the engine and dashboard consume:
+
+```bash
+cd ai_modules/branch_b_digitization
+
+# 1. Rooms: segment the blueprint and assemble floors + thermal zones + hvacMapping
+#    (schema documented in LAYOUT_SCHEMA.md)
+python floorplan_to_buildingdata.py --image deepfloorplan/real_floorplan.png \
+       --out /tmp/building-data.json --floors 15 --footprint 60x40
+
+# 2. Symbols (optional): run the trained SkeySpot YOLO detector over the same sheet
+#    (lights, thermostats, doors/windows — 69.5% mAP@50, paper §3.2) and enrich the
+#    building + Brick ontology with the detected assets/netlist. Defaults operate on
+#    the module-local building-data.json / brick-ontology.json:
+python skeyspot_pipeline.py --image deepfloorplan/real_floorplan.png
+
+# 3. Deploy as the twin's single source of truth (the engine image bakes data at build time)
+cp /tmp/building-data.json ../../server/data/building-data.json
+cp /tmp/building-data.json ../../dashboard/src/building-data.json
+cd ../../server && docker compose up -d --build server
+```
+
+The dashboard hot-reloads onto the new geometry and the engine restart re-runs physics on it. The currently deployed building (15 floors / 1350 zones) came out of exactly this pipeline.
 
 ### 6. Training the YOLOv11 Computer Vision Models
 If you wish to retrain the YOLOv11 models (either for Occupancy Detection in Branch A or Floorplan Semantic Segmentation in Branch B) rather than using the pre-trained weights:
@@ -333,18 +396,54 @@ python3 esp32_emulator.py
 ```bash
 cd ai_modules/branch_a_occupancy/yolo_bytetrack
 pip install ultralytics opencv-python paho-mqtt
-python3 yolo_tracker.py
+python3 yolo_tracker.py                       # demo footage (people-detection.mp4)
+python3 yolo_tracker.py --source 0            # or a LIVE webcam pointed at a doorway
 ```
 *As YOLO detects people in the sample video, it publishes telemetry to the Go Engine. When the occupancy drops, the Engine mathematically determines the required setback and fires an MQTT actuation command back to Terminal 1, audibly simulating a physical hardware relay click!*
+
+**Real boards (ESP32 + Raspberry Pi Pico):** the same loop runs on physical hardware — full flash-and-demo guides live in [`edge/esp32/README.md`](edge/esp32/README.md) and [`edge/pico/README.md`](edge/pico/README.md). The 30-second version:
+
+```bash
+# ESP32 (WiFi node): copy src/wifi_secrets.example.h → src/wifi_secrets.h, fill it in, then
+cd edge/esp32 && pio run -t upload
+#   → touch GPIO32: the zone shows occupied in <0.2 s and the engine commands LIGHTS_ON back
+
+# Raspberry Pi Pico (USB node): flash MicroPython, `mpremote cp main.py :main.py`, then
+cd edge/pico && pip install -r requirements.txt && python bridge.py
+#   → press BOOTSEL (~half a second): presence toggles, the onboard LED follows the engine
+#   → hold a fingertip on the RP2040 chip: the zone's dashboard temperature climbs live
+
+# Watch the engine bind each board to its own office zone, then inspect live state:
+curl localhost:8080/api/hardware
+docker exec server-mqtt-1 mosquitto_sub -t 'econ/#' -v     # raw MQTT bus
+```
+
+A node reporting a genuinely measured temperature (`tempReal:true` — DHT22, RP2040 die sensor) **pins its zone's physics to the sensor**. Hardware-bound zones carry a ⚡ LIVE HARDWARE badge in the zone micro-HUD, appear in the Enterprise Overview's EDGE HARDWARE list and the AI Insights hardware card, and visibly go dark in the 3D view when the engine cuts their lights.
+
+**Physics-grounded AFDD (no training data):** every pinned zone also runs a sensor-free *shadow twin* of the 2R1C physics; sustained divergence between measurement and model is the fault signal. Fake a failing room:
+
+```bash
+# Seed the pin at a plausible temperature, then hold the "room" 6 °C hotter than physics allows:
+docker exec server-mqtt-1 mosquitto_pub -t econ/telemetry/pico_1 \
+  -m '{"zone":"Pico Lab","occupancy":2,"temperature":27.4,"source":"pico","tempReal":true}'
+for i in 1 2 3 4 5 6; do docker exec server-mqtt-1 mosquitto_pub -t econ/telemetry/pico_1 \
+  -m '{"zone":"Pico Lab","occupancy":2,"temperature":33.4,"source":"pico","tempReal":true}'; sleep 5; done
+curl -s localhost:8080/api/hardware        # → "residual" climbs past 2.0 and "afddAlert": true
+```
+
+A red **AFDD: Physics Divergence** card appears in AI Insights and the node's row shows its live Δ residual.
+
+**Forecast-driven pre-cooling:** click **ACTIVATE PRE-COOLING** on the High Grid Demand insight card (or `curl -X POST localhost:8080/api/precool`) — for 20 minutes every occupied zone is commanded 1.5 °C below its setpoint (watch `SETPOINT=22.5` go out on the MQTT bus), charging thermal mass ahead of the peak. A background poller opens the same window automatically whenever the LSTM's predicted peak crosses `PRECOOL_TRIGGER_MW` (default 2.0 MW).
 
 ### 8. Testing the Full Digital Twin Functionality
 Once the Backend (Step 1) and Frontend (Step 2) are running, open your browser to `http://localhost:5173` to explore the complete feature set:
 
-1. **3D Heatmap & Airflow:** Navigate around the 3D isometric model. The building will glow dynamically based on real-time temperature deviations. The animated airflow lines realistically respect the structural boundaries (walls and doors) based on potential-flow physics.
-2. **Fault Injection (AI Auto-Pilot):** On the right-side control panel, click the **Critical Fault** scenario. Watch as the server room experiences a thermal runaway (turning red). The AI Auto-Pilot will autonomously detect the anomaly and aggressively reroute HVAC cooling to stabilize the building.
-3. **Telemetry Profiler & Insights:** Open the left navigation dock and select the **Profiler**. Here you can view the live scatter plot showing the building's thermodynamic characteristics (Power vs CO₂). Click on **AI Insights** to see the system autonomously diagnose the root cause of the fault (e.g., "VAV damper stuck").
-4. **2D Topology Mapping:** Switch to the **Topology** tab to view the live node-based mechanical graph. You will see the exact dependency chain from the Chiller to the AHU, down to individual VAV boxes and thermal zones.
-5. **Manual Veto Overrides:** In the zone details pane, attempt to manually click **FORCE OFF** or **MAX COOL**. The engine will immediately latch your human-in-the-loop override for 15 minutes, superseding the AI's autonomous optimization loop.
+1. **3D Heatmap, Lights & Airflow:** Navigate the 3D model — zones color by live temperature deviation and **go dark when the engine cuts their lights** (energy-saving setback or manual veto). Open the **AIRFLOW** window for the volumetric per-floor flow field: instanced heat-colored arrows, diffuser cones whose color gradient encodes supply rate, and layer chips (ARROWS / WALLS / HVAC / WINDOWS / PEOPLE / POWER).
+2. **Fault Injection (AI Auto-Pilot):** On the bottom control bar, pick a target and click **Inject**. Watch the zone run away thermally (red, pulsing) while the AI Auto-Pilot detects the anomaly and aggressively reroutes cooling to stabilize the building.
+3. **Telemetry Profiler & Insights:** In the left dock, **Profiler** shows the live thermodynamic scatter (Power vs CO₂) with history sparklines persisted in TimescaleDB. **AI Insights** diagnoses faults, charts the LSTM forecast inline (VIEW PREDICTIONS), exposes real model metrics, and — when physical boards are connected — lists them with click-to-fly-to-zone.
+4. **Riser Topology:** The **MAP LEVEL TOPOLOGY** panel renders the floor as a professional equipment schedule: the AHU on top feeding one terminal-unit card per zone (status LED, temp vs setpoint, occupancy, VAV airflow bar). Clicking a card selects the zone and flies the 3D camera to it.
+5. **Manual Veto Overrides:** In the zone micro-HUD, click **FORCE OFF** or **MAX COOL**. The engine latches your human-in-the-loop override for 15 minutes (superseding the optimizer) and publishes the command to the zone's physical board if one is bound.
+6. **Pre-Cooling & AFDD:** On the **High Grid Demand** card, click **ACTIVATE PRE-COOLING** — the engine opens a 20-minute window that drives every occupied zone 1.5 °C below setpoint (the LSTM poller opens the same window automatically ahead of predicted peaks). And if a hardware-bound room's measurement diverges from its calibrated physics, a red **AFDD: Physics Divergence** card names the zone and its live residual — fault detection with zero training data.
 
 ### Troubleshooting
 - **Frontend isn't receiving data?** Ensure the backend is running and port `8080` is not blocked. Check the browser console (F12) for WebSocket connection errors.
