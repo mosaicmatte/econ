@@ -1,12 +1,14 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { Activity, AlertTriangle, Settings, Zap, ChevronRight, ChevronUp, ChevronDown, User, X, BarChart2, ShieldAlert } from 'lucide-react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { Activity, AlertTriangle, Settings, Zap, ChevronRight, ChevronUp, ChevronDown, User, X, BarChart2, ShieldAlert, Brain } from 'lucide-react';
 import { useDigitalTwin } from './useDigitalTwin';
+import { API_BASE } from './api';
 import BuildingModel from './BuildingModel';
 import CanvasErrorBoundary from './CanvasErrorBoundary';
 import TelemetryPanel from './TelemetryPanel';
 import TelemetryLogs from './TelemetryLogs';
 import MobileEnergyScreen from './MobileEnergyScreen';
 import MobileImpactScreen from './MobileImpactScreen';
+import MobileAIScreen from './MobileAIScreen';
 import LiveWeatherBackground from './LiveWeatherBackground';
 import buildingData from './building-data.json';
 
@@ -28,8 +30,21 @@ export default function MobileApp() {
     setFaultTarget,
     loadHistory,
     globalMetrics,
-    loadScenario
+    loadScenario,
+    aiForecast,
+    sendManualOverride
   } = useDigitalTwin(onSimUpdate);
+
+  const [hardwareNodes, setHardwareNodes] = useState({});
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetch(`${API_BASE}/api/hardware`)
+      .then(r => r.json())
+      .then(list => { if (alive) setHardwareNodes(Object.fromEntries((list||[]).map(n => [n.zoneId, n]))); })
+      .catch(() => {});
+    load(); const id = setInterval(load, 5000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
   // The zone currently in trouble (drives the "point straight at the problem" UX).
   const failingZone = useMemo(() => {
@@ -43,12 +58,15 @@ export default function MobileApp() {
     return null;
   }, [simData]);
 
-  // When a fault appears, fly the camera to its floor + highlight it; clear when resolved.
+  const prevFailingId = useRef(null);
   useEffect(() => {
-    if (failingZone && failingZone.level) setActiveFloor(failingZone.level);
-  }, [failingZone?.id, failingZone?.level]);
-
-  const focusZone = failingZone ? failingZone.id : selectedZone;
+    const id = failingZone?.id || null;
+    if (id && id !== prevFailingId.current) {
+      setActiveFloor(failingZone.level);
+      setSelectedZone(id);
+    }
+    prevFailingId.current = id;
+  }, [failingZone?.id]);
 
   // Refined system health (engine: severity-weighted comfort score), surfaced on mobile.
   const health = Math.round(simData?.systemHealth ?? 100);
@@ -70,7 +88,10 @@ export default function MobileApp() {
 
       {/* FLOATING HEADER */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '24px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', zIndex: 10, pointerEvents: 'none' }}>
-        <div>
+        <div 
+          onClick={() => failingZone && setSelectedZone(failingZone.id)}
+          style={{ cursor: failingZone ? 'pointer' : 'default', pointerEvents: failingZone ? 'auto' : 'none' }}
+        >
           <div style={{ fontSize: '24px', fontWeight: '600' }}>ECON Center</div>
           <div style={{ fontSize: '14px', color: failingZone ? '#FF3B30' : '#34C759', fontWeight: '500', marginTop: '2px' }}>
             {failingZone
@@ -185,10 +206,17 @@ export default function MobileApp() {
         <div style={{ height: '35vh', padding: '0 20px 80px 20px', overflowY: 'auto', WebkitOverflowScrolling: 'touch', zIndex: 5 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '10px' }}>
           
-          <MenuItem 
-            icon={<Zap size={20} color="#FFD60A" />} 
-            title="Energy" 
-            onClick={() => setActiveModal('energy')} 
+          <MenuItem
+            icon={<Brain size={20} color="#4A90E2" />}
+            title="AI & Automation"
+            onClick={() => setActiveModal('ai')}
+            bottomText={autoPilot ? 'Auto-Pilot ON · recommendations live' : 'Manual mode · tap to automate'}
+            highlight={!!failingZone}
+          />
+          <MenuItem
+            icon={<Zap size={20} color="#FFD60A" />}
+            title="Energy"
+            onClick={() => setActiveModal('energy')}
           />
           <MenuItem 
             icon={<BarChart2 size={20} color="#34C759" />} 
@@ -226,6 +254,7 @@ export default function MobileApp() {
         <RoomDetailDrawer
           zone={simData.zones[selectedZone]}
           simData={simData}
+          sendManualOverride={sendManualOverride}
           onClose={() => setSelectedZone(null)}
         />
       )}
@@ -245,11 +274,25 @@ export default function MobileApp() {
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '20px 20px calc(20px + env(safe-area-inset-bottom))' }}>
+          {activeModal === 'ai' && (
+             <MobileAIScreen
+                simData={simData}
+                activeScenario={activeScenario}
+                faultTarget={faultTarget}
+                aiForecast={aiForecast}
+                hardwareNodes={hardwareNodes}
+                autoPilot={autoPilot}
+                setAutoPilot={setAutoPilot}
+                sendManualOverride={sendManualOverride}
+                onFocusZone={(id) => { setSelectedZone(id); setActiveModal(null); }}
+                onClose={() => setActiveModal(null)}
+             />
+          )}
           {activeModal === 'energy' && (
-             <MobileEnergyScreen simData={simData} onClose={() => setActiveModal(null)} />
+             <MobileEnergyScreen simData={simData} globalMetrics={globalMetrics} loadHistory={loadHistory} onClose={() => setActiveModal(null)} />
           )}
           {activeModal === 'impact' && (
-             <MobileImpactScreen simData={simData} onClose={() => setActiveModal(null)} />
+             <MobileImpactScreen simData={simData} aiForecast={aiForecast} hardwareNodes={hardwareNodes} onClose={() => setActiveModal(null)} />
           )}
           {activeModal === 'analytics' && (
              <TelemetryPanel 
@@ -286,9 +329,32 @@ export default function MobileApp() {
              <div style={{ padding: '20px', background: failingZone ? 'rgba(255,59,48,0.1)' : 'rgba(52,199,89,0.08)', border: `1px solid ${failingZone ? 'rgba(255,59,48,0.3)' : 'rgba(52,199,89,0.25)'}`, borderRadius: '12px' }}>
                 <div style={{ color: failingZone ? '#FF3B30' : '#34C759', fontWeight: 'bold', marginBottom: '8px' }}>DIAGNOSTICS</div>
                 <div style={{ color: '#fff' }}>
-                  {failingZone
-                    ? `CRITICAL: ${failingZone.label} at ${Number(failingZone.temp).toFixed(1)}°C — cooling capacity degraded. Root-cause analysis is available in Analytics.`
-                    : 'All systems operating normally.'}
+                  {failingZone ? (() => {
+                    const rca = rcaFor(failingZone);
+                    const afddNode = Object.values(hardwareNodes).find(n => n.afddAlert);
+                    return (
+                      <div>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '4px' }}>CRITICAL</div>
+                        <div style={{ marginBottom: '4px' }}>{failingZone.label}</div>
+                        <div style={{ marginBottom: '4px' }}>{failingZone.temp.toFixed(1)}°C vs limit {(failingZone.setpoint + failingZone.deadband).toFixed(1)}°C</div>
+                        <div style={{ marginBottom: '8px', color: '#FF3B30' }}>{(failingZone.temp - failingZone.setpoint).toFixed(1)}°C over setpoint</div>
+                        <div style={{ marginBottom: '12px' }}>{rca.cause} ({rca.confidence}%) — affects ~{rca.blast} zones</div>
+                        {afddNode && (
+                          <div style={{ color: '#F5C242', fontSize: '13px', marginBottom: '12px' }}>
+                            AFDD: {afddNode.zoneId} diverging from physics model (Δ{(afddNode.residual||0).toFixed(1)}°C)
+                          </div>
+                        )}
+                        <button 
+                          onClick={() => { setSelectedZone(failingZone.id); setActiveModal(null); }}
+                          style={{ padding: '12px 20px', background: '#FF3B30', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', width: '100%', marginTop: '8px' }}
+                        >
+                          ZOOM TO ROOM →
+                        </button>
+                      </div>
+                    );
+                  })() : (
+                    'All systems operating normally.'
+                  )}
                 </div>
              </div>
            )}
@@ -320,8 +386,22 @@ function MenuItem({ icon, title, onClick, highlight, bottomText, hideChevron }) 
   );
 }
 
-function RoomDetailDrawer({ zone, simData, onClose }) {
+function rcaFor(zone) {
+  if (!zone) return { cause: 'Unknown', blast: 1, confidence: 0 };
+  if (zone.type === 'server-room') return { cause: 'CRAC compressor failure', blast: 4, confidence: 96 };
+  if (zone.type === 'open-office') return { cause: 'VAV damper stuck closed', blast: 2, confidence: 88 };
+  if (zone.type === 'perimeter')   return { cause: 'perimeter heater stuck ON', blast: 1, confidence: 85 };
+  return { cause: 'chilled-water valve failure', blast: 3, confidence: 92 };
+}
+
+function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
+  const [sent, setSent] = useState(null);
   if (!zone) return null;
+  // Manual override: latches a human veto over the optimizer for 15 min (engine side).
+  const override = (action, label) => {
+    if (sendManualOverride) sendManualOverride(action, zone.id);
+    setSent(label);
+  };
   // Real derived figures (no fabricated/flickering numbers): airflow from the zone's live VAV
   // flow (m³/min -> CFM), CO2 estimated from occupancy above the ~420 ppm outdoor baseline.
   const vav = simData ? Object.values(simData.vavs || {}).find(v => v.targetZone === zone.id) : null;
@@ -344,6 +424,13 @@ function RoomDetailDrawer({ zone, simData, onClose }) {
     }}>
       {/* Handle */}
       <div style={{ width: '36px', height: '4px', borderRadius: '999px', background: 'rgba(255,255,255,0.20)', margin: '0 auto 16px' }} />
+      
+      {zone.alert && (
+        <div style={{ background: 'rgba(255,59,48,0.15)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: '8px', padding: '12px', marginBottom: '16px', color: '#FF3B30', fontSize: '13px', fontWeight: '500' }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>⚠ CRITICAL — {rcaFor(zone).cause}</div>
+          <div>{zone.temp.toFixed(1)}°C vs limit {(zone.setpoint + zone.deadband).toFixed(1)}°C</div>
+        </div>
+      )}
       
       {/* Header with Back button */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
@@ -369,8 +456,35 @@ function RoomDetailDrawer({ zone, simData, onClose }) {
          <StatCard label="CO₂ LEVEL" value={`${co2} ppm`} />
          <StatCard label="OCCUPANCY" value={`${zone.occupancy} People`} />
       </div>
+
+      {/* Manual overrides — human-in-the-loop veto (latches 15 min over the optimizer). */}
+      <div style={{ marginTop: '20px' }}>
+        <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', marginBottom: '10px' }}>
+          Manual Override{sent && <span style={{ color: '#34C759', marginLeft: '8px' }}>✓ {sent} sent</span>}
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <OverrideButton label="FORCE OFF" color="#4A90E2" onClick={() => override('LIGHTS_OFF;SETPOINT=26.0', 'Force-off')} />
+          <OverrideButton label="MAX COOL" color="#FF3B30" onClick={() => override('LIGHTS_ON;SETPOINT=20.0', 'Max-cool')} />
+          <OverrideButton label="RESET" color="rgba(255,255,255,0.5)" onClick={() => override('reset', 'Reset')} />
+        </div>
+        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '10px', lineHeight: 1.4 }}>
+          Commands publish to the zone's physical edge board if one is bound.
+        </div>
+      </div>
+
       <div style={{ height: '40px', flexShrink: 0 }} /> {/* Extra space for scrolling */}
     </div>
+  );
+}
+
+function OverrideButton({ label, color, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: `1px solid ${color}`, color, fontSize: '12px', fontWeight: '700', padding: '12px 4px', cursor: 'pointer', borderRadius: '10px', letterSpacing: '0.02em' }}
+    >
+      {label}
+    </button>
   );
 }
 

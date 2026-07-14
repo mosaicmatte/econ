@@ -533,9 +533,15 @@ export function towerFraming(activeFloor, aspect = 1.6) {
   const vFov = (45 * Math.PI) / 180;
   const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(0.3, aspect));
   const fitFov = Math.min(vFov, hFov);
-  const dist = (R / Math.sin(fitFov / 2)) * 0.95; // fit the whole exploded tower, top-to-bottom
+  // Portrait phones stack the exploded tower tall; at the desktop framing its top covers the
+  // sky graphic (sun/moon) and the header. On portrait, pull the camera back a little for
+  // margin and raise the aim point so the whole building sits in the lower ~75% of the frame,
+  // leaving the top strip clear. Landscape/desktop keep the original tight framing.
+  const portrait = aspect < 1;
+  const dist = (R / Math.sin(fitFov / 2)) * (portrait ? 1.2 : 0.95);
+  const aimBias = portrait ? span * 0.16 : 0; // raise look-at -> building drops in frame
 
-  const target = new THREE.Vector3(center.x, botY + span * 0.46, center.z);
+  const target = new THREE.Vector3(center.x, botY + span * 0.46 + aimBias, center.z);
   const position = target.clone().add(VIEW_DIR.clone().multiplyScalar(dist));
   return { position, target, span, topY, botY, activeY };
 }
