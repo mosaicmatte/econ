@@ -27,7 +27,15 @@ ZONE_LABEL = "Pico Lab"      # human label sent as "zone"
 PUBLISH_S = 2                # telemetry period
 OCCUPIED_COUNT = 2           # people reported while presence is toggled on
 TEMP_OFFSET_C = 4.0          # RP2040 die runs ~4 C above ambient; subtracted out
-DHT_PIN = 15                 # wire a DHT22 here for real ambient temp+humidity; None = off
+# The die sensor measures the chip, not the room, and TEMP_OFFSET_C is a crude correction —
+# observed reporting 16.5 C in a ~29 C Ho Chi Minh City room. Left False so the engine models
+# the zone instead of pinning its physics to that. Set True to restore the fingertip demo
+# (warm the chip, watch the zone follow) on a board with no real sensor attached.
+DIE_TEMP_IS_REAL = False
+DHT_PIN = 15                 # wire a DHT11/DHT22 here for real ambient temp+humidity; None = off
+SHT30_SDA = 4                # SHT30 over I2C — preferred; set to None to disable
+SHT30_SCL = 5
+SHT30_ADDR = 0x44            # 0x45 if the ADDR pin is pulled high
 WIFI_SSID = ""               # Pico W only; empty => serial mode
 WIFI_PASS = ""
 MQTT_HOST = "192.168.1.100"  # broker LAN IP (Pico W mode only)
@@ -52,15 +60,64 @@ if DHT_PIN is not None:
 
 
 def read_dht():
-    """Return (temp_c, humidity) from the DHT22, or (None, None) if it did not read.
+    """Return (temp_c, humidity) from the DHT, or (None, None) if it did not read.
 
-    DHT22s drop reads routinely; a failure must yield nothing rather than a stand-in.
+    DHTs drop reads routinely; a failure must yield nothing rather than a stand-in.
     """
     if dht_sensor is None:
         return None, None
     try:
         dht_sensor.measure()
         return dht_sensor.temperature(), dht_sensor.humidity()
+    except Exception:
+        return None, None
+
+
+# SHT30 over I2C — the preferred sensor: +/-0.2 C against a DHT11's +/-2 C, which is
+# meaningless next to a 2 C control deadband.
+i2c = None
+if SHT30_SDA is not None:
+    try:
+        i2c = machine.I2C(0, sda=machine.Pin(SHT30_SDA), scl=machine.Pin(SHT30_SCL), freq=100000)
+        if SHT30_ADDR not in i2c.scan():
+            print("# sht30 not found at 0x%02X; falling back" % SHT30_ADDR)
+            i2c = None
+    except Exception as e:
+        print("# sht30 i2c init failed (%s); falling back" % e)
+        i2c = None
+
+
+def _sht30_crc(data):
+    """CRC-8, poly 0x31, init 0xFF (SHT3x datasheet 4.12)."""
+    crc = 0xFF
+    for b in data:
+        crc ^= b
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x31) & 0xFF if crc & 0x80 else (crc << 1) & 0xFF
+    return crc
+
+
+def read_sht30():
+    """Return (temp_c, humidity) from the SHT30, or (None, None) on bus error or bad CRC.
+
+    Both words are checksummed by the sensor and both are verified here: publishing a
+    corrupted reading as measured is worse than publishing nothing.
+    """
+    if i2c is None:
+        return None, None
+    try:
+        i2c.writeto(SHT30_ADDR, b"\x24\x00")   # single shot, high repeatability, no clock stretch
+        time.sleep_ms(20)                       # >= 15 ms conversion
+        d = i2c.readfrom(SHT30_ADDR, 6)
+        if _sht30_crc(d[0:2]) != d[2] or _sht30_crc(d[3:5]) != d[5]:
+            return None, None
+        raw_t = (d[0] << 8) | d[1]
+        raw_h = (d[3] << 8) | d[4]
+        t = -45.0 + 175.0 * (raw_t / 65535.0)
+        h = 100.0 * (raw_h / 65535.0)
+        if not (-40.0 < t < 125.0 and 0.0 <= h <= 100.0):
+            return None, None
+        return t, h
     except Exception:
         return None, None
 
@@ -161,17 +218,23 @@ def telemetry():
         "lights": "ON" if lights_state else "OFF",
         "setpoint": setpoint,
     }
-    # Both sources are genuine measurements, so both may pin the zone's physics: a wired
-    # DHT22 measures the room and wins when it reads; otherwise the RP2040 die sensor
-    # keeps the fingertip demo working (warm the chip, watch the zone follow).
-    t, h = read_dht()
+    # Preference order is by how much the reading can be trusted as *room* temperature:
+    # SHT30 (+/-0.2 C) -> DHT -> the RP2040 die sensor. The die sensor measures the chip, not
+    # the air, and its TEMP_OFFSET_C is a crude fudge: seen reporting 16.5 C in a ~29 C Ho Chi
+    # Minh City room. It stays as a last resort so the fingertip demo still works, but it is
+    # flagged tempReal:False so the engine models the zone rather than pinning its physics —
+    # and its AFDD residual — to a number that is a dozen degrees out.
+    t, h = read_sht30()
+    if t is None:
+        t, h = read_dht()
     if t is not None:
         payload["temperature"] = round(t, 1)
+        payload["tempReal"] = True
         if h is not None:
             payload["humidity"] = round(h, 1)
     else:
         payload["temperature"] = round(get_temperature(), 1)
-    payload["tempReal"] = True
+        payload["tempReal"] = DIE_TEMP_IS_REAL
     return payload
 
 def publish_serial():

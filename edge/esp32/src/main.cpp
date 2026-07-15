@@ -60,8 +60,12 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 #ifndef USE_REAL_SENSORS
   #define USE_REAL_SENSORS 0
 #endif
+#ifndef USE_SHT30
+  #define USE_SHT30 0                // SHT30 over I2C -> measured temperature + humidity
+#endif
 #ifndef USE_DHT
-  #define USE_DHT USE_REAL_SENSORS   // DHT22 -> measured temperature + humidity
+  // DHT is the fallback path; SHT30 wins when both are compiled in.
+  #define USE_DHT (USE_REAL_SENSORS && !USE_SHT30)
 #endif
 #ifndef USE_PIR
   #define USE_PIR USE_REAL_SENSORS   // PIR   -> measured presence
@@ -70,12 +74,62 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #define USE_CO2 0                  // MH-Z19B NDIR -> measured CO2 ppm
 #endif
 
+#if USE_SHT30
+  // Sensirion SHT30 on I2C (default address 0x44; ADDR pin high -> 0x45). Preferred over the
+  // DHT family for HVAC work: +/-0.2 C beats a DHT11's +/-2 C, which is meaningless against a
+  // 2 C control deadband, and I2C avoids the DHT's timing-critical single-wire protocol.
+  #include <Wire.h>
+  #ifndef SHT30_ADDR
+    #define SHT30_ADDR 0x44
+  #endif
+  #ifndef SHT30_SDA
+    #define SHT30_SDA 21
+  #endif
+  #ifndef SHT30_SCL
+    #define SHT30_SCL 22
+  #endif
+
+  // CRC-8, polynomial 0x31, init 0xFF (SHT3x datasheet 4.12). The sensor checksums every
+  // word; we verify both, because a corrupt reading published as measured is worse than none.
+  static uint8_t sht30Crc(uint8_t msb, uint8_t lsb) {
+    uint8_t crc = 0xFF;
+    uint8_t bytes[2] = {msb, lsb};
+    for (int i = 0; i < 2; i++) {
+      crc ^= bytes[i];
+      for (int b = 0; b < 8; b++) crc = (crc & 0x80) ? (uint8_t)((crc << 1) ^ 0x31) : (uint8_t)(crc << 1);
+    }
+    return crc;
+  }
+
+  // Single-shot, high repeatability, clock stretching disabled (0x2400). Returns false on a
+  // bus error or a failed checksum, so the caller omits the field instead of inventing one.
+  bool readSht30(float &t, float &h) {
+    Wire.beginTransmission(SHT30_ADDR);
+    Wire.write(0x24); Wire.write(0x00);
+    if (Wire.endTransmission() != 0) return false;
+    delay(20);                                   // >= 15 ms conversion at high repeatability
+    if (Wire.requestFrom(SHT30_ADDR, 6) != 6) return false;
+    uint8_t d[6];
+    for (int i = 0; i < 6; i++) d[i] = Wire.read();
+    if (sht30Crc(d[0], d[1]) != d[2]) return false;
+    if (sht30Crc(d[3], d[4]) != d[5]) return false;
+    uint16_t rawT = ((uint16_t)d[0] << 8) | d[1];
+    uint16_t rawH = ((uint16_t)d[3] << 8) | d[4];
+    t = -45.0f + 175.0f * ((float)rawT / 65535.0f);
+    h = 100.0f * ((float)rawH / 65535.0f);
+    return t > -40.0f && t < 125.0f && h >= 0.0f && h <= 100.0f;
+  }
+#endif
+
 #if USE_DHT
   #include <DHT.h>
   #ifndef DHT_PIN
     #define DHT_PIN 4
   #endif
-  DHT dht(DHT_PIN, DHT22);
+  #ifndef DHT_TYPE
+    #define DHT_TYPE DHT22           // hshop.vn stocks DHT11, not DHT22: build -DDHT_TYPE=DHT11
+  #endif
+  DHT dht(DHT_PIN, DHT_TYPE);
 #endif
 
 #if USE_PIR
@@ -223,7 +277,16 @@ void readAndPublish() {
 
   // --- temperature + humidity ---
   bool tempReal = false;
-#if USE_DHT
+#if USE_SHT30
+  float t = NAN, h = NAN;
+  if (readSht30(t, h)) {
+    doc["temperature"] = round(t * 10) / 10.0;
+    doc["humidity"]    = round(h * 10) / 10.0;
+    tempReal = true;
+  } else {
+    Serial.println("[sht30] read/CRC failed -> omitted (engine keeps modelling)");
+  }
+#elif USE_DHT
   float t = dht.readTemperature();
   float h = dht.readHumidity();
   if (!isnan(t)) { doc["temperature"] = round(t * 10) / 10.0; tempReal = true; }
@@ -287,9 +350,13 @@ void setup() {
   pinMode(IR_PIN, OUTPUT);
   pinMode(STATUS_LED, OUTPUT);
   setLights(true);
+#if USE_SHT30
+  Wire.begin(SHT30_SDA, SHT30_SCL);
+  Serial.printf("[sht30] I2C addr 0x%02X on SDA=GPIO%d SCL=GPIO%d\n", SHT30_ADDR, SHT30_SDA, SHT30_SCL);
+#endif
 #if USE_DHT
   dht.begin();
-  Serial.printf("[dht] DHT22 on GPIO%d\n", DHT_PIN);
+  Serial.printf("[dht] sensor on GPIO%d\n", DHT_PIN);
 #endif
 #if USE_PIR
   pinMode(PIR_PIN, INPUT);
