@@ -45,7 +45,10 @@ char CLIENT_ID[32];                         // econ-esp32-<ZONE_TOPIC>
 
 // ---------------- HARDWARE PINS ----------------
 const int RELAY_PIN  = 23;  // lighting relay (active HIGH)
-const int IR_PIN     = 22;  // HVAC IR emitter (see applyHvacSetpoint)
+// GPIO19, NOT GPIO22: 22 is the I2C clock. applyHvacSetpoint() pulses this pin, so leaving
+// the emitter on 22 made every setpoint command drive SCL directly and corrupt any read from
+// the SHT30 or the ACD1200 sharing that bus.
+const int IR_PIN     = 19;  // HVAC IR emitter (see applyHvacSetpoint)
 const int STATUS_LED = 2;   // onboard LED = MQTT link status
 
 // ---------------- SENSORS ----------------
@@ -82,6 +85,15 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #endif
   #ifndef I2C_SCL
     #define I2C_SCL 22
+  #endif
+
+  // A pin collision on the I2C bus is silent at runtime and looks like a flaky sensor, so
+  // it is caught here instead. Overriding I2C_SDA/I2C_SCL onto an actuator pin fails the build.
+  #if I2C_SDA == 23 || I2C_SCL == 23
+    #error "I2C pin collides with RELAY_PIN (GPIO23) - pick another pin via -DI2C_SDA/-DI2C_SCL"
+  #endif
+  #if I2C_SDA == 19 || I2C_SCL == 19
+    #error "I2C pin collides with IR_PIN (GPIO19) - pick another pin via -DI2C_SDA/-DI2C_SCL"
   #endif
 
   // CRC-8, polynomial 0x31, init 0xFF. Shared: the SHT30 (datasheet 4.12) and the ASAIR
