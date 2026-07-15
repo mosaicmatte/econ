@@ -53,7 +53,8 @@ body {
   width: 100vw;
   height: 100vh;
   z-index: 0;
-  background: var(--bg-obsidian);
+  /* Transparent so the live time-of-day sky behind it shows through. */
+  background: transparent;
 }
 
 /* React Flow Minimap Bottom Right Corner */

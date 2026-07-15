@@ -105,9 +105,11 @@ export default function LiveWeatherBackground({ lat = 10.8231, lon = 106.6297 })
     [],
   );
 
-  const off = meta?.off ?? 7 * 3600;            // default ICT (UTC+7)
-  const sr = meta?.sunrise ?? 6;
-  const ss = meta?.sunset ?? 18;
+  // Fallbacks are Ho Chi Minh City's near-constant tropical sunrise/sunset (it barely moves
+  // year-round), so the first paint picks the same phase the fetch will confirm — no flash.
+  const off = meta?.off ?? 7 * 3600;            // ICT (UTC+7)
+  const sr = meta?.sunrise ?? 5.6;
+  const ss = meta?.sunset ?? 18.3;
   const loc = new Date(nowMs + off * 1000);
   const h = loc.getUTCHours() + loc.getUTCMinutes() / 60;
   const key = pickPhase(h, sr, ss);

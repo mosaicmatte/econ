@@ -11,6 +11,7 @@ import MaintenanceDrawer from './MaintenanceDrawer';
 import AiInsightsPanel from './AiInsightsPanel';
 import * as flatbuffers from 'flatbuffers';
 import MobileImpactScreen from './MobileImpactScreen';
+import LiveWeatherBackground from './LiveWeatherBackground';
 import UIErrorBoundary from './UIErrorBoundary';
 import { API_BASE } from './api';
 import { SimState } from './telemetry';
@@ -396,7 +397,11 @@ function App() {
 
   return (
     <div className="hud-container">
-      
+
+      {/* Live time-of-day sky, shared with the mobile view: golden hour, morning, afternoon,
+          sunset, evening. Sits behind the transparent 3D canvas. */}
+      <LiveWeatherBackground lat={10.8231} lon={106.6297} />
+
       <div className="three-d-canvas-wrapper">
         <CanvasErrorBoundary>
           <BuildingModel
