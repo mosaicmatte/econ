@@ -6,6 +6,21 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-15 — EUI and operational carbon, and what they revealed
+>
+> **ECON now reports the two metrics the Vietnamese literature it cites is actually about.**
+> Energy use intensity is computed over the building's own geometry — 42,037 m², summed by
+> shoelace straight from the digitized zone polygons, so a regenerated building recomputes
+> itself — and Scope 2 operational carbon at Vietnam's grid emission factor (0.6766 kgCO₂e/kWh,
+> overridable per reporting year), surfaced on the desktop Overview and the mobile Impact screen
+> along with the carbon the optimizer is actively avoiding. Building them was worth it for what
+> they exposed on the first run: the bundled demo building is **86% server-room by connected
+> load** (555 zones at 85 kW each), giving a run-rate EUI of ≈3,700 kWh/m²·yr — about 32× the
+> 116.4 office cohort, and squarely data-centre territory. The physics, tariff and comfort models
+> are unaffected, but the fixture is not an office, so the dashboard suppresses the office
+> benchmark whenever load is IT-dominated instead of printing a meaningless 32× ratio, and says
+> why. A metric that only ever flatters you isn't a metric.
+>
 > ### 2026-07-15 — Measured data end to end, and a profiler that says something
 >
 > **The twin now reports what it measures, and admits what it doesn't.** The edge firmware
@@ -258,9 +273,8 @@ falsifiable. Nothing in this list is wired up, however plausible it may sound in
 | **Tariff-clock pre-cooling & peak setback** | Pre-cooling fires when the LSTM's predicted peak crosses `PRECOOL_TRIGGER_MW`. Setback is vacancy-driven only. | There is no scheduled 15:00–17:00 charge, and no partial-hibernation setback across the 17:30–22:30 peak. |
 | **Plug-load visibility or control** | Not sensed, not actuated. | Plug loads are the single largest end use (26.4%) in the Hanoi case study. ECON kills the *lighting and cooling* around an empty desk — it never sees the desk's own draw. |
 | **CO₂-based demand-controlled ventilation** | Real CO₂ is now ingested and streamed, but no ventilation loop acts on it. | The measurement exists; the control does not. DCV is not a code requirement under QCVN 09:2017 anyway, which is exactly why it is an opportunity. |
-| **EUI benchmarking (kWh/m²·yr)** | Floor area is never used; EUI is never computed. | Without it ECON cannot benchmark against the 105.9 (Hanoi) / 116.4 (HCMC) figures it cites. |
-| **Operational carbon (CO₂e)** | No grid emission factor, no carbon reporting. | ESG reporting is a named market driver, and Vietnam's grid is >60% fossil — a large multiplier ECON currently ignores. |
 | **Two-part tariff / capacity charge** | Energy-only pricing. | Correct for commercial *kinh doanh* sites today; the manufacturing pilot began 1 Jul 2026 and commercial follows ~2028–2030. |
+| **A demo building that resembles an office** | The bundled `building-data.json` is **86% server-room by connected load** (555 zones × 85 kW). Its 3,698 kWh/m²·yr EUI is data-centre territory, ~32× the office cohort ECON benchmarks against. | Every đồng figure the twin quotes is scaled to a 17.6 MW data centre, not a Vietnamese office. The physics and tariff maths are sound; the *fixture* is not representative, so savings figures should not be presented as office numbers. |
 
 ## 🚀 Development Process & Architecture
 
@@ -926,11 +940,18 @@ following are **not implemented**, and the system should not be described as if 
    HVAC/lighting load, not on the plug load itself, and should be quantified as such.
 5. **Measured CO₂ drives no control loop.** NDIR readings are ingested, streamed and persisted,
    but demand-controlled ventilation is not implemented — the sensing precedes the actuation.
-6. **Neither headline metric of the cited literature is computed.** ECON reports neither energy
-   use intensity (kWh/m²·yr) — the metric of the 57-building survey it benchmarks against — nor
-   operational carbon, the subject of the Hanoi case study. Both are cheap to add on top of the
-   existing load stream and floor-area data, and both are what a Vietnamese ESG reviewer will
-   actually ask for.
+6. **The demo fixture is not an office.** ECON now reports both headline metrics of the cited
+   literature — energy use intensity over the building's own digitized floor area (42,037 m²,
+   summed by shoelace from the zone polygons) and Scope 2 operational carbon at Vietnam's grid
+   emission factor. Computing them immediately exposed something the tariff and physics models
+   could not: the bundled building is **86% server-room by connected load** (555 zones at 85 kW),
+   giving a run-rate EUI of $\approx 3{,}700\,\mathrm{kWh/m^2{\cdot}yr}$ — roughly $32\times$ the
+   $116.4$ office cohort, and squarely in data-centre territory. The engine, tariff and comfort
+   models are unaffected, but every đồng figure the twin quotes is scaled to a 17.6 MW IT load
+   rather than a Vietnamese office. The dashboard therefore suppresses the office benchmark
+   whenever load is IT-dominated rather than printing a meaningless $32\times$ ratio, and the
+   savings figures in this paper should not be read as office numbers until the fixture is
+   recalibrated to a representative $\approx 40$–$120\,\mathrm{W/m^2}$ commercial load.
 
 ---
 

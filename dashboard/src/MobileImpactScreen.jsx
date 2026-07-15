@@ -2,6 +2,10 @@ import React, { useMemo } from 'react';
 import { X } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { money, energyCostPerDay } from './tariff';
+import {
+  FLOOR_AREA_M2, EUI_BENCHMARK, IS_IT_DOMINATED, ZONE_MIX,
+  euiFromLoadMw, carbonTonnesPerYear, carbonAvoidedTonnesPerYear, tonnesStr,
+} from './sustainability';
 
 // Mobile "Impact" screen — the phone-sized face of the twin. Served automatically on
 // small viewports instead of the WebGL-heavy desktop stack, and fed entirely by the
@@ -85,6 +89,42 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
               <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>{(savedMw * 1000).toFixed(0)} kW saved</span>
               <span style={{ fontSize: '11px', color: '#3DDC84', marginTop: '4px', maxWidth: '118px', textAlign: 'center', lineHeight: 1.2 }}>≈ {money(energyCostPerDay((simData.energySavedMw||0)*1000))}/day</span>
             </div>
+          </div>
+        </div>
+
+        {/* Carbon & intensity — the two figures Vietnamese ESG reporting and the office-stock
+            literature actually ask for, both derived from the live load and the building's own
+            digitized floor area. */}
+        <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '16px', padding: '20px', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '600' }}>Carbon & Intensity</h3>
+          <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.6)', marginBottom: '16px' }}>
+            Scope 2 grid carbon and energy use intensity, at the current load.
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
+            <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>Operational carbon</span>
+            <span style={{ fontSize: '20px', fontWeight: 'bold', fontFamily: 'ui-monospace, monospace' }}>
+              {tonnesStr(carbonTonnesPerYear(loadMw))}<span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}> CO₂e/yr</span>
+            </span>
+          </div>
+          {carbonAvoidedTonnesPerYear(savedMw) > 0.05 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
+              <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>Avoided by setback</span>
+              <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#3DDC84', fontFamily: 'ui-monospace, monospace' }}>
+                {tonnesStr(carbonAvoidedTonnesPerYear(savedMw))}<span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}> /yr</span>
+              </span>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>Energy intensity</span>
+            <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#4FC3F7', fontFamily: 'ui-monospace, monospace' }}>
+              {euiFromLoadMw(loadMw).toFixed(0)}<span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}> kWh/m²·yr</span>
+            </span>
+          </div>
+          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', marginTop: '10px', lineHeight: 1.4 }}>
+            {IS_IT_DOMINATED
+              ? `Over ${FLOOR_AREA_M2.toLocaleString('en-US', { maximumFractionDigits: 0 })} m². Not comparable to the ${EUI_BENCHMARK.hcmc} kWh/m²·yr office cohort — ${(ZONE_MIX.dominant.loadShare * 100).toFixed(0)}% of connected load is ${ZONE_MIX.dominant.type}.`
+              : `Over ${FLOOR_AREA_M2.toLocaleString('en-US', { maximumFractionDigits: 0 })} m² — ${(euiFromLoadMw(loadMw) / EUI_BENCHMARK.hcmc).toFixed(2)}× the ${EUI_BENCHMARK.hcmc} kWh/m²·yr HCMC office cohort.`}
           </div>
         </div>
 

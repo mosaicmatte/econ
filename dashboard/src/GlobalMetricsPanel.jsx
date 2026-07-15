@@ -4,6 +4,10 @@ import { ResponsiveContainer, AreaChart, Area } from 'recharts';
 import buildingData from './building-data.json';
 import { API_BASE } from './api';
 import { money, energyCostPerDay, touPeriod, touPeriodLabel } from './tariff';
+import {
+  FLOOR_AREA_M2, EUI_BENCHMARK, IS_IT_DOMINATED, ZONE_MIX,
+  euiFromLoadMw, carbonTonnesPerYear, carbonAvoidedTonnesPerYear, tonnesStr,
+} from './sustainability';
 
 // Building design peak (MW electrical), derived once from the loaded building nameplate so the
 // "Active Cooling Capacity" bar scales with ANY building instead of a hard-coded constant.
@@ -159,6 +163,62 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
                   </div>
                   <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                     ≈ {money(energyCostPerDay(savedKw))}/day ({touPeriodLabel(touPeriod())})
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* EUI — run-rate energy use intensity over the building's real digitized floor area,
+              against the Vietnamese office cohort. The benchmark is only shown when it actually
+              applies: this building's load is dominated by server rooms, and holding a data
+              centre up against an office survey would be a meaningless comparison. */}
+          {(() => {
+            const eui = euiFromLoadMw(simData.buildingLoadMw || 0);
+            const ratio = eui / EUI_BENCHMARK.hcmc;
+            const comparable = !IS_IT_DOMINATED;
+            return (
+              <div style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: 'var(--text-secondary)' }}>
+                    <BarChart2 size={12} color="var(--accent-blue)" /> ENERGY INTENSITY (EUI)
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--accent-blue)', fontSize: '16px' }}>
+                      {eui.toFixed(0)} <span style={{ fontSize: '9px' }}>kWh/m²·yr</span>
+                    </div>
+                    <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      run-rate over {FLOOR_AREA_M2.toLocaleString('en-US', { maximumFractionDigits: 0 })} m²
+                    </div>
+                  </div>
+                </div>
+                <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '6px', lineHeight: 1.4 }}>
+                  {comparable
+                    ? `${ratio.toFixed(2)}× the HCMC office cohort (${EUI_BENCHMARK.hcmc} kWh/m²·yr, 57-building survey).`
+                    : `Not comparable to the ${EUI_BENCHMARK.hcmc} kWh/m²·yr office cohort — ${(ZONE_MIX.dominant.loadShare * 100).toFixed(0)}% of connected load is ${ZONE_MIX.dominant.type}.`}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Operational carbon (Scope 2) — the subject of the Hanoi case study, and what an
+              ESG reviewer asks for before anything else. */}
+          {(() => {
+            const tYr = carbonTonnesPerYear(simData.buildingLoadMw || 0);
+            const avoided = carbonAvoidedTonnesPerYear(simData.energySavedMw || 0);
+            return (
+              <div style={{ background: 'rgba(34, 197, 94, 0.05)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '8px', padding: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: 'var(--text-secondary)' }}>
+                    <Activity size={12} color="var(--accent-green)" /> OPERATIONAL CARBON
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--text-primary)', fontSize: '16px' }}>
+                      {tonnesStr(tYr)} <span style={{ fontSize: '9px' }}>CO₂e/yr</span>
+                    </div>
+                    <div style={{ fontSize: '9px', color: 'var(--accent-green)', marginTop: '2px' }}>
+                      {avoided > 0.05 ? `${tonnesStr(avoided)}/yr avoided by setback` : 'no setback active'}
+                    </div>
                   </div>
                 </div>
               </div>
