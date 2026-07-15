@@ -419,10 +419,17 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
     setSent(label);
   };
   // Real derived figures (no fabricated/flickering numbers): airflow from the zone's live VAV
-  // flow (m³/min -> CFM), CO2 estimated from occupancy above the ~420 ppm outdoor baseline.
+  // flow (m³/min -> CFM).
   const vav = simData ? Object.values(simData.vavs || {}).find(v => v.targetZone === zone.id) : null;
   const cfm = Math.round((vav?.flow || 0) * 35.3147) || Math.round(zone.occupancy * 17 + 120);
-  const co2 = Math.min(1400, Math.round(420 + zone.occupancy * 22));
+  // A bound NDIR sensor wins, exactly as on desktop; the occupancy estimate is only a
+  // fallback for the zones nothing is measuring. The engine streams 0 when no sensor is
+  // reporting, so 0 means "modelled" rather than "a room with no CO2 in it". Labelling
+  // which one is on screen matters more here than on desktop: this is the view someone
+  // reads while standing in the room.
+  const co2Measured = zone.co2 > 0;
+  const co2 = co2Measured ? Math.round(zone.co2) : Math.min(1400, Math.round(420 + zone.occupancy * 22));
+  const humMeasured = zone.humidity > 0;
   return (
     <div style={{ 
       height: '45vh', 
@@ -471,8 +478,9 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
          <StatCard label="SETPOINT" value={`${zone.setpoint.toFixed(1)}°C`} />
          <StatCard label="AIRFLOW" value={`${cfm} CFM`} />
-         <StatCard label="CO₂ LEVEL" value={`${co2} ppm`} />
+         <StatCard label={co2Measured ? 'CO₂ (MEASURED)' : 'CO₂ (MODELED)'} value={`${co2} ppm`} />
          <StatCard label="OCCUPANCY" value={`${zone.occupancy} People`} />
+         {humMeasured && <StatCard label="HUMIDITY (MEASURED)" value={`${zone.humidity.toFixed(1)} %RH`} />}
       </div>
 
       {/* Manual overrides — human-in-the-loop veto (latches 15 min over the optimizer). */}
