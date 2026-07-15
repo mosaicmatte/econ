@@ -19,7 +19,11 @@ export default function MobileAIScreen({
   const loadMw = simData.buildingLoadMw || 0;
   const savedMw = simData.energySavedMw || 0;
   const savingsPct = savedMw + loadMw > 0 ? (100 * savedMw) / (savedMw + loadMw) : 0;
-  const shedKw = 0.05 * Math.max(0, loadMw - 2.0) * 1000; // ~5%-per-°C deadband/pre-cool shave
+  // The plant's electrical draw is the live thermal cooling divided by the live COP, so the
+  // shed estimate tracks the real plant instead of subtracting a hard-coded baseline.
+  const plantCop = simData.plantCop || 0;
+  const hvacMw = plantCop > 0 ? Math.min(loadMw, (simData.coolingOutputMw || 0) / plantCop) : 0;
+  const shedKw = 0.05 * hvacMw * 1000; // ~5%-per-°C deadband/pre-cool shave
   const hwList = Object.values(hardwareNodes || {});
 
   const recs = useMemo(() => {

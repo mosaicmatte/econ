@@ -5,8 +5,8 @@ import { money, energyCostPerDay, rateStr, touPeriod, touPeriodLabel } from './t
 
 export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory, onClose }) {
   const loadMw   = globalMetrics?.buildingLoadMw ?? simData?.buildingLoadMw ?? 0;
-  const hvacMw   = Math.max(0, loadMw - 2.0);            // engine bakes a ~2 MW non-HVAC baseline
-  const baseMw   = Math.min(loadMw, 2.0);
+  const hvacMw   = globalMetrics?.hvacElectricalMw ?? 0; // cooling thermal / live plant COP
+  const baseMw   = globalMetrics?.baseLoadMw ?? 0;       // whatever the plant isn't drawing
   const coolMw   = globalMetrics?.coolingOutputMw ?? 0;  // thermal MW delivered
   const coolTons = coolMw * 1000 / 3.517;
   const cop      = globalMetrics?.plantCop ?? 0;

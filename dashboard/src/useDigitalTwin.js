@@ -98,20 +98,29 @@ export function useDigitalTwin(onUpdate) {
   // (buildingLoadMw, coolingOutputMw, plantCop, energySavedMw, totalOccupants) or computed
   // from the live per-zone temperatures. No fabricated ratios.
   const globalMetrics = useMemo(() => {
-    const empty = { occupants: 0, avgTemp: 0, buildingLoadMw: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, gridPowerMw: 0, bessDischargeMw: 0, bessSocPct: 0 };
+    const empty = { occupants: 0, avgTemp: 0, buildingLoadMw: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, gridPowerMw: 0, bessDischargeMw: 0, bessSocPct: 0, hvacElectricalMw: 0, baseLoadMw: 0 };
     if (!simData || !simData.zones) return empty;
     let tempSum = 0;
     const zones = Object.values(simData.zones);
     zones.forEach(z => { tempSum += parseFloat(z.temp) || 24.0; });
     const bldgLoad = simData.buildingLoadMw || 0;
     const bessDischarge = simData.bessDischargeMw || 0;
+    const coolMw = simData.coolingOutputMw || 0;
+    const cop = simData.plantCop || 0;
+    // The plant's electrical draw is the thermal cooling it delivers divided by its live COP;
+    // whatever is left of the building load is the non-HVAC (lighting/plug/fan) baseline.
+    // Both fall out of the stream, so they track the real plant instead of the ~2 MW constant
+    // the panels used to subtract by hand.
+    const hvacElectricalMw = cop > 0 ? Math.min(bldgLoad, coolMw / cop) : 0;
     return {
       occupants: simData.totalOccupants || 0,
       avgTemp: zones.length ? (tempSum / zones.length).toFixed(1) : 0,
       buildingLoadMw: bldgLoad,
-      coolingOutputMw: simData.coolingOutputMw || 0, // thermal cooling delivered (MW)
-      plantCop: simData.plantCop || 0,               // chiller-plant coefficient of performance
+      coolingOutputMw: coolMw,                        // thermal cooling delivered (MW)
+      plantCop: cop,                                  // chiller-plant coefficient of performance
       energySavedMw: simData.energySavedMw || 0,     // saved by occupancy-driven setback
+      hvacElectricalMw,                               // MW electrical drawn by the cooling plant
+      baseLoadMw: Math.max(0, bldgLoad - hvacElectricalMw), // MW electrical drawn by everything else
       bessDischargeMw: bessDischarge,                 // + discharging to grid, - charging
       bessSocPct: simData.bessSocPct || 0,            // battery state of charge (0..100)
       gridPowerMw: Math.max(0, bldgLoad - bessDischarge), // battery discharge offsets grid draw
@@ -184,7 +193,12 @@ export function useDigitalTwin(onUpdate) {
             } else if ((isFaultMode && id === faultTargetRef.current) || temp > sp + db + CRITICAL_MARGIN) {
                 alert = true;
             }
-            newSimData.zones[id] = { ...newSimData.zones[id], temp, load: z.load(), occupancy: z.occupants(), lightsOn: z.lightsOn(), alert };
+            // humidity/co2 are the zone's own bound sensor, straight off the stream
+            // (0 = nothing measuring it, so the UI can fall back to a modelled figure).
+            newSimData.zones[id] = {
+              ...newSimData.zones[id], temp, load: z.load(), occupancy: z.occupants(),
+              lightsOn: z.lightsOn(), humidity: z.humidity(), co2: z.co2(), alert,
+            };
         }
       }
 

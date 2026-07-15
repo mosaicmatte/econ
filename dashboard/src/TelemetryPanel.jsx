@@ -1,62 +1,59 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Activity, AlertTriangle, Zap, CheckCircle } from 'lucide-react';
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine } from 'recharts';
 import { money, energyCostPerDay, peakShiftSavingPerDay, peakShiftSavingPerMonth, touPeriod, touPeriodLabel } from './tariff';
 
 export default function TelemetryPanel({ simData, loadHistory, activeScenario, faultTarget, onOpenMaintenance, autoPilot, setAutoPilot }) {
 
-  const [activeChartMode, setActiveChartMode] = useState('office_dcv');
   // Manual "apply" actions engage the autonomous controller, which performs the suggested
   // setback / load-shed / flow change — so the button does the real thing instead of nothing.
   const applySuggestion = () => setAutoPilot && setAutoPilot(true);
 
-  const historicalData = useMemo(() => {
-    const data = [];
-    if (activeChartMode === 'office_dcv') {
-      for (let i = 0; i < 300; i++) {
-        const co2 = 400 + Math.random() * 3000;
-        // Physically correct saturating curve: P_cool = P_base + alpha * N(CO2) + beta * Q_vent(CO2)
-        const co2_out = 400;
-        const n_est = Math.min(50, Math.max(0, (co2 - co2_out) / 20)); // N(CO2) saturates around 50 people
-        const q_vent = Math.max(0, co2 - co2_out) * 0.05;
-        const basePower = 200 + (3.5 * n_est) + (1.2 * q_vent);
-        const actualPower = basePower + (Math.random() * 20 - 10);
-        data.push({ x: Math.round(co2), y: Number(actualPower.toFixed(1)) });
-      }
-    } else if (activeChartMode === 'server_room') {
-      for (let i = 0; i < 300; i++) {
-        // Servers: IT Load (kW) vs Cooling Power (kW)
-        const itLoad = 100 + Math.random() * 900;
-        const coolingPower = itLoad * 0.35; // Approx PUE
-        const actualPower = coolingPower + (Math.random() * 10 - 5);
-        data.push({ x: Math.round(itLoad), y: Number(actualPower.toFixed(1)) });
-      }
-    }
-    return data;
-  }, [activeChartMode]);
+  // --- Cost model (see tariff.js) ---
+  const cop = simData.plantCop || 3.0;
+  // The plant's electrical draw is the thermal cooling it delivers over its live COP — read
+  // off the stream rather than subtracting a hard-coded non-HVAC baseline.
+  const coolingElectricalKw = Math.min(
+    (simData.buildingLoadMw || 0),
+    (simData.plantCop || 0) > 0 ? (simData.coolingOutputMw || 0) / simData.plantCop : 0,
+  ) * 1000;
 
-  const currentData = useMemo(() => {
-    // Make sure z.archetype is handled (fallback to 'office_dcv' if missing)
-    const filteredZones = Object.values(simData.zones).filter(z => (z.archetype || 'office_dcv') === activeChartMode);
-    
-    return filteredZones.map((z, idx) => {
-      const isFaulting = (activeScenario === 'fault' && z.id === faultTarget);
-      
-      if (activeChartMode === 'office_dcv') {
-        let yPower = z.load * 20; 
-        let co2 = 400 + (z.occupancy * 40);
-        // Fault introduces high co2 and power deviation
-        if (isFaulting) { co2 += 1000; yPower += 150; } 
-        return { name: z.label, x: Math.round(co2), y: Number(yPower.toFixed(1)), isFaulting };
-      } else {
-        let itLoad = z.baseHeatGain * 10 + (z.load * 10);
-        let yPower = z.load * 20; 
-        // Fault introduces high cooling power despite constant IT load
-        if (isFaulting) { yPower += 300; } 
-        return { name: z.label, x: Math.round(itLoad), y: Number(yPower.toFixed(1)), isFaulting };
-      }
+  // Zone performance: every zone plotted as (how far it has drifted from its setpoint) vs
+  // (the cooling it is drawing). Every value is streamed — no synthetic baseline. The
+  // quadrants are the whole point, and each one is an action:
+  //   right + high kW -> pouring cooling in and still hot  = fault / undersized
+  //   right + low kW  -> hot but barely cooling            = starved: stuck damper, shut valve
+  //   left            -> cooled well past setpoint         = wasted money, raise the setpoint
+  //   centre          -> inside the deadband               = healthy
+  const perf = useMemo(() => {
+    const g = { healthy: [], overcooled: [], starved: [], struggling: [], alarm: [] };
+    let wasteKw = 0;
+    let maxDb = 2;
+    Object.values(simData.zones || {}).forEach((z) => {
+      const sp = z.setpoint ?? 24;
+      const db = z.deadband ?? 2;
+      maxDb = Math.max(maxDb, db);
+      const dev = (z.temp ?? sp) - sp;
+      const kw = z.load || 0;
+      const pt = {
+        x: Number(dev.toFixed(2)), y: Number(kw.toFixed(1)), name: z.label || z.id,
+        sensor: (z.co2 || 0) > 0 || (z.humidity || 0) > 0,
+      };
+      if (z.alert === true || z.alert === 'REMEDIATING') g.alarm.push(pt);
+      else if (dev > db) (kw > 1 ? g.struggling : g.starved).push(pt);
+      else if (dev < -db) {
+        g.overcooled.push(pt);
+        // Every °C below the deadband's lower edge is roughly 5% of extra plant electrical.
+        wasteKw += (Math.abs(dev) - db) * 0.05 * (kw / cop);
+      } else g.healthy.push(pt);
     });
-  }, [simData, activeChartMode, activeScenario, faultTarget]);
+    return { ...g, wasteKw, maxDb };
+  }, [simData, cop]);
+
+  const sensorCount = useMemo(
+    () => Object.values(simData.zones || {}).filter(z => (z.co2 || 0) > 0 || (z.humidity || 0) > 0).length,
+    [simData],
+  );
 
   // Insights Data logic
   const isFault = activeScenario === 'fault';
@@ -66,11 +63,6 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
   const unoccupiedWasting = Object.values(simData.zones).filter(z => z.occupancy === 0).slice(0, 1);
   const outOfBand = Object.values(simData.zones).filter(z => z.temp > z.setpoint + z.deadband && activeScenario !== 'fault');
 
-  // --- Cost model (see tariff.js) ---
-  const cop = simData.plantCop || 3.0;
-  // Cooling electrical draw = building load minus the fixed ~2 MW lighting/plug/fan
-  // baseline the engine bakes in; this is the load a shave/pre-cool actually addresses.
-  const coolingElectricalKw = Math.max(0, (simData.buildingLoadMw || 0) - 2.0) * 1000;
   // Wasted electrical draw when a scheduled-occupied zone sits empty: mirrors the engine's
   // own setback-savings formula (≈2 kW lighting + 25% of internal-gain cooling, at plant COP).
   const zoneWasteKw = (z) => 2 + (0.25 * (z.load || 0)) / cop;
@@ -103,47 +95,66 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: '350px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <div style={{ fontSize: '10px', fontWeight: 'bold', color: 'var(--text-secondary)', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Activity size={12} color="var(--accent-blue)" /> 
-            {activeChartMode === 'office_dcv' ? 'OFFICE DCV (CO₂ vs COOLING kW)' : 'SERVER ROOM (IT kW vs COOLING kW)'}
+            <Activity size={12} color="var(--accent-blue)" />
+            ZONE PERFORMANCE — COOLING kW vs °C FROM SETPOINT
           </div>
-          <div style={{ display: 'flex', gap: '4px' }}>
-            <button 
-              onClick={() => setActiveChartMode('office_dcv')}
-              style={{ background: activeChartMode === 'office_dcv' ? 'var(--accent-blue)' : 'var(--bg-obsidian)', color: activeChartMode === 'office_dcv' ? '#000' : 'var(--text-secondary)', border: '1px solid var(--border-glass)', fontSize: '9px', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-            >
-              OFFICE
-            </button>
-            <button 
-              onClick={() => setActiveChartMode('server_room')}
-              style={{ background: activeChartMode === 'server_room' ? 'var(--accent-blue)' : 'var(--bg-obsidian)', color: activeChartMode === 'server_room' ? '#000' : 'var(--text-secondary)', border: '1px solid var(--border-glass)', fontSize: '9px', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-            >
-              SERVER
-            </button>
-          </div>
+          <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+            {Object.keys(simData.zones || {}).length} zones{sensorCount > 0 ? ` · ${sensorCount} sensor-backed` : ''}
+          </span>
         </div>
-        
+
         <div style={{ height: '260px', background: 'rgba(0,0,0,0.4)', borderRadius: '8px', padding: '12px', border: '1px solid var(--border-glass)' }}>
           <ResponsiveContainer width="100%" height="100%">
             <ScatterChart margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis type="number" dataKey="x" name={activeChartMode === 'office_dcv' ? 'CO₂' : 'IT Load'} unit={activeChartMode === 'office_dcv' ? ' ppm' : ' kW'} domain={['auto', 'auto']} stroke="var(--text-secondary)" fontSize={10} tickMargin={8} />
+              {/* the comfort deadband: anything inside it is doing its job */}
+              <ReferenceArea x1={-perf.maxDb} x2={perf.maxDb} fill="rgba(46,204,113,0.07)" stroke="rgba(46,204,113,0.25)" strokeDasharray="2 2" />
+              <ReferenceLine x={0} stroke="rgba(255,255,255,0.25)" strokeDasharray="3 3" />
+              <XAxis type="number" dataKey="x" name="Δ from setpoint" unit="°C" domain={['auto', 'auto']} stroke="var(--text-secondary)" fontSize={10} tickMargin={8} />
               <YAxis type="number" dataKey="y" name="Cooling" unit=" kW" domain={['auto', 'auto']} stroke="var(--text-secondary)" fontSize={10} width={45} />
-              <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ background: '#111', border: '1px solid var(--border-glass)' }} />
-              <Scatter name="Historical Baseline" data={historicalData} fill="rgba(255,255,255,0.35)" isAnimationActive={false} />
-              <Scatter name="Live Telemetry Node" data={currentData} fill="var(--accent-yellow)" isAnimationActive={false} />
+              <Tooltip
+                cursor={{ strokeDasharray: '3 3' }}
+                contentStyle={{ background: '#111', border: '1px solid var(--border-glass)', fontSize: '11px' }}
+                formatter={(v, n) => [n === 'Cooling' ? `${v} kW` : `${v > 0 ? '+' : ''}${v} °C`, n === 'Cooling' ? 'Cooling' : 'Δ setpoint']}
+                labelFormatter={() => ''}
+                itemSorter={() => 0}
+              />
+              <Scatter name="In band" data={perf.healthy} fill="rgba(46,204,113,0.55)" isAnimationActive={false} />
+              <Scatter name="Overcooled" data={perf.overcooled} fill="var(--accent-blue)" isAnimationActive={false} />
+              <Scatter name="Starved" data={perf.starved} fill="#b06bd8" isAnimationActive={false} />
+              <Scatter name="Struggling" data={perf.struggling} fill="var(--accent-yellow)" isAnimationActive={false} />
+              <Scatter name="Alarm" data={perf.alarm} fill="var(--accent-red)" isAnimationActive={false} />
             </ScatterChart>
           </ResponsiveContainer>
         </div>
-        <div style={{ display: 'flex', gap: '1rem', marginTop: '8px', paddingLeft: '40px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'rgba(255,255,255,0.3)' }} />
-            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Historical Baseline</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-yellow)' }} />
-            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Live Telemetry Node</span>
-          </div>
+
+        {/* Legend doubles as the read-out: each colour is a count and a decision. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '8px' }}>
+          {[
+            ['In band', 'rgba(46,204,113,0.55)', perf.healthy.length],
+            ['Overcooled', 'var(--accent-blue)', perf.overcooled.length],
+            ['Starved', '#b06bd8', perf.starved.length],
+            ['Struggling', 'var(--accent-yellow)', perf.struggling.length],
+            ['Alarm', 'var(--accent-red)', perf.alarm.length],
+          ].map(([label, colour, n]) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: colour }} />
+              <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{label} <b style={{ color: 'var(--text-primary)' }}>{n}</b></span>
+            </div>
+          ))}
         </div>
+        {perf.overcooled.length > 0 && perf.wasteKw > 0.5 && (
+          <div style={{ marginTop: '8px', fontSize: '10px', color: 'var(--accent-blue)', lineHeight: 1.4 }}>
+            {perf.overcooled.length} zones are cooled past their deadband — ≈ {perf.wasteKw.toFixed(0)} kW of avoidable
+            plant draw, about {money(energyCostPerDay(perf.wasteKw))}/day at {rateLabel}. Raising those setpoints is free money.
+          </div>
+        )}
+        {perf.starved.length > 0 && (
+          <div style={{ marginTop: '6px', fontSize: '10px', color: '#b06bd8', lineHeight: 1.4 }}>
+            {perf.starved.length} zones are above the deadband while barely drawing cooling — the classic stuck-damper /
+            closed-valve signature. Worth a look before they alarm.
+          </div>
+        )}
       </div>
 
       <hr style={{ border: 'none', borderTop: '1px solid var(--border-glass)' }} />

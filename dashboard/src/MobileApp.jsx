@@ -11,9 +11,19 @@ import MobileImpactScreen from './MobileImpactScreen';
 import MobileAIScreen from './MobileAIScreen';
 import LiveWeatherBackground from './LiveWeatherBackground';
 import buildingData from './building-data.json';
+import { DEFAULT_FAULT_TARGET } from './useDigitalTwin';
+
+// The floor to open on: the one holding the default critical asset, read from the loaded
+// building rather than pinned to a level number, so a regenerated building-data.json (or a
+// different tower entirely) still opens somewhere that exists. Mirrors the desktop's
+// ATTENTION_FLOOR.
+const ATTENTION_FLOOR = (() => {
+  const f = (buildingData.floors || []).find(fl => (fl.zones || []).some(z => z.zoneId === DEFAULT_FAULT_TARGET));
+  return f ? f.level : (buildingData.floors?.[Math.floor((buildingData.floors?.length || 1) / 2)]?.level ?? 1);
+})();
 
 export default function MobileApp() {
-  const [activeFloor, setActiveFloor] = useState(8);
+  const [activeFloor, setActiveFloor] = useState(ATTENTION_FLOOR);
   const [selectedZone, setSelectedZone] = useState(null);
   const [activeModal, setActiveModal] = useState(null); // 'analytics', 'logs', 'controls'
 
@@ -228,23 +238,22 @@ export default function MobileApp() {
             title="Analytics & Telemetry" 
             onClick={() => setActiveModal('analytics')} 
           />
-          <MenuItem 
-            icon={<Activity size={20} color="#fff" />} 
-            title="System Logs" 
-            onClick={() => setActiveModal('logs')} 
+          {/* System Logs folded into Diagnostics — the log stream IS diagnostic evidence, and
+              splitting them made you check two places to answer one question. */}
+          <MenuItem
+            icon={<ShieldAlert size={20} color={failingZone ? "#FF3B30" : "#fff"} />}
+            title="Diagnostics & Logs"
+            onClick={() => setActiveModal('faults')}
+            highlight={!!failingZone}
+            bottomText={failingZone
+              ? `${failingZone.label} · ${Number(failingZone.temp).toFixed(1)}°C`
+              : 'No active faults · live log stream'}
           />
           <MenuItem
             icon={<Settings size={20} color="#888" />}
             title="Scenario Controls"
             onClick={() => setActiveModal('controls')}
             bottomText={`Active: ${activeScenario}`}
-          />
-          <MenuItem
-            icon={<ShieldAlert size={20} color={failingZone ? "#FF3B30" : "#fff"} />}
-            title="Diagnostics"
-            onClick={() => setActiveModal('faults')}
-            highlight={!!failingZone}
-            bottomText={failingZone ? `${failingZone.label} · ${Number(failingZone.temp).toFixed(1)}°C` : undefined}
           />
           
         </div>
@@ -305,9 +314,6 @@ export default function MobileApp() {
                 isMobile={true}
              />
           )}
-          {activeModal === 'logs' && (
-             <TelemetryLogs simData={simData} />
-          )}
           {activeModal === 'controls' && (
              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#888', letterSpacing: '1px' }}>SYSTEM OVERRIDES</div>
@@ -356,6 +362,16 @@ export default function MobileApp() {
                     'All systems operating normally.'
                   )}
                 </div>
+             </div>
+           )}
+           {/* The live log stream sits under the fault card: the evidence for whatever the
+               card just claimed, without bouncing to a separate screen for it. */}
+           {activeModal === 'faults' && (
+             <div style={{ marginTop: '16px' }}>
+               <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#888', letterSpacing: '1px', marginBottom: '8px' }}>
+                 SYSTEM LOGS
+               </div>
+               <TelemetryLogs simData={simData} />
              </div>
            )}
         </div>
@@ -436,7 +452,9 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
          <div style={{ display: 'flex', flexDirection: 'column' }}>
            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#fff' }}>{zone.label || zone.id}</h3>
-           <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.60)', marginTop: '4px' }}>Floor {zone.level} • Zone ID: {zone.id.split('-').pop()}</span>
+           {/* strip the "zone-" prefix, not split on every dash — the last segment is the
+               floor suffix ("lvl1"), which is useless here and duplicates Floor above. */}
+           <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.60)', marginTop: '4px' }}>Floor {zone.level} • Zone ID: {String(zone.id).replace(/^zone-/, '')}</span>
          </div>
          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '50%', padding: '6px', color: '#fff', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
            <X size={16} />

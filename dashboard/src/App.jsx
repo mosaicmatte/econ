@@ -14,6 +14,7 @@ import MobileImpactScreen from './MobileImpactScreen';
 import LiveWeatherBackground from './LiveWeatherBackground';
 import UIErrorBoundary from './UIErrorBoundary';
 import { API_BASE } from './api';
+import { rateNow, money, touPeriodLabel, touPeriod } from './tariff';
 import { SimState } from './telemetry';
 import { useDigitalTwin, FAULT_ZONES, DEFAULT_FAULT_TARGET } from './useDigitalTwin';
 import AirflowWindow from './AirflowWindow';
@@ -86,10 +87,13 @@ const UnitNode = ({ data, selected }) => {
   const state = data.alert === true ? 'alarm' : (dev > 1 ? 'drift' : 'ok');
   const c = state === 'alarm' ? 'var(--accent-red)' : state === 'drift' ? 'var(--accent-yellow)' : 'var(--accent-green)';
   const flowFrac = Math.max(0, Math.min(1, (data.flowVal || 0) / 0.8));
+  // Sides are set individually: mixing the `border` shorthand with `borderLeft` makes React
+  // warn on rerender, because whichever lands last wins non-deterministically.
+  const edge = `1px solid ${selected ? '#ffffff' : 'rgba(127, 139, 150, 0.35)'}`;
   return (
     <div style={{
       width: 148, background: 'rgba(13, 17, 20, 0.95)', borderRadius: 4, padding: '5px 7px',
-      border: `1px solid ${selected ? '#ffffff' : 'rgba(127, 139, 150, 0.35)'}`,
+      borderTop: edge, borderRight: edge, borderBottom: edge,
       borderLeft: `3px solid ${c}`, fontFamily: 'monospace',
       boxShadow: state === 'alarm' ? '0 0 10px rgba(255, 69, 58, 0.45)' : 'none',
     }}>
@@ -485,12 +489,28 @@ function App() {
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* CO₂ and humidity come straight off the telemetry stream: non-zero means a
+                  real sensor on this zone is reporting, so the measured value wins. Zero means
+                  nothing is measuring it and we say so rather than passing a model off as data. */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><Users size={14}/> Est. CO₂ Level</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Users size={14}/> CO₂ {simData.zones[selectedZone].co2 > 0 ? 'Level (measured)' : 'Level (modeled)'}
+                </span>
                 <span style={{ color: 'var(--accent-green)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '14px' }}>
-                  {(simData.zones[selectedZone].occupancy * 15) + 400} ppm
+                  {Math.round(simData.zones[selectedZone].co2 > 0
+                    ? simData.zones[selectedZone].co2
+                    : 400 + simData.zones[selectedZone].occupancy * 15)} ppm
                 </span>
               </div>
+
+              {simData.zones[selectedZone].humidity > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><Wind size={14}/> Humidity (measured)</span>
+                  <span style={{ color: 'var(--accent-blue)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '14px' }}>
+                    {simData.zones[selectedZone].humidity.toFixed(1)} %RH
+                  </span>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><Activity size={14}/> Thermostat</span>
                 <span style={{ color: 'var(--accent-blue)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '14px' }}>
@@ -503,10 +523,14 @@ function App() {
                   {simData.zones[selectedZone].lightsOn === false ? 'OFF · SETBACK' : 'ON'}
                 </span>
               </div>
+              {/* Cost rate at the live EVN TOU band: the zone's thermal load becomes electrical
+                  draw at the plant's COP, priced in đồng at whatever band the clock is in. */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><Zap size={14}/> Est. Cost Rate</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Zap size={14}/> Cost Rate ({touPeriodLabel(touPeriod())})
+                </span>
                 <span style={{ color: 'var(--accent-yellow)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '14px' }}>
-                  ${(simData.zones[selectedZone].load * 0.12).toFixed(2)} / hr
+                  {money((simData.zones[selectedZone].load / (simData.plantCop || 3.0)) * rateNow())} / hr
                 </span>
               </div>
               {/* [GEMINI IMPLEMENTATION START] */}

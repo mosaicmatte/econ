@@ -90,8 +90,11 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
     // 3. High Demand Period
     if (activeScenario === 'peak') {
       // Pre-cooling's value in Vietnam is shifting cooling load off the expensive peak hours
-      // energy rate (~5% of cooling electrical load; see tariff.js).
-      const shedKw = 0.05 * Math.max(0, loadMw - 2.0) * 1000;
+      // energy rate (~5% of cooling electrical load; see tariff.js). The plant's electrical
+      // draw comes from the live stream (thermal cooling / COP), not a hard-coded baseline.
+      const cop = simData.plantCop || 0;
+      const hvacMw = cop > 0 ? Math.min(loadMw, (simData.coolingOutputMw || 0) / cop) : 0;
+      const shedKw = 0.05 * hvacMw * 1000;
       generated.push({
         id: 'peak',
         type: 'warning',
