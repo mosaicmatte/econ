@@ -17,9 +17,10 @@
 // Sensors are simulated by default so the node runs on a bare ESP32, but presence is
 // REAL out of the box: USE_TOUCH_PRESENCE reads the ESP32's capacitive touch pin
 // (GPIO32) — pinch a jumper wire on it and the zone shows occupied on the dashboard.
-// Wire real sensors by enabling them individually (USE_DHT / USE_PIR / USE_CO2), so a
-// board with only one of them still reports honestly. Telemetry marks "tempReal" so the
+// Wire real sensors by enabling them individually (USE_SHT30 / USE_DHT / USE_PIR / USE_CO2),
+// so a board with only one of them still reports honestly. Telemetry marks "tempReal" so the
 // engine only pins zone physics to measured temperatures, never to placeholders.
+// SHT30 (temp/RH) and ACD1200 (CO2) share one I2C bus; see the level-shifter warning below.
 // -----------------------------------------------------------------------------
 
 #include <Arduino.h>
@@ -71,27 +72,23 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #define USE_PIR USE_REAL_SENSORS   // PIR   -> measured presence
 #endif
 #ifndef USE_CO2
-  #define USE_CO2 0                  // MH-Z19B NDIR -> measured CO2 ppm
+  #define USE_CO2 0                  // ASAIR ACD1200 NDIR (I2C) -> measured CO2 ppm
 #endif
 
-#if USE_SHT30
-  // Sensirion SHT30 on I2C (default address 0x44; ADDR pin high -> 0x45). Preferred over the
-  // DHT family for HVAC work: +/-0.2 C beats a DHT11's +/-2 C, which is meaningless against a
-  // 2 C control deadband, and I2C avoids the DHT's timing-critical single-wire protocol.
+#if USE_SHT30 || USE_CO2
   #include <Wire.h>
-  #ifndef SHT30_ADDR
-    #define SHT30_ADDR 0x44
+  #ifndef I2C_SDA
+    #define I2C_SDA 21
   #endif
-  #ifndef SHT30_SDA
-    #define SHT30_SDA 21
-  #endif
-  #ifndef SHT30_SCL
-    #define SHT30_SCL 22
+  #ifndef I2C_SCL
+    #define I2C_SCL 22
   #endif
 
-  // CRC-8, polynomial 0x31, init 0xFF (SHT3x datasheet 4.12). The sensor checksums every
-  // word; we verify both, because a corrupt reading published as measured is worse than none.
-  static uint8_t sht30Crc(uint8_t msb, uint8_t lsb) {
+  // CRC-8, polynomial 0x31, init 0xFF. Shared: the SHT30 (datasheet 4.12) and the ASAIR
+  // ACD1200 (datasheet 2.3.1) specify exactly the same check, so both sensors validate
+  // through one routine. Every word is checksummed; we verify all of them, because a corrupt
+  // reading published as measured is worse than no reading at all.
+  static uint8_t crc8_31(uint8_t msb, uint8_t lsb) {
     uint8_t crc = 0xFF;
     uint8_t bytes[2] = {msb, lsb};
     for (int i = 0; i < 2; i++) {
@@ -100,6 +97,15 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
     }
     return crc;
   }
+#endif
+
+#if USE_SHT30
+  // Sensirion SHT30 on I2C (default address 0x44; ADDR pin high -> 0x45). Preferred over the
+  // DHT family for HVAC work: +/-0.2 C beats a DHT11's +/-2 C, which is meaningless against a
+  // 2 C control deadband, and I2C avoids the DHT's timing-critical single-wire protocol.
+  #ifndef SHT30_ADDR
+    #define SHT30_ADDR 0x44
+  #endif
 
   // Single-shot, high repeatability, clock stretching disabled (0x2400). Returns false on a
   // bus error or a failed checksum, so the caller omits the field instead of inventing one.
@@ -111,8 +117,8 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
     if (Wire.requestFrom(SHT30_ADDR, 6) != 6) return false;
     uint8_t d[6];
     for (int i = 0; i < 6; i++) d[i] = Wire.read();
-    if (sht30Crc(d[0], d[1]) != d[2]) return false;
-    if (sht30Crc(d[3], d[4]) != d[5]) return false;
+    if (crc8_31(d[0], d[1]) != d[2]) return false;
+    if (crc8_31(d[3], d[4]) != d[5]) return false;
     uint16_t rawT = ((uint16_t)d[0] << 8) | d[1];
     uint16_t rawH = ((uint16_t)d[3] << 8) | d[4];
     t = -45.0f + 175.0f * ((float)rawT / 65535.0f);
@@ -140,40 +146,38 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 #endif
 
 #if USE_CO2
-  // MH-Z19B NDIR CO2 sensor on UART2 (9600 8N1). CO2_RX_PIN listens to the sensor's TX.
-  // Give it ~3 min after power-on to reach datasheet accuracy.
-  #ifndef CO2_RX_PIN
-    #define CO2_RX_PIN 16
+  // ASAIR ACD1200 NDIR CO2 sensor, I2C mode — shares the SHT30's bus. (MH-Z19 is not sold in
+  // Vietnam; the ACD1200 is the stocked NDIR part.) The sensor defaults to I2C with Pin5 (SET)
+  // left floating; pulling Pin5 low selects UART instead, which runs at 1200 baud and is not
+  // worth the wire. Range 400-5000 ppm, +/-(50 ppm + 5% of reading), 120 s preheat.
+  //
+  // WIRING WARNING (datasheet 2.2): the ACD1200's I2C lines are internally pulled up to *5 V*.
+  // The ESP32's GPIOs are 3.3 V and are not 5 V tolerant, so this sensor needs a bidirectional
+  // I2C level shifter between it and the board — do not wire it straight to SDA/SCL.
+  #ifndef ACD1200_ADDR
+    #define ACD1200_ADDR 0x2A          // 7-bit; the datasheet writes it as 0x54 = 0x2A << 1
   #endif
-  #ifndef CO2_TX_PIN
-    #define CO2_TX_PIN 17
-  #endif
-  HardwareSerial co2Serial(2);
 
-  // Frame checksum per the MH-Z19 datasheet: 0xFF - sum(bytes 1..7) + 1.
-  uint8_t mhzChecksum(const uint8_t *p) {
-    uint8_t s = 0;
-    for (int i = 1; i < 8; i++) s += p[i];
-    return (uint8_t)(0xFF - s + 1);
-  }
-
-  // Reads gas concentration. Returns false when the sensor does not answer in time or the
-  // frame is corrupt — the caller then omits "co2" rather than inventing an air-quality
-  // reading the building never measured.
+  // Reads gas concentration (command 0x0300). Uplink is 9 bytes:
+  //   PPM3 PPM2 CRC | PPM1 PPM0 CRC | TEMP1 TEMP0 CRC   (every two bytes followed by a CRC)
+  // Concentration is assembled MSB-first across the two CRC-checked word pairs. Returns false
+  // on a bus error or any failed checksum, so the caller omits "co2" rather than inventing an
+  // air-quality reading the building never measured.
   bool readCo2(int &ppm) {
-    static const uint8_t cmd[9] = {0xFF, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79};
-    while (co2Serial.available()) co2Serial.read();  // drop any stale bytes
-    co2Serial.write(cmd, 9);
-    uint8_t r[9];
-    int got = 0;
-    unsigned long t0 = millis();
-    while (got < 9 && millis() - t0 < 200) {
-      if (co2Serial.available()) r[got++] = co2Serial.read();
-    }
-    if (got != 9 || r[0] != 0xFF || r[1] != 0x86) return false;
-    if (r[8] != mhzChecksum(r)) return false;
-    ppm = r[2] * 256 + r[3];
-    return ppm > 0 && ppm < 10000;  // datasheet range sanity
+    Wire.beginTransmission(ACD1200_ADDR);
+    Wire.write(0x03); Wire.write(0x00);
+    if (Wire.endTransmission() != 0) return false;
+    delay(5);
+    if (Wire.requestFrom(ACD1200_ADDR, 9) != 9) return false;
+    uint8_t d[9];
+    for (int i = 0; i < 9; i++) d[i] = Wire.read();
+    if (crc8_31(d[0], d[1]) != d[2]) return false;   // PPM3 PPM2
+    if (crc8_31(d[3], d[4]) != d[5]) return false;   // PPM1 PPM0
+    uint32_t v = ((uint32_t)d[0] << 24) | ((uint32_t)d[1] << 16) | ((uint32_t)d[3] << 8) | (uint32_t)d[4];
+    ppm = (int)v;
+    // Datasheet range is 400-5000 ppm; allow a little slack either side but reject the zeros
+    // and garbage the sensor emits during its 120 s preheat.
+    return ppm >= 300 && ppm <= 10000;
   }
 #endif
 
@@ -313,7 +317,7 @@ void readAndPublish() {
 #if USE_CO2
   int ppm;
   if (readCo2(ppm)) doc["co2"] = ppm;
-  else Serial.println("[co2] MH-Z19 read failed -> omitted");
+  else Serial.println("[co2] ACD1200 read/CRC failed -> omitted");
 #else
   doc["co2"] = 400 + occupancy * 120 + random(0, 60);  // simulated
 #endif
@@ -350,9 +354,12 @@ void setup() {
   pinMode(IR_PIN, OUTPUT);
   pinMode(STATUS_LED, OUTPUT);
   setLights(true);
+#if USE_SHT30 || USE_CO2
+  Wire.begin(I2C_SDA, I2C_SCL);
+  Serial.printf("[i2c] bus up on SDA=GPIO%d SCL=GPIO%d\n", I2C_SDA, I2C_SCL);
+#endif
 #if USE_SHT30
-  Wire.begin(SHT30_SDA, SHT30_SCL);
-  Serial.printf("[sht30] I2C addr 0x%02X on SDA=GPIO%d SCL=GPIO%d\n", SHT30_ADDR, SHT30_SDA, SHT30_SCL);
+  Serial.printf("[sht30] expecting I2C addr 0x%02X\n", SHT30_ADDR);
 #endif
 #if USE_DHT
   dht.begin();
@@ -363,9 +370,8 @@ void setup() {
   Serial.printf("[pir] presence on GPIO%d\n", PIR_PIN);
 #endif
 #if USE_CO2
-  co2Serial.begin(9600, SERIAL_8N1, CO2_RX_PIN, CO2_TX_PIN);
-  Serial.printf("[co2] MH-Z19 on UART2 rx=GPIO%d tx=GPIO%d (~3 min warm-up for rated accuracy)\n",
-                CO2_RX_PIN, CO2_TX_PIN);
+  Serial.printf("[co2] ACD1200 expected at I2C 0x%02X (120 s preheat; needs a 5V<->3.3V level shifter)\n",
+                ACD1200_ADDR);
 #endif
 #if !USE_PIR && USE_TOUCH_PRESENCE
   // Calibrate the untouched touch level; a touch reads far below this baseline.
