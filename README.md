@@ -6,6 +6,38 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-15 — Live time-of-day sky, shared by mobile and desktop
+>
+> **The twin now sits under the same sky as the building it models.** The static night
+> gradient behind the 3D view is gone: `LiveWeatherBackground` picks one of five hand-tuned
+> scenes — golden hour, morning, afternoon, sunset, evening — from the site's real local
+> wall-clock, anchored to today's actual sunrise/sunset for the deployment coordinates
+> (Open-Meteo, no key, falling back to Ho Chi Minh City's near-constant tropical times when
+> offline). Each scene keeps the original painterly art: a coloured, misty sky fading to
+> near-black at the base, with a soft-glowing sun — or a cream crescent moon over a drifting
+> starfield after dark — fixed high in frame, easing from one scene to the next as a boundary
+> is crossed rather than snapping. The desktop view now mounts the same component behind its
+> transparent WebGL canvas, so the phone and the workstation finally share one sky instead of
+> the desktop's flat black.
+>
+> ### 2026-07-14 — Vietnamese EVN tariff, TOU reconciliation, and a real BESS
+>
+> **The economics are now Vietnamese, and current.** The inherited US demand-charge model is
+> gone — Vietnam prices commercial power almost entirely through a three-tier energy tariff,
+> so every figure is đồng at the EVN "Kinh doanh" ≥22 kV rates from Decision 1279/QĐ-BCT
+> (peak 5,025 / normal 2,887 / off-peak 1,609 VND/kWh), and the TOU clock was reconciled to
+> Decision 963/QĐ-BCT (effective 22 Apr 2026), which retired the old Thông tư 16/2014
+> split-peak schedule in favour of a single 17:30–22:30 evening peak (Mon–Sat) and a
+> 00:00–06:00 off-peak. Savings are quoted as load-shift arbitrage — the real play for a
+> Vietnamese facility manager — not a demand charge that does not exist here. Riding on that
+> spread: a genuine Battery Energy Storage System. `simulation/bess.go` charges the pack
+> off-peak, discharges it through the peak and trickles through normal daytime hours,
+> integrating true state of charge against capacity and inverter limits, and the engine
+> subtracts its discharge from grid draw. The mobile Energy screen and the desktop Overview
+> both show live SoC, dispatch state, and the megawatts being shaved off the grid; the Go
+> dispatcher pins its own TOU classification to ICT so the engine and the dashboard can never
+> disagree about which band it is.
+>
 > ### 2026-07-13 — Physics-grounded AFDD + forecast-driven pre-cooling + webcam CV node
 >
 > **The AI layer now closes the loop.** Every hardware-bound zone runs a sensor-free
