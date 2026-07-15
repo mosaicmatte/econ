@@ -82,8 +82,10 @@ type ZoneSim struct {
 	HwSeenAt time.Time // last telemetry of any kind from the bound node
 	HwTemp   float64   // last measured air temperature (valid only while HwTempAt is fresh)
 	HwTempAt time.Time // when HwTemp arrived; zero = node never sent a real temperature
-	HwHum    float64   // last measured relative humidity (%), surfaced via /api/hardware
-	HwCo2    float64   // last measured CO2 (ppm)
+	HwHum    float64   // last measured relative humidity (%), valid while HwHumAt is fresh
+	HwHumAt  time.Time // when HwHum arrived; zero = no humidity sensor has ever reported
+	HwCo2    float64   // last measured CO2 (ppm), valid while HwCo2At is fresh
+	HwCo2At  time.Time // when HwCo2 arrived; zero = no NDIR sensor has ever reported
 	HwOnline bool      // broker LWT verdict from econ/status/<topic>
 	// Physics-grounded AFDD (roadmap challenge 2): while a real sensor pins this zone,
 	// ShadowTemp keeps integrating the pure 2R1C model with NO sensor pull. The smoothed
@@ -280,11 +282,18 @@ func (e *Engine) IngestTelemetry(zoneRef, topicSuffix string, m Measurement) {
 			z.ShadowTemp = *m.Temp
 		}
 	}
+	// Each environmental field carries its own arrival time. A node reports per-sensor:
+	// the SHT30 can keep answering while the NDIR fails its CRC or is unplugged, and the
+	// firmware then omits only that field. Timestamping the node as a whole would let the
+	// last CO2 reading keep streaming as "measured" for as long as the board still sent
+	// temperature.
 	if m.Humidity != nil {
 		z.HwHum = *m.Humidity
+		z.HwHumAt = time.Now()
 	}
 	if m.Co2 != nil {
 		z.HwCo2 = *m.Co2
+		z.HwCo2At = time.Now()
 	}
 }
 
@@ -407,6 +416,18 @@ func (z *ZoneSim) hwFresh() bool {
 	return !z.HwTempAt.IsZero() && time.Since(z.HwTempAt) < hwStaleAfter
 }
 
+// humFresh / co2Fresh report whether a physical sensor is measuring that quantity right
+// now. Both are per-field rather than per-node: one sensor on a shared I2C bus can fail
+// while its neighbour keeps reporting, and a stale value presented as measured is exactly
+// the fabrication the edge firmware goes out of its way to avoid.
+func (z *ZoneSim) humFresh() bool {
+	return !z.HwHumAt.IsZero() && time.Since(z.HwHumAt) < hwStaleAfter
+}
+
+func (z *ZoneSim) co2Fresh() bool {
+	return !z.HwCo2At.IsZero() && time.Since(z.HwCo2At) < hwStaleAfter
+}
+
 // applyHardware pulls every hardware-bound zone's air temperature toward the physical
 // sensor reading — a fast exponential blend (~1 s at 30 FPS) rather than a hard jump,
 // so the dashboard never teleports. The thermal model keeps integrating underneath and
@@ -444,7 +465,10 @@ func (e *Engine) SetNodeStatus(topicSuffix string, online bool) {
 		z.HwOnline = online
 		delete(e.lastCmd, id)
 		if !online {
+			// The node is gone, so every sensor hanging off it is gone with it.
 			z.HwTempAt = time.Time{}
+			z.HwHumAt = time.Time{}
+			z.HwCo2At = time.Time{}
 		}
 	}
 }
@@ -501,6 +525,16 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 			continue
 		}
 		age := time.Since(z.HwSeenAt).Seconds()
+		// Report an environmental only while its own sensor is still reporting, so this
+		// endpoint agrees with the telemetry stream rather than showing a last-known value
+		// the dashboard has already dropped.
+		hum, co2 := 0.0, 0.0
+		if z.humFresh() {
+			hum = z.HwHum
+		}
+		if z.co2Fresh() {
+			co2 = z.HwCo2
+		}
 		out = append(out, HardwareNode{
 			ZoneId:     id,
 			Topic:      z.MqttTopic,
@@ -510,8 +544,8 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 			Occupancy:  z.Occupancy,
 			ZoneTemp:   z.Temp,
 			HwTemp:     z.HwTemp,
-			Humidity:   z.HwHum,
-			Co2:        z.HwCo2,
+			Humidity:   hum,
+			Co2:        co2,
 			LightsOn:   z.LightsOn,
 			Setpoint:   z.Setpoint,
 			AgeSec:     age,
@@ -833,7 +867,7 @@ func (e *Engine) broadcast() {
 			var co2Sum float64
 			var co2N int
 			for _, z := range e.Zones {
-				if z.HwCo2 > 0 && !z.HwSeenAt.IsZero() && time.Since(z.HwSeenAt) < hwStaleAfter {
+				if z.HwCo2 > 0 && z.co2Fresh() {
 					co2Sum += z.HwCo2
 					co2N++
 				}
@@ -845,15 +879,13 @@ func (e *Engine) broadcast() {
 			for id, z := range e.Zones {
 				e.Persist(id, "temp", z.Temp)
 				e.Persist(id, "occupancy", float64(z.Occupancy))
-				// Environmentals from a live physical node (humidity %, CO2 ppm) get
-				// their own history series while the node's telemetry is fresh.
-				if !z.HwSeenAt.IsZero() && time.Since(z.HwSeenAt) < hwStaleAfter {
-					if z.HwHum > 0 {
-						e.Persist(id, "humidity", z.HwHum)
-					}
-					if z.HwCo2 > 0 {
-						e.Persist(id, "co2", z.HwCo2)
-					}
+				// Environmentals from a live physical sensor (humidity %, CO2 ppm) get
+				// their own history series, each gated on its own sensor still reporting.
+				if z.HwHum > 0 && z.humFresh() {
+					e.Persist(id, "humidity", z.HwHum)
+				}
+				if z.HwCo2 > 0 && z.co2Fresh() {
+					e.Persist(id, "co2", z.HwCo2)
 				}
 			}
 		}
@@ -884,8 +916,11 @@ func (e *Engine) broadcast() {
 				// dropped off must stop reporting rather than pin its last reading there
 				// forever, so zero always means "nothing is measuring this right now".
 				var hwHum, hwCo2 float32
-				if !z.HwSeenAt.IsZero() && time.Since(z.HwSeenAt) < hwStaleAfter {
-					hwHum, hwCo2 = float32(z.HwHum), float32(z.HwCo2)
+				if z.humFresh() {
+					hwHum = float32(z.HwHum)
+				}
+				if z.co2Fresh() {
+					hwCo2 = float32(z.HwCo2)
 				}
 				Telemetry.ZoneDataAddHumidity(builder, hwHum)
 				Telemetry.ZoneDataAddCo2(builder, hwCo2)

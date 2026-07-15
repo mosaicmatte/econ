@@ -364,3 +364,87 @@ func TestSetZoneOccupancyCompat(t *testing.T) {
 			z.HwSource, z.hwFresh())
 	}
 }
+
+// A single sensor failing must retire only its own field. The SHT30 and the NDIR share
+// one I2C bus: the CO2 sensor can start failing its CRC, or be unplugged, while the
+// SHT30 keeps answering. The firmware then omits only the co2 field. Gating both
+// environmentals on "the node said something recently" would keep re-publishing the last
+// CO2 reading as measured for as long as the board still reported temperature.
+func TestFailedSensorRetiresOnlyItsOwnField(t *testing.T) {
+	e := newTestEngine()
+
+	// Node reports everything: temperature, humidity and CO2 are all live.
+	e.IngestTelemetry("Level 4", "zone_1", Measurement{
+		Temp: fp(26.5), TempReal: true, Humidity: fp(63.5), Co2: fp(842),
+		Occupancy: ip(3), Source: "esp32",
+	})
+
+	var z *ZoneSim
+	for _, zs := range e.Zones {
+		if zs.MqttTopic == "zone_1" {
+			z = zs
+		}
+	}
+	if z == nil {
+		t.Fatal("node never bound to a zone")
+	}
+	if !z.hwFresh() || !z.humFresh() || !z.co2Fresh() {
+		t.Fatalf("all three should be fresh; got temp=%v hum=%v co2=%v",
+			z.hwFresh(), z.humFresh(), z.co2Fresh())
+	}
+
+	// The NDIR drops out. The board keeps publishing temperature and humidity, so the
+	// node itself stays live — only the co2 field stops arriving.
+	z.HwCo2At = time.Now().Add(-(hwStaleAfter + time.Second))
+	e.IngestTelemetry("Level 4", "zone_1", Measurement{
+		Temp: fp(26.6), TempReal: true, Humidity: fp(63.7),
+		Occupancy: ip(3), Source: "esp32",
+	})
+
+	if !z.hwFresh() || !z.humFresh() {
+		t.Errorf("working sensors must stay fresh; temp=%v hum=%v", z.hwFresh(), z.humFresh())
+	}
+	if z.co2Fresh() {
+		t.Error("a CO2 sensor that stopped reporting is still being treated as measured")
+	}
+	if z.HwCo2 != 842 {
+		t.Errorf("last value may be retained internally, got %v", z.HwCo2)
+	}
+
+	// The API must not hand out the stale reading either: 0 means "nothing is measuring
+	// this right now", which is what the dashboard keys "measured" vs "modelled" off.
+	var node *HardwareNode
+	for i, n := range e.HardwareStatus() {
+		if n.Topic == "zone_1" {
+			node = &e.HardwareStatus()[i]
+		}
+	}
+	if node == nil {
+		t.Fatal("node missing from HardwareStatus")
+	}
+	if node.Co2 != 0 {
+		t.Errorf("HardwareStatus leaked a stale CO2 reading: %v", node.Co2)
+	}
+	if node.Humidity != 63.7 {
+		t.Errorf("HardwareStatus dropped a live humidity reading: %v", node.Humidity)
+	}
+}
+
+// Losing the node must retire every sensor hanging off it, not just the temperature.
+func TestOfflineNodeRetiresAllEnvironmentals(t *testing.T) {
+	e := newTestEngine()
+	e.IngestTelemetry("Level 4", "zone_1", Measurement{
+		Temp: fp(26.5), TempReal: true, Humidity: fp(63.5), Co2: fp(842), Source: "esp32",
+	})
+	e.SetNodeStatus("zone_1", false)
+
+	for _, z := range e.Zones {
+		if z.MqttTopic != "zone_1" {
+			continue
+		}
+		if z.hwFresh() || z.humFresh() || z.co2Fresh() {
+			t.Errorf("offline node still reports fresh sensors: temp=%v hum=%v co2=%v",
+				z.hwFresh(), z.humFresh(), z.co2Fresh())
+		}
+	}
+}
