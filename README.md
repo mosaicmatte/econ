@@ -6,6 +6,26 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-15 — Measured data end to end, and a profiler that says something
+>
+> **The twin now reports what it measures, and admits what it doesn't.** The edge firmware
+> stopped inventing readings: sensors are enabled independently (`USE_DHT` / `USE_PIR` /
+> `USE_CO2`), and a sensor that is absent or fails its read omits its field entirely instead of
+> substituting a plausible constant — a failed DHT22 read used to publish 24.0 °C flagged
+> `tempReal:true`, pinning a zone's physics *and* its AFDD residual to a number no sensor ever
+> saw. Real CO₂ arrives over MH-Z19B NDIR (checksum + range validated), the Pico gained an
+> optional DHT22 that outranks its own die sensor, and measured humidity/CO₂ now ride the main
+> FlatBuffers stream — freshness-gated, so a board that drops off stops reporting rather than
+> pinning its last reading there forever. Building CO₂ prefers real sensors over the occupancy
+> estimate, which had been plotting 5477 ppm — an occupational exposure limit, not an office.
+> System health now charges for zones in alarm: averaging comfort across 1350 zones reduced one
+> server room at 50 °C to 99.93%, so the dashboard cheerfully reported *HEALTH 100%* beside its
+> own critical-fault banner. And the profiler's "OFFICE DCV" scatter — 300 `Math.random()` points
+> labelled *Historical Baseline*, plotted against invented CO₂ — is gone, replaced by zone cooling
+> load against drift from setpoint, where overcooled, starved and struggling zones are each a
+> quadrant with a count and a cost in đồng. Zone cost rates are priced at the live EVN band
+> instead of a leftover `$0.12/kWh`, and System Logs folded into Diagnostics.
+>
 > ### 2026-07-15 — Live time-of-day sky, shared by mobile and desktop
 >
 > **The twin now sits under the same sky as the building it models.** The static night
@@ -223,6 +243,24 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 > `go`/`flatc`) · [`ai_modules/branch_b_digitization/LAYOUT_SCHEMA.md`](ai_modules/branch_b_digitization/LAYOUT_SCHEMA.md)
 > (the building-data schema + DeepFloorplan ingestion) · [`edge/raspberry_pi/README.md`](edge/raspberry_pi/README.md)
 > (broker + failsafe setup).
+
+## 🧭 Not Yet Implemented
+
+An honest ledger of what ECON does **not** do today, kept here so the claims above stay
+falsifiable. Nothing in this list is wired up, however plausible it may sound in a pitch deck.
+
+| Gap | Reality today | Why it matters |
+| --- | --- | --- |
+| **Live outdoor temperature in the physics** | `engine.go` integrates a genuine 2R1C envelope, but drives it from a fixed `tOutside = 30.0 °C` design-day constant. | The LSTM (§4.3) already consumes live $T\_{\text{out}}$/RH from Open-Meteo; the *physics* does not. Any "weather-aware envelope" claim is not yet true. |
+| **Irradiance-driven solar gain** | `qSolar = SolarGainMult × 10 kW`, a static per-zone constant. | No time-of-day or cloud response; a west façade behaves identically at 08:00 and 16:00. |
+| **On-site solar PV / generation** | No model of any kind. | Any "uses excess daytime solar" claim is unsupported. |
+| **BESS degradation / state-of-health** | SoC integrates against real capacity and inverter limits, bounded 5–98%. No cycle ageing, no round-trip loss. | Payback maths that assumes a battery never degrades is optimistic. |
+| **Tariff-clock pre-cooling & peak setback** | Pre-cooling fires when the LSTM's predicted peak crosses `PRECOOL_TRIGGER_MW`. Setback is vacancy-driven only. | There is no scheduled 15:00–17:00 charge, and no partial-hibernation setback across the 17:30–22:30 peak. |
+| **Plug-load visibility or control** | Not sensed, not actuated. | Plug loads are the single largest end use (26.4%) in the Hanoi case study. ECON kills the *lighting and cooling* around an empty desk — it never sees the desk's own draw. |
+| **CO₂-based demand-controlled ventilation** | Real CO₂ is now ingested and streamed, but no ventilation loop acts on it. | The measurement exists; the control does not. DCV is not a code requirement under QCVN 09:2017 anyway, which is exactly why it is an opportunity. |
+| **EUI benchmarking (kWh/m²·yr)** | Floor area is never used; EUI is never computed. | Without it ECON cannot benchmark against the 105.9 (Hanoi) / 116.4 (HCMC) figures it cites. |
+| **Operational carbon (CO₂e)** | No grid emission factor, no carbon reporting. | ESG reporting is a named market driver, and Vietnam's grid is >60% fossil — a large multiplier ECON currently ignores. |
+| **Two-part tariff / capacity charge** | Energy-only pricing. | Correct for commercial *kinh doanh* sites today; the manufacturing pilot began 1 Jul 2026 and commercial follows ~2028–2030. |
 
 ## 🚀 Development Process & Architecture
 
@@ -714,7 +752,18 @@ $$
 \frac{dT_{\text{wall}}}{dt} = \frac{1}{C_{\text{wall}}} \left[ \frac{T_{\text{out}} - T_{\text{wall}}}{R_{\text{out}}} - \frac{T_{\text{wall}} - T_{\text{air}}}{R_{\text{in}}} \right]
 $$
 
-where $\dot{q}\_{\text{int}}$ is the aggregate internal heat load (occupants + equipment + solar gain) and $\dot{q}\_{\text{cool}}$ is the active sensible cooling delivered by the VAV terminal unit (§6.2). Collecting the state $\mathbf{T} = [\,T\_{\text{air}},\, T\_{\text{wall}}\,]^{\top}$, this is a linear state-space system $\dot{\mathbf{T}} = \mathbf{A}\mathbf{T} + \mathbf{b}$ with
+where $\dot{q}\_{\text{int}}$ is the aggregate internal heat load (occupants + equipment + solar gain) and $\dot{q}\_{\text{cool}}$ is the active sensible cooling delivered by the VAV terminal unit (§6.2).
+
+> **Implementation note — the boundary condition is not yet live.** $T\_{\text{out}}$ is currently a
+> fixed design-day constant ($30\,^{\circ}\mathrm{C}$) in `engine.go`, and the solar term is a static
+> per-zone multiplier rather than an irradiance signal. The envelope dynamics above are therefore
+> exercised at a *representative* boundary, not a measured one. This is an asymmetry worth stating
+> plainly: the LSTM of §4.3 already consumes live $T\_{\text{out}}$ and $\mathrm{RH}\_{\text{out}}$ from
+> the weather service, while the physics it forecasts against does not. Closing that loop — feeding the
+> same measured boundary into $R\_{\text{out}}$ — is the single highest-value item in the roadmap, and
+> until it lands, claims of a weather-driven envelope are not supported by this implementation.
+
+Collecting the state $\mathbf{T} = [\,T\_{\text{air}},\, T\_{\text{wall}}\,]^{\top}$, this is a linear state-space system $\dot{\mathbf{T}} = \mathbf{A}\mathbf{T} + \mathbf{b}$ with
 
 $$
 \mathbf{A} =
@@ -852,7 +901,36 @@ ECON merges physical 3D space, logical 2D topology, and a first-principles therm
 3. **A layout-constrained, volumetric potential-flow airflow field** (§4.4) — masked Poisson solve with exact no-flux walls and balanced supply/return sources — that visualizes HVAC circulation which respects the real floor geometry, driven directly by the Branch B digitization output.
 4. **An end-to-end occupancy loop**: edge CV (YOLOv11 + ByteTrack) → MQTT → Go optimizer → ESP32 actuation, with an LSTM peak-load forecaster wired in over `GET /api/forecast`.
 
-By proving that a complex WebGL twin can run on mobile GPUs through aggressive geometry culling, and by computing every dashboard figure from real engine state rather than fabricated constants, ECON extends the Digital Twin beyond the stationary control room. Real-world field testing of occupancy-presence sensing has validated up to **17.6%** HVAC energy savings (Bai et al., 2023; Chen et al., 2020); ECON provides a scalable, reinforcement-learning-driven pathway to those high-yield 10–20% ESG energy-reduction targets without compromising occupant comfort.
+By proving that a complex WebGL twin can run on mobile GPUs through aggressive geometry culling, and by deriving its dashboard figures from streamed engine state — measured wherever a sensor is bound, and labelled *modelled* wherever one is not — ECON extends the Digital Twin beyond the stationary control room. Real-world field testing of occupancy-presence sensing has validated up to **17.6%** HVAC energy savings (Bai et al., 2023; Chen et al., 2020); ECON provides a scalable, reinforcement-learning-driven pathway to those high-yield 10–20% ESG energy-reduction targets without compromising occupant comfort.
+
+### 7.1 Limitations & Roadmap
+
+Stating the boundary of the claim is part of the claim. ECON's envelope, plant, airflow and
+tariff models are first-principles and its measured quantities are genuinely measured, but the
+following are **not implemented**, and the system should not be described as if they were:
+
+1. **The envelope boundary condition is synthetic** (§6.1). $T\_{\text{out}}$ is a fixed
+   $30\,^{\circ}\mathrm{C}$ constant and solar gain a static multiplier, so the 2R1C is exercised at a
+   representative rather than a measured boundary. The weather feed already exists for §4.3;
+   wiring it into $R\_{\text{out}}$ is the highest-value next step and would make a
+   weather-driven-envelope claim true.
+2. **Load shifting is forecast-triggered, not tariff-scheduled.** Pre-cooling opens when the
+   predicted peak crosses a threshold; there is no scheduled charge ahead of the 17:30 EVN peak
+   and no partial-hibernation setback across it. Setback remains vacancy-driven.
+3. **No generation or storage-ageing model.** There is no on-site PV, and the BESS integrates SoC
+   against real capacity and inverter limits without cycle degradation or round-trip loss — so
+   arbitrage returns are an upper bound.
+4. **Plug loads are invisible.** The Hanoi case study attributes the largest single share of
+   consumption (26.4%) to plug loads; ECON senses and actuates the *lighting and cooling* that
+   surround an unoccupied desk, but never the desk's own draw. The saving is on the coupled
+   HVAC/lighting load, not on the plug load itself, and should be quantified as such.
+5. **Measured CO₂ drives no control loop.** NDIR readings are ingested, streamed and persisted,
+   but demand-controlled ventilation is not implemented — the sensing precedes the actuation.
+6. **Neither headline metric of the cited literature is computed.** ECON reports neither energy
+   use intensity (kWh/m²·yr) — the metric of the 57-building survey it benchmarks against — nor
+   operational carbon, the subject of the Hanoi case study. Both are cheap to add on top of the
+   existing load stream and floor-area data, and both are what a Vietnamese ESG reviewer will
+   actually ask for.
 
 ---
 
