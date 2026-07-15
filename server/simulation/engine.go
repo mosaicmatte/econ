@@ -747,8 +747,12 @@ func (e *Engine) broadcast() {
 		strainSum := 0.0       // sum of how far zones sit above setpoint (drives plant COP)
 		savedLightingW := 0.0  // lighting cut on vacant (set-back) zones
 		savedThermalW := 0.0   // cooling demand avoided on vacant (set-back) zones
+		alarmCount := 0        // zones far enough past the band to be a genuine alarm
 		// Half-comfort point: a zone this many °C *beyond* its deadband scores 0.5 comfort.
 		const sigmaComfort2 = 2.5 * 2.5
+		// °C past the deadband before a zone is "critical". Matches the dashboard's own
+		// CRITICAL_MARGIN so the health number and the red banner never disagree.
+		const criticalMargin = 5.0
 		for id, z := range e.Zones {
 			qSolar := z.SolarGainMult * 10000.0
 			qi := z.BaseHeatGain + float64(z.Occupancy)*100.0 + qSolar
@@ -768,6 +772,11 @@ func (e *Engine) broadcast() {
 			// instead of the old binary in-band / out-of-band flag.
 			excess := math.Max(0, math.Abs(z.Temp-sp)-z.Deadband)
 			comfortSum += 1.0 / (1.0 + (excess*excess)/sigmaComfort2)
+			// A zone this far past its deadband is an alarm, not a drift — counted so health
+			// below can charge for it (see the averaging problem there).
+			if z.Temp > sp+z.Deadband+criticalMargin {
+				alarmCount++
+			}
 			// Occupancy-driven savings: a live zone in setback (lights off) avoids its
 			// lighting load and a chunk of its internal-gain cooling.
 			if z.Live && z.Setpoint > z.BaseSetpoint+0.01 {
@@ -795,10 +804,16 @@ func (e *Engine) broadcast() {
 		bessSocPct := e.Bess.Soc * 100.0
 
 		// System health = mean per-zone comfort (severity-weighted), per the report's discomfort
-		// model. Bounded [0,100]; the discrete "active critical faults" count handles alarms.
+		// model, minus a charge for zones actually in alarm. The mean alone is misleading at
+		// this scale: one server room cooking at 50 C across 1350 zones averages to 99.93%, so
+		// the dashboard cheerfully reported "HEALTH 100%" directly beside its own CRITICAL FAULT
+		// banner. Alarms are rare and serious, so each one moves the number an operator watches.
 		systemHealth := 100.0
 		if len(e.Zones) > 0 {
 			systemHealth = 100.0 * comfortSum / float64(len(e.Zones))
+		}
+		if alarmCount > 0 {
+			systemHealth = math.Max(0, systemHealth-math.Min(45.0, 12.0*float64(alarmCount)))
 		}
 
 		// [GEMINI IMPLEMENTATION START]
@@ -810,7 +825,22 @@ func (e *Engine) broadcast() {
 			e.Persist("GLOBAL", "buildingLoadMw", buildingLoadMW)
 			e.Persist("GLOBAL", "coolingOutputMw", coolingOutputMW)
 			e.Persist("GLOBAL", "systemHealth", systemHealth)
+			// Building CO2 prefers reality: average whatever fresh NDIR sensors are actually
+			// reporting, and only fall back to the occupancy-derived estimate when nothing is
+			// measuring it. Otherwise a real sensor could sit at 900 ppm while the graph
+			// serenely plotted a modelled 450.
 			avgCo2 := 400.0 + float64(totalOccupants)*0.85
+			var co2Sum float64
+			var co2N int
+			for _, z := range e.Zones {
+				if z.HwCo2 > 0 && !z.HwSeenAt.IsZero() && time.Since(z.HwSeenAt) < hwStaleAfter {
+					co2Sum += z.HwCo2
+					co2N++
+				}
+			}
+			if co2N > 0 {
+				avgCo2 = co2Sum / float64(co2N)
+			}
 			e.Persist("GLOBAL", "avgCo2", avgCo2)
 			for id, z := range e.Zones {
 				e.Persist(id, "temp", z.Temp)
@@ -848,6 +878,17 @@ func (e *Engine) broadcast() {
 				Telemetry.ZoneDataAddOccupants(builder, int32(z.Occupancy))
 				Telemetry.ZoneDataAddLoad(builder, float32(z.BaseHeatGain/1000.0))
 				Telemetry.ZoneDataAddLightsOn(builder, z.LightsOn)
+				// Measured air quality rides the main stream so the dashboard reads a bound
+				// sensor's real humidity/CO2 straight from the telemetry it already consumes,
+				// instead of a side poll. Gated on the node still being fresh: a board that
+				// dropped off must stop reporting rather than pin its last reading there
+				// forever, so zero always means "nothing is measuring this right now".
+				var hwHum, hwCo2 float32
+				if !z.HwSeenAt.IsZero() && time.Since(z.HwSeenAt) < hwStaleAfter {
+					hwHum, hwCo2 = float32(z.HwHum), float32(z.HwCo2)
+				}
+				Telemetry.ZoneDataAddHumidity(builder, hwHum)
+				Telemetry.ZoneDataAddCo2(builder, hwCo2)
 				zoneOffsets = append(zoneOffsets, Telemetry.ZoneDataEnd(builder))
 			}
 		}

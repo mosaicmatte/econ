@@ -97,8 +97,32 @@ func (rcv *ZoneData) MutateLightsOn(n bool) bool {
 	return rcv._tab.MutateBoolSlot(12, n)
 }
 
+func (rcv *ZoneData) Humidity() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *ZoneData) MutateHumidity(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(14, n)
+}
+
+func (rcv *ZoneData) Co2() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(16))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *ZoneData) MutateCo2(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(16, n)
+}
+
 func ZoneDataStart(builder *flatbuffers.Builder) {
-	builder.StartObject(5)
+	builder.StartObject(7)
 }
 func ZoneDataAddId(builder *flatbuffers.Builder, id flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(id), 0)
@@ -114,6 +138,12 @@ func ZoneDataAddLoad(builder *flatbuffers.Builder, load float32) {
 }
 func ZoneDataAddLightsOn(builder *flatbuffers.Builder, lightsOn bool) {
 	builder.PrependBoolSlot(4, lightsOn, true)
+}
+func ZoneDataAddHumidity(builder *flatbuffers.Builder, humidity float32) {
+	builder.PrependFloat32Slot(5, humidity, 0.0)
+}
+func ZoneDataAddCo2(builder *flatbuffers.Builder, co2 float32) {
+	builder.PrependFloat32Slot(6, co2, 0.0)
 }
 func ZoneDataEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

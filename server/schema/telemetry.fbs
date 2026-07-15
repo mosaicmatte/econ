@@ -6,6 +6,8 @@ table ZoneData {
   occupants: int;
   load: float;
   lightsOn: bool = true;  // appended field (backward-compatible); actuated lighting state
+  humidity: float = 0;    // appended: measured %RH from a bound sensor (0 = none reporting)
+  co2: float = 0;         // appended: measured ppm from a bound NDIR sensor (0 = none)
 }
 
 table VavData {
