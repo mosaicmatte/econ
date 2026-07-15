@@ -309,8 +309,16 @@ void readAndPublish() {
   if (!isnan(h)) { doc["humidity"]    = round(h * 10) / 10.0; }
   if (isnan(t)) Serial.println("[dht] temperature read failed -> omitted (engine keeps modelling)");
 #else
+  // Demo build with no temp/humidity sensor. The placeholder temperature is published
+  // ONLY because tempReal:false travels with it — the engine sees the flag and models the
+  // zone itself rather than pinning physics to the number.
+  //
+  // Humidity gets no such flag, and there is no humidityReal in the protocol, so a
+  // simulated value here would arrive indistinguishable from a real one: the engine would
+  // store it, stream it, and the dashboard would label it "Humidity (measured)". Omit it.
+  // Absent is not zero — mqtt.go uses pointer fields precisely so this reads as
+  // "no sensor is measuring humidity" rather than "the air is 0% RH".
   doc["temperature"] = round((22.0 + random(0, 40) / 10.0) * 10) / 10.0;  // simulated
-  doc["humidity"]    = 40.0 + random(0, 20);                              // simulated
 #endif
   doc["tempReal"] = tempReal;  // only a genuine measurement may pin zone physics
 
@@ -331,7 +339,10 @@ void readAndPublish() {
   if (readCo2(ppm)) doc["co2"] = ppm;
   else Serial.println("[co2] ACD1200 read/CRC failed -> omitted");
 #else
-  doc["co2"] = 400 + occupancy * 120 + random(0, 60);  // simulated
+  // No NDIR fitted: omit, for the same reason as humidity above. A number derived from
+  // occupancy is a model output, and publishing it over the sensor channel would launder
+  // it into "CO2 (measured)" on both dashboards. The engine already estimates CO2 from
+  // occupancy itself — that estimate belongs there, where it is labelled as one.
 #endif
 
   doc["lights"]      = lightsOn ? "ON" : "OFF";
