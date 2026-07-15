@@ -27,6 +27,7 @@ ZONE_LABEL = "Pico Lab"      # human label sent as "zone"
 PUBLISH_S = 2                # telemetry period
 OCCUPIED_COUNT = 2           # people reported while presence is toggled on
 TEMP_OFFSET_C = 4.0          # RP2040 die runs ~4 C above ambient; subtracted out
+DHT_PIN = 15                 # wire a DHT22 here for real ambient temp+humidity; None = off
 WIFI_SSID = ""               # Pico W only; empty => serial mode
 WIFI_PASS = ""
 MQTT_HOST = "192.168.1.100"  # broker LAN IP (Pico W mode only)
@@ -34,6 +35,34 @@ MQTT_PORT = 1883
 
 # Hardware setup
 adc_temp = machine.ADC(4)
+
+# Optional DHT22 on DHT_PIN. The RP2040's internal sensor measures its own die, not the
+# room — TEMP_OFFSET_C is only a crude correction — so a wired DHT22 is a genuinely
+# better source and takes precedence when it reads. Absent or failing, we simply fall
+# back and report the die estimate as NOT real, so the engine models the zone instead of
+# pinning its physics to a fudged number.
+dht_sensor = None
+if DHT_PIN is not None:
+    try:
+        import dht
+        dht_sensor = dht.DHT22(machine.Pin(DHT_PIN))
+    except Exception as e:
+        print("# dht22 unavailable on GP%s (%s); using die temp" % (DHT_PIN, e))
+        dht_sensor = None
+
+
+def read_dht():
+    """Return (temp_c, humidity) from the DHT22, or (None, None) if it did not read.
+
+    DHT22s drop reads routinely; a failure must yield nothing rather than a stand-in.
+    """
+    if dht_sensor is None:
+        return None, None
+    try:
+        dht_sensor.measure()
+        return dht_sensor.temperature(), dht_sensor.humidity()
+    except Exception:
+        return None, None
 
 try:
     led = machine.Pin("LED", machine.Pin.OUT)
@@ -125,15 +154,25 @@ def handle_command(cmd_str):
                 pass
 
 def telemetry():
-    return {
+    payload = {
         "zone": ZONE_LABEL,
         "occupancy": OCCUPIED_COUNT if presence_active() else 0,
-        "temperature": round(get_temperature(), 1),
         "source": "pico",
-        "tempReal": True,
         "lights": "ON" if lights_state else "OFF",
-        "setpoint": setpoint
+        "setpoint": setpoint,
     }
+    # Both sources are genuine measurements, so both may pin the zone's physics: a wired
+    # DHT22 measures the room and wins when it reads; otherwise the RP2040 die sensor
+    # keeps the fingertip demo working (warm the chip, watch the zone follow).
+    t, h = read_dht()
+    if t is not None:
+        payload["temperature"] = round(t, 1)
+        if h is not None:
+            payload["humidity"] = round(h, 1)
+    else:
+        payload["temperature"] = round(get_temperature(), 1)
+    payload["tempReal"] = True
+    return payload
 
 def publish_serial():
     global last_pub_ms

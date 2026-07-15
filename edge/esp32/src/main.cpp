@@ -17,9 +17,9 @@
 // Sensors are simulated by default so the node runs on a bare ESP32, but presence is
 // REAL out of the box: USE_TOUCH_PRESENCE reads the ESP32's capacitive touch pin
 // (GPIO32) — pinch a jumper wire on it and the zone shows occupied on the dashboard.
-// Define USE_REAL_SENSORS=1 (and wire DHT22 + PIR) for fully measured readings.
-// Telemetry marks "tempReal" so the engine only pins zone physics to measured
-// temperatures, never to the simulated placeholders.
+// Wire real sensors by enabling them individually (USE_DHT / USE_PIR / USE_CO2), so a
+// board with only one of them still reports honestly. Telemetry marks "tempReal" so the
+// engine only pins zone physics to measured temperatures, never to placeholders.
 // -----------------------------------------------------------------------------
 
 #include <Arduino.h>
@@ -47,19 +47,87 @@ const int RELAY_PIN  = 23;  // lighting relay (active HIGH)
 const int IR_PIN     = 22;  // HVAC IR emitter (see applyHvacSetpoint)
 const int STATUS_LED = 2;   // onboard LED = MQTT link status
 
-#define USE_REAL_SENSORS 0
-#if USE_REAL_SENSORS
+// ---------------- SENSORS ----------------
+// Wire only what you actually have: each sensor is enabled independently, and NOTHING is
+// ever fabricated. A sensor that is absent or fails its read omits its field entirely and
+// the engine keeps modelling that quantity itself (mqtt.go uses pointer fields, so
+// "not reported" is distinct from a real zero). This matters — a DHT22 drops reads
+// routinely, and substituting a plausible-looking constant while still claiming
+// tempReal:true would pin the zone's physics, and its AFDD residual, to a number no
+// sensor ever measured.
+//
+// USE_REAL_SENSORS=1 remains supported as shorthand for "DHT + PIR" (older build_flags).
+#ifndef USE_REAL_SENSORS
+  #define USE_REAL_SENSORS 0
+#endif
+#ifndef USE_DHT
+  #define USE_DHT USE_REAL_SENSORS   // DHT22 -> measured temperature + humidity
+#endif
+#ifndef USE_PIR
+  #define USE_PIR USE_REAL_SENSORS   // PIR   -> measured presence
+#endif
+#ifndef USE_CO2
+  #define USE_CO2 0                  // MH-Z19B NDIR -> measured CO2 ppm
+#endif
+
+#if USE_DHT
   #include <DHT.h>
-  #define DHT_PIN 4
-  #define PIR_PIN 5
+  #ifndef DHT_PIN
+    #define DHT_PIN 4
+  #endif
   DHT dht(DHT_PIN, DHT22);
 #endif
 
-// Zero-wiring presence demo (ignored when USE_REAL_SENSORS=1): T9 = GPIO32 capacitive
+#if USE_PIR
+  #ifndef PIR_PIN
+    #define PIR_PIN 5
+  #endif
+  const int PIR_OCCUPANTS = 1;  // a PIR senses presence, not a headcount
+#endif
+
+#if USE_CO2
+  // MH-Z19B NDIR CO2 sensor on UART2 (9600 8N1). CO2_RX_PIN listens to the sensor's TX.
+  // Give it ~3 min after power-on to reach datasheet accuracy.
+  #ifndef CO2_RX_PIN
+    #define CO2_RX_PIN 16
+  #endif
+  #ifndef CO2_TX_PIN
+    #define CO2_TX_PIN 17
+  #endif
+  HardwareSerial co2Serial(2);
+
+  // Frame checksum per the MH-Z19 datasheet: 0xFF - sum(bytes 1..7) + 1.
+  uint8_t mhzChecksum(const uint8_t *p) {
+    uint8_t s = 0;
+    for (int i = 1; i < 8; i++) s += p[i];
+    return (uint8_t)(0xFF - s + 1);
+  }
+
+  // Reads gas concentration. Returns false when the sensor does not answer in time or the
+  // frame is corrupt — the caller then omits "co2" rather than inventing an air-quality
+  // reading the building never measured.
+  bool readCo2(int &ppm) {
+    static const uint8_t cmd[9] = {0xFF, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79};
+    while (co2Serial.available()) co2Serial.read();  // drop any stale bytes
+    co2Serial.write(cmd, 9);
+    uint8_t r[9];
+    int got = 0;
+    unsigned long t0 = millis();
+    while (got < 9 && millis() - t0 < 200) {
+      if (co2Serial.available()) r[got++] = co2Serial.read();
+    }
+    if (got != 9 || r[0] != 0xFF || r[1] != 0x86) return false;
+    if (r[8] != mhzChecksum(r)) return false;
+    ppm = r[2] * 256 + r[3];
+    return ppm > 0 && ppm < 10000;  // datasheet range sanity
+  }
+#endif
+
+// Zero-wiring presence demo (ignored when USE_PIR=1): T9 = GPIO32 capacitive
 // touch. Touching the bare pin (or a jumper wire in it) drops the reading well below
 // the boot-time baseline -> occupied. Publishes immediately on change for a snappy demo.
 #define USE_TOUCH_PRESENCE 1
-#if !USE_REAL_SENSORS && USE_TOUCH_PRESENCE
+#if !USE_PIR && USE_TOUCH_PRESENCE
   const int TOUCH_PIN = T9;      // GPIO32
   const int TOUCH_OCCUPANTS = 3; // headcount reported while touched
   int touchBaseline = 0;         // calibrated in setup()
@@ -145,36 +213,48 @@ void onMessage(char* topic, byte* payload, unsigned int len) {
 }
 
 // ---------------- TELEMETRY ----------------
+// Publishes only what was genuinely measured this cycle: any field whose sensor is absent
+// or failed its read is omitted, so the engine keeps modelling it rather than trusting an
+// invented number.
 void readAndPublish() {
-  float temperature, humidity;
-  int   occupancy, co2;
+  StaticJsonDocument<256> doc;
+  doc["zone"]   = ZONE_LABEL;
+  doc["source"] = "esp32";
 
-#if USE_REAL_SENSORS
-  temperature = dht.readTemperature();
-  humidity    = dht.readHumidity();
-  if (isnan(temperature)) temperature = 24.0;
-  if (isnan(humidity))    humidity    = 50.0;
-  occupancy = digitalRead(PIR_PIN) == HIGH ? 1 : 0;   // PIR = presence; swap for a counter for headcount
-  co2 = 400 + occupancy * 120;                         // approx until a real CO2 sensor is wired
+  // --- temperature + humidity ---
+  bool tempReal = false;
+#if USE_DHT
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+  if (!isnan(t)) { doc["temperature"] = round(t * 10) / 10.0; tempReal = true; }
+  if (!isnan(h)) { doc["humidity"]    = round(h * 10) / 10.0; }
+  if (isnan(t)) Serial.println("[dht] temperature read failed -> omitted (engine keeps modelling)");
 #else
-  temperature = 22.0 + (random(0, 40) / 10.0);
-  humidity    = 40.0 + random(0, 20);
-  #if USE_TOUCH_PRESENCE
-    occupancy = touchOccupied() ? TOUCH_OCCUPANTS : 0;  // real physical input
-  #else
-    occupancy = random(0, 6);
-  #endif
-  co2 = 400 + occupancy * 120 + random(0, 60);
+  doc["temperature"] = round((22.0 + random(0, 40) / 10.0) * 10) / 10.0;  // simulated
+  doc["humidity"]    = 40.0 + random(0, 20);                              // simulated
+#endif
+  doc["tempReal"] = tempReal;  // only a genuine measurement may pin zone physics
+
+  // --- occupancy ---
+  int occupancy;
+#if USE_PIR
+  occupancy = digitalRead(PIR_PIN) == HIGH ? PIR_OCCUPANTS : 0;
+#elif USE_TOUCH_PRESENCE
+  occupancy = touchOccupied() ? TOUCH_OCCUPANTS : 0;  // real physical input
+#else
+  occupancy = random(0, 6);
+#endif
+  doc["occupancy"] = occupancy;
+
+  // --- CO2 ---
+#if USE_CO2
+  int ppm;
+  if (readCo2(ppm)) doc["co2"] = ppm;
+  else Serial.println("[co2] MH-Z19 read failed -> omitted");
+#else
+  doc["co2"] = 400 + occupancy * 120 + random(0, 60);  // simulated
 #endif
 
-  StaticJsonDocument<256> doc;
-  doc["zone"]        = ZONE_LABEL;
-  doc["occupancy"]   = occupancy;
-  doc["temperature"] = round(temperature * 10) / 10.0;
-  doc["humidity"]    = round(humidity * 10) / 10.0;
-  doc["co2"]         = co2;
-  doc["source"]      = "esp32";
-  doc["tempReal"]    = USE_REAL_SENSORS ? true : false; // only measured temps may pin physics
   doc["lights"]      = lightsOn ? "ON" : "OFF";
   doc["setpoint"]    = hvacSetpointC;
 
@@ -207,10 +287,20 @@ void setup() {
   pinMode(IR_PIN, OUTPUT);
   pinMode(STATUS_LED, OUTPUT);
   setLights(true);
-#if USE_REAL_SENSORS
+#if USE_DHT
   dht.begin();
+  Serial.printf("[dht] DHT22 on GPIO%d\n", DHT_PIN);
+#endif
+#if USE_PIR
   pinMode(PIR_PIN, INPUT);
-#elif USE_TOUCH_PRESENCE
+  Serial.printf("[pir] presence on GPIO%d\n", PIR_PIN);
+#endif
+#if USE_CO2
+  co2Serial.begin(9600, SERIAL_8N1, CO2_RX_PIN, CO2_TX_PIN);
+  Serial.printf("[co2] MH-Z19 on UART2 rx=GPIO%d tx=GPIO%d (~3 min warm-up for rated accuracy)\n",
+                CO2_RX_PIN, CO2_TX_PIN);
+#endif
+#if !USE_PIR && USE_TOUCH_PRESENCE
   // Calibrate the untouched touch level; a touch reads far below this baseline.
   long acc = 0;
   for (int i = 0; i < 16; i++) { acc += touchRead(TOUCH_PIN); delay(10); }
@@ -240,7 +330,7 @@ void loop() {
   } else {
     client.loop();
     unsigned long now = millis();
-#if !USE_REAL_SENSORS && USE_TOUCH_PRESENCE
+#if !USE_PIR && USE_TOUCH_PRESENCE
     // Publish instantly when presence flips so the dashboard reacts in <0.2 s
     // instead of waiting out the periodic interval.
     static unsigned long lastTouchPoll = 0;
