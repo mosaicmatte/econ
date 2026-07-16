@@ -6,7 +6,35 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
-> ### 2026-07-15 — EUI and operational carbon, and what they revealed
+> ### 2026-07-16 — The envelope gets real weather, and the sensor path stops lying
+>
+> **The 2R1C physics now integrates against live outdoor temperature.** A poller feeds
+> Open-Meteo's current conditions (the same keyless service the sky and the LSTM already
+> use) into the envelope every 10 minutes; `/api/weather` reports what the physics is using
+> and whether it is live or the 30 °C design-day fallback, which now only appears while the
+> feed is genuinely down — same freshness contract as the zone sensors. Verified end-to-end:
+> the running engine picked up 27.4 °C against Open-Meteo's own 27.3 (one refresh apart).
+> The §6.1 implementation note and the Not-Yet-Implemented table were corrected to match;
+> the solar term remains a static multiplier and stays on that list.
+>
+> **A run of honesty bugs in the measured-data path are fixed.** Humidity and CO₂ now retire
+> per *sensor*, not per node — previously an unplugged NDIR kept streaming its last reading
+> as "measured" for as long as the board still sent temperature (regression-tested both
+> ways). The mobile zone sheet showed an occupancy-derived CO₂ estimate even when a real
+> sensor was bound, labelled identically to a measurement — it now prefers the sensor and
+> says which is on screen. Worst of the lot: a no-sensor demo build published `random()`
+> humidity and CO₂ over the same channel real sensors use, and both dashboards labelled
+> them measured; those fields are now omitted, exactly as a failed read already was. The
+> HVAC IR emitter also moved off GPIO22 — the I²C clock — where every setpoint command
+> was corrupting the bus; the collision is now a compile error.
+>
+> **The edge node grew office-grade presence and 24/7 CO₂ discipline.** `-DUSE_MMWAVE=1`
+> reads an HLK-LD2410C radar on GPIO18 (detects a *stationary* person, which a PIR cannot;
+> OR-ed with the PIR when both are fitted), and `-DCO2_ABC_OFF=1` switches the ACD1200 to
+> manual calibration at boot with a read-back confirm — in a continuously occupied space
+> the factory auto-calibration re-zeroes weekly against a baseline the room never gives it,
+> silently under-reporting forever after. All datasheet CRC vectors validate; six build
+> permutations compile.
 >
 > **ECON now reports the two metrics the Vietnamese literature it cites is actually about.**
 > Energy use intensity is computed over the building's own geometry — 42,037 m², summed by
@@ -266,8 +294,7 @@ falsifiable. Nothing in this list is wired up, however plausible it may sound in
 
 | Gap | Reality today | Why it matters |
 | --- | --- | --- |
-| **Live outdoor temperature in the physics** | `engine.go` integrates a genuine 2R1C envelope, but drives it from a fixed `tOutside = 30.0 °C` design-day constant. | The LSTM (§4.3) already consumes live $T\_{\text{out}}$/RH from Open-Meteo; the *physics* does not. Any "weather-aware envelope" claim is not yet true. |
-| **Irradiance-driven solar gain** | `qSolar = SolarGainMult × 10 kW`, a static per-zone constant. | No time-of-day or cloud response; a west façade behaves identically at 08:00 and 16:00. |
+| **Irradiance-driven solar gain** | `qSolar = SolarGainMult × 10 kW`, a static per-zone constant. | No time-of-day or cloud response; a west façade behaves identically at 08:00 and 16:00. (Outdoor *temperature* is no longer on this list: the envelope integrates against live Open-Meteo data, `/api/weather` shows what it is using, and it falls back to the 30 °C design-day constant only while the feed is down.) |
 | **On-site solar PV / generation** | No model of any kind. | Any "uses excess daytime solar" claim is unsupported. |
 | **BESS degradation / state-of-health** | SoC integrates against real capacity and inverter limits, bounded 5–98%. No cycle ageing, no round-trip loss. | Payback maths that assumes a battery never degrades is optimistic. |
 | **Tariff-clock pre-cooling & peak setback** | Pre-cooling fires when the LSTM's predicted peak crosses `PRECOOL_TRIGGER_MW`. Setback is vacancy-driven only. | There is no scheduled 15:00–17:00 charge, and no partial-hibernation setback across the 17:30–22:30 peak. |
@@ -768,14 +795,15 @@ $$
 
 where $\dot{q}\_{\text{int}}$ is the aggregate internal heat load (occupants + equipment + solar gain) and $\dot{q}\_{\text{cool}}$ is the active sensible cooling delivered by the VAV terminal unit (§6.2).
 
-> **Implementation note — the boundary condition is not yet live.** $T\_{\text{out}}$ is currently a
-> fixed design-day constant ($30\,^{\circ}\mathrm{C}$) in `engine.go`, and the solar term is a static
-> per-zone multiplier rather than an irradiance signal. The envelope dynamics above are therefore
-> exercised at a *representative* boundary, not a measured one. This is an asymmetry worth stating
-> plainly: the LSTM of §4.3 already consumes live $T\_{\text{out}}$ and $\mathrm{RH}\_{\text{out}}$ from
-> the weather service, while the physics it forecasts against does not. Closing that loop — feeding the
-> same measured boundary into $R\_{\text{out}}$ — is the single highest-value item in the roadmap, and
-> until it lands, claims of a weather-driven envelope are not supported by this implementation.
+> **Implementation note — the thermal boundary is live; the solar term is not.**
+> $T\_{\text{out}}$ is fed from the same Open-Meteo service the LSTM of §4.3 consumes: a poller
+> refreshes it every 10 minutes and the envelope integrates against the measured value, so the
+> physics and the forecaster now share one boundary condition. The freshness contract matches the
+> zone sensors': a reading older than three hours stops driving $R\_{\text{out}}$ and the model
+> falls back to the $30\,^{\circ}\mathrm{C}$ design-day constant — degraded, and *reported* as
+> degraded via `/api/weather` (`live: false`) rather than silently. The remaining asymmetry is
+> solar: $\dot{q}\_{\text{solar}}$ is still a static per-zone multiplier, not an irradiance
+> signal, so "weather-driven" here means the conduction path, not the radiation path.
 
 Collecting the state $\mathbf{T} = [\,T\_{\text{air}},\, T\_{\text{wall}}\,]^{\top}$, this is a linear state-space system $\dot{\mathbf{T}} = \mathbf{A}\mathbf{T} + \mathbf{b}$ with
 
