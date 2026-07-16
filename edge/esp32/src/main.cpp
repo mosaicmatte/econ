@@ -160,13 +160,16 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 #endif
 
 #if USE_MMWAVE
-  // HLK-LD2410C 24 GHz presence radar. A PIR detects *motion* and infers presence, so a
-  // person typing quietly at a desk reads as an empty room within minutes — the classic
-  // "lights drop on a full meeting" failure. The radar resolves micro-movement down to
-  // breathing and holds OUT high for a genuinely stationary person, which makes it the
-  // honest presence sensor for an office. Powered from 5 V; OUT is 3.3 V logic, so it
-  // wires straight to a GPIO with no level shifter (same arrangement as the HC-SR501).
-  // The module's UART side is only for tuning gates/thresholds and is not needed here.
+  // 24 GHz FMCW presence radar. A PIR detects *motion* and infers presence, so a person
+  // typing quietly at a desk reads as an empty room within minutes — the classic "lights
+  // drop on a full meeting" failure. The radar resolves micro-movement down to breathing
+  // and holds its output high for a genuinely stationary person, which makes it the
+  // honest presence sensor for an office. Verified-compatible modules (same contract,
+  // "output high level when sensing", per each maker's spec):
+  //   HLK-LD2410C  — OUT pin, 5 V supply, 3.3 V logic out
+  //   Ai-Thinker Rd-03 / Rd-03_V2 — OT2 pin (pin 5), 3.3 V supply (3.0-3.6 V)
+  // Either wires straight to the GPIO with no level shifter. The modules' UART side is
+  // only for tuning gates/thresholds and is not needed here.
   #ifndef MMWAVE_PIN
     #define MMWAVE_PIN 18
   #endif
