@@ -77,6 +77,9 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 #ifndef USE_CO2
   #define USE_CO2 0                  // ASAIR ACD1200 NDIR (I2C) -> measured CO2 ppm
 #endif
+#ifndef USE_MMWAVE
+  #define USE_MMWAVE 0               // HLK-LD2410C radar -> presence incl. stationary people
+#endif
 
 #if USE_SHT30 || USE_CO2
   #include <Wire.h>
@@ -154,7 +157,19 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #ifndef PIR_PIN
     #define PIR_PIN 5
   #endif
-  const int PIR_OCCUPANTS = 1;  // a PIR senses presence, not a headcount
+#endif
+
+#if USE_MMWAVE
+  // HLK-LD2410C 24 GHz presence radar. A PIR detects *motion* and infers presence, so a
+  // person typing quietly at a desk reads as an empty room within minutes — the classic
+  // "lights drop on a full meeting" failure. The radar resolves micro-movement down to
+  // breathing and holds OUT high for a genuinely stationary person, which makes it the
+  // honest presence sensor for an office. Powered from 5 V; OUT is 3.3 V logic, so it
+  // wires straight to a GPIO with no level shifter (same arrangement as the HC-SR501).
+  // The module's UART side is only for tuning gates/thresholds and is not needed here.
+  #ifndef MMWAVE_PIN
+    #define MMWAVE_PIN 18
+  #endif
 #endif
 
 #if USE_CO2
@@ -191,13 +206,49 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
     // and garbage the sensor emits during its 120 s preheat.
     return ppm >= 300 && ppm <= 10000;
   }
+
+  // The ACD1200 ships in AUTOMATIC baseline calibration (datasheet 1.1): 24 h after
+  // power-on and every 7 days after, it re-zeroes by assuming the lowest concentration it
+  // saw recently was outdoor air. In an office that empties overnight that is free and
+  // correct. In a continuously occupied space — a server room, a 24/7 floor — the room
+  // never gives it that outdoor hour, so the sensor quietly drags its baseline up to an
+  // occupied reading and under-reports from then on while looking perfectly healthy.
+  // Build with -DCO2_ABC_OFF=1 for such spaces: at boot the node switches the sensor to
+  // MANUAL calibration and verifies the write. Manual mode trades silent drift for a
+  // maintenance task (single-point calibration, command 0x5204, in known air).
+  #ifndef CO2_ABC_OFF
+    #define CO2_ABC_OFF 0
+  #endif
+  #if CO2_ABC_OFF
+  bool co2DisableAutoCal() {
+    // Set calibration mode = manual: 0x5306 + data 0x0000 + CRC over the data bytes
+    // (datasheet table 7; its own example CRC 0x81 = crc8_31(0x00,0x00), validated).
+    Wire.beginTransmission(ACD1200_ADDR);
+    Wire.write(0x53); Wire.write(0x06);
+    Wire.write(0x00); Wire.write(0x00);
+    Wire.write(crc8_31(0x00, 0x00));
+    if (Wire.endTransmission() != 0) return false;
+    delay(10);                                   // datasheet: >5 ms before the readback
+    // Read the mode back (tables 8/9): the set command alone proves nothing, so require
+    // a CRC-valid response whose low data byte says manual (0 = manual, 1 = automatic).
+    Wire.beginTransmission(ACD1200_ADDR);
+    Wire.write(0x53); Wire.write(0x06);
+    if (Wire.endTransmission() != 0) return false;
+    delay(5);
+    if (Wire.requestFrom(ACD1200_ADDR, 3) != 3) return false;
+    uint8_t d[3];
+    for (int i = 0; i < 3; i++) d[i] = Wire.read();
+    if (crc8_31(d[0], d[1]) != d[2]) return false;
+    return d[1] == 0x00;
+  }
+  #endif
 #endif
 
-// Zero-wiring presence demo (ignored when USE_PIR=1): T9 = GPIO32 capacitive
+// Zero-wiring presence demo (ignored when a real presence sensor is compiled in): T9 = GPIO32 capacitive
 // touch. Touching the bare pin (or a jumper wire in it) drops the reading well below
 // the boot-time baseline -> occupied. Publishes immediately on change for a snappy demo.
 #define USE_TOUCH_PRESENCE 1
-#if !USE_PIR && USE_TOUCH_PRESENCE
+#if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
   const int TOUCH_PIN = T9;      // GPIO32
   const int TOUCH_OCCUPANTS = 3; // headcount reported while touched
   int touchBaseline = 0;         // calibrated in setup()
@@ -324,8 +375,19 @@ void readAndPublish() {
 
   // --- occupancy ---
   int occupancy;
-#if USE_PIR
-  occupancy = digitalRead(PIR_PIN) == HIGH ? PIR_OCCUPANTS : 0;
+#if USE_PIR || USE_MMWAVE
+  // Either sensor asserting means occupied. They fail in opposite directions — the PIR
+  // misses a person sitting still, the radar can hold on residual micro-motion after an
+  // exit — so OR-ing them errs toward "occupied", which for HVAC is the safe error: a
+  // few minutes of extra cooling, never a dark room with someone in it.
+  bool present = false;
+  #if USE_PIR
+    if (digitalRead(PIR_PIN) == HIGH) present = true;
+  #endif
+  #if USE_MMWAVE
+    if (digitalRead(MMWAVE_PIN) == HIGH) present = true;
+  #endif
+  occupancy = present ? 1 : 0;  // presence, not a headcount
 #elif USE_TOUCH_PRESENCE
   occupancy = touchOccupied() ? TOUCH_OCCUPANTS : 0;  // real physical input
 #else
@@ -392,11 +454,23 @@ void setup() {
   pinMode(PIR_PIN, INPUT);
   Serial.printf("[pir] presence on GPIO%d\n", PIR_PIN);
 #endif
+#if USE_MMWAVE
+  pinMode(MMWAVE_PIN, INPUT);
+  Serial.printf("[mmwave] LD2410C presence on GPIO%d (holds for stationary occupants)\n", MMWAVE_PIN);
+#endif
 #if USE_CO2
+  #if CO2_ABC_OFF
+  if (co2DisableAutoCal()) {
+    Serial.println("[co2] auto-calibration OFF, manual mode confirmed (24/7-occupied space)");
+  } else {
+    // Say so loudly: a 24/7 deployment that silently keeps ABC on will drift low.
+    Serial.println("[co2] WARNING: could not confirm manual calibration; ABC remains ON");
+  }
+  #endif
   Serial.printf("[co2] ACD1200 expected at I2C 0x%02X (120 s preheat; needs a 5V<->3.3V level shifter)\n",
                 ACD1200_ADDR);
 #endif
-#if !USE_PIR && USE_TOUCH_PRESENCE
+#if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
   // Calibrate the untouched touch level; a touch reads far below this baseline.
   long acc = 0;
   for (int i = 0; i < 16; i++) { acc += touchRead(TOUCH_PIN); delay(10); }
@@ -426,7 +500,7 @@ void loop() {
   } else {
     client.loop();
     unsigned long now = millis();
-#if !USE_PIR && USE_TOUCH_PRESENCE
+#if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
     // Publish instantly when presence flips so the dashboard reacts in <0.2 s
     // instead of waiting out the periodic interval.
     static unsigned long lastTouchPoll = 0;
