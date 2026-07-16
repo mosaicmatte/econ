@@ -129,6 +129,13 @@ type Engine struct {
 	Bess       Battery
 	lastLoadMw float64   // latest computed building electrical load (MW), fed to BESS dispatch
 	lastBessAt time.Time // wall-clock of the last BESS integration step
+	// Live outdoor temperature from the weather poller (main.go). Same freshness
+	// philosophy as the zone sensors: outdoorAt records when the value arrived, and a
+	// value the poller has not refreshed within outdoorStaleAfter stops driving the
+	// envelope — the physics falls back to climatology rather than integrating against
+	// a reading from hours ago as if it were current.
+	outdoorTemp float64
+	outdoorAt   time.Time
 }
 
 func NewEngine() *Engine {
@@ -416,6 +423,45 @@ func (z *ZoneSim) hwFresh() bool {
 	return !z.HwTempAt.IsZero() && time.Since(z.HwTempAt) < hwStaleAfter
 }
 
+// outdoorFallbackC is the Ho Chi Minh City climatological mean the envelope ran on before
+// live weather was wired in. It is the value of last resort: used until the first fetch
+// succeeds and again whenever the feed goes stale.
+const outdoorFallbackC = 30.0
+
+// outdoorStaleAfter bounds how long one weather reading may keep driving the envelope.
+// Open-Meteo refreshes its current conditions on a sub-hourly cadence and the poller asks
+// every 10 minutes, so three missed hours means the feed is genuinely down, not jittery.
+const outdoorStaleAfter = 3 * time.Hour
+
+// SetOutdoorTemp ingests one outdoor reading from the weather poller.
+func (e *Engine) SetOutdoorTemp(c float64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.outdoorTemp = c
+	e.outdoorAt = time.Now()
+}
+
+// outdoorNow returns the temperature the envelope should integrate against and whether it
+// is live weather. Callers must hold e.mu.
+func (e *Engine) outdoorNow() (float64, bool) {
+	if !e.outdoorAt.IsZero() && time.Since(e.outdoorAt) < outdoorStaleAfter {
+		return e.outdoorTemp, true
+	}
+	return outdoorFallbackC, false
+}
+
+// OutdoorStatus is the /api/weather snapshot: what the physics is using right now.
+func (e *Engine) OutdoorStatus() (tempC float64, live bool, ageSec float64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	t, ok := e.outdoorNow()
+	age := -1.0
+	if !e.outdoorAt.IsZero() {
+		age = time.Since(e.outdoorAt).Seconds()
+	}
+	return t, ok, age
+}
+
 // humFresh / co2Fresh report whether a physical sensor is measuring that quantity right
 // now. Both are per-field rather than per-node: one sensor on a shared I2C bus can fail
 // while its neighbour keeps reporting, and a stale value presented as measured is exactly
@@ -660,6 +706,11 @@ func (e *Engine) Start() {
 }
 // tick integrates one thermal step. Called only from Start's loop with e.mu held.
 func (e *Engine) tick(dt float64) {
+		// One ambient for the whole building per step: live weather when the poller has a
+		// fresh reading, the HCMC climatological constant otherwise. Hoisted out of the
+		// VAV loop — 891 zones share one sky.
+		tOutside, _ := e.outdoorNow()
+
 		// Thermodynamics
 		for _, v := range e.Vavs {
 			z, ok := e.Zones[v.TargetZone]
@@ -680,8 +731,6 @@ func (e *Engine) tick(dt float64) {
 			if sp == 0 {
 				sp = 24.0
 			}
-
-			tOutside := 30.0
 
 			// Size cooling so that at the VAV's NOMINAL flow the room holds setpoint:
 			// qCooling(Temp=sp, flow=nominal) must offset the full nominal internal

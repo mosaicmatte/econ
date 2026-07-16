@@ -448,3 +448,24 @@ func TestOfflineNodeRetiresAllEnvironmentals(t *testing.T) {
 		}
 	}
 }
+
+// The envelope's ambient must degrade to climatology, never to a stale reading. Before
+// the first fetch, and again once the feed ages out, outdoorNow returns the fallback and
+// says so — the same freshness contract every zone sensor follows.
+func TestOutdoorTempFreshness(t *testing.T) {
+	e := newTestEngine()
+
+	if v, live := e.outdoorNow(); live || v != outdoorFallbackC {
+		t.Fatalf("before any fetch: want fallback %.1f/false, got %.1f/%v", outdoorFallbackC, v, live)
+	}
+
+	e.SetOutdoorTemp(33.5)
+	if v, live := e.outdoorNow(); !live || v != 33.5 {
+		t.Fatalf("after fetch: want 33.5/true, got %.1f/%v", v, live)
+	}
+
+	e.outdoorAt = time.Now().Add(-(outdoorStaleAfter + time.Minute))
+	if v, live := e.outdoorNow(); live || v != outdoorFallbackC {
+		t.Fatalf("stale feed: want fallback %.1f/false, got %.1f/%v", outdoorFallbackC, v, live)
+	}
+}

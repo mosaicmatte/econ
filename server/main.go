@@ -65,12 +65,17 @@ func main() {
 	// The background poller (precool.go) opens windows automatically off the LSTM.
 	http.HandleFunc("/api/precool", precoolHandler(engine))
 
+	// 6. Live weather: what outdoor temperature the 2R1C envelope is using, and whether
+	// it is live Open-Meteo data or the climatological fallback.
+	http.HandleFunc("/api/weather", weatherHandler(engine))
+
 	// Connect to the MQTT broker: ingest real occupancy from the CV/edge layer and
 	// publish actuation commands to the ESP32. Non-blocking; the sim runs regardless.
 	startMQTT(engine)
 
 	go engine.Start()
 	go precoolLoop(engine)
+	go weatherLoop(engine)
 
 	// 2. WebSocket endpoint for telemetry streaming
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
