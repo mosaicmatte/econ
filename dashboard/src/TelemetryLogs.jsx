@@ -9,7 +9,10 @@ export default function TelemetryLogs({ simData }) {
      const timestamp = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second:'2-digit' });
      
      Object.values(simData.zones).slice(0, 30).forEach(z => {
-        const load = z.load ? (z.load * 20).toFixed(1) : '0.0';
+        // z.load is already kW (the engine streams BaseHeatGain/1000) — print it as-is.
+        // It used to be multiplied by an arbitrary 20, which inflated every line of a
+        // panel titled "RAW telemetry" by 20x.
+        const load = z.load ? z.load.toFixed(1) : '0.0';
         const temp = z.temp ? z.temp.toFixed(1) : '0.0';
         entries.push(`[${timestamp}] NODE ${z.label.padEnd(20)} | T: ${temp}C | SP: ${z.setpoint}C | L: ${load}kW | OCC: ${z.occupancy}`);
      });

@@ -419,16 +419,20 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
     setSent(label);
   };
   // Real derived figures (no fabricated/flickering numbers): airflow from the zone's live VAV
-  // flow (m³/min -> CFM).
+  // flow (m³/min -> CFM). When no VAV reports for this zone the figure is an occupancy-based
+  // ventilation estimate, and the card label says so — same measured/modeled honesty as CO₂.
   const vav = simData ? Object.values(simData.vavs || {}).find(v => v.targetZone === zone.id) : null;
-  const cfm = Math.round((vav?.flow || 0) * 35.3147) || Math.round(zone.occupancy * 17 + 120);
+  const cfmMeasured = (vav?.flow || 0) > 0;
+  const cfm = cfmMeasured ? Math.round(vav.flow * 35.3147) : Math.round(zone.occupancy * 17 + 120);
   // A bound NDIR sensor wins, exactly as on desktop; the occupancy estimate is only a
   // fallback for the zones nothing is measuring. The engine streams 0 when no sensor is
   // reporting, so 0 means "modelled" rather than "a room with no CO2 in it". Labelling
   // which one is on screen matters more here than on desktop: this is the view someone
   // reads while standing in the room.
   const co2Measured = zone.co2 > 0;
-  const co2 = co2Measured ? Math.round(zone.co2) : Math.min(1400, Math.round(420 + zone.occupancy * 22));
+  // Same per-zone steady-state model as the desktop micro-HUD and the engine's building
+  // average (400 ppm outdoor + 15/occupant) — three surfaces, one formula.
+  const co2 = co2Measured ? Math.round(zone.co2) : Math.round(400 + zone.occupancy * 15);
   const humMeasured = zone.humidity > 0;
   return (
     <div style={{ 
@@ -477,7 +481,7 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
       {/* 2x2 Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
          <StatCard label="SETPOINT" value={`${zone.setpoint.toFixed(1)}°C`} />
-         <StatCard label="AIRFLOW" value={`${cfm} CFM`} />
+         <StatCard label={cfmMeasured ? 'AIRFLOW (VAV)' : 'AIRFLOW (MODELED)'} value={`${cfm} CFM`} />
          <StatCard label={co2Measured ? 'CO₂ (MEASURED)' : 'CO₂ (MODELED)'} value={`${co2} ppm`} />
          <StatCard label="OCCUPANCY" value={`${zone.occupancy} People`} />
          {humMeasured && <StatCard label="HUMIDITY (MEASURED)" value={`${zone.humidity.toFixed(1)} %RH`} />}
