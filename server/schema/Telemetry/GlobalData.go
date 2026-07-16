@@ -137,8 +137,20 @@ func (rcv *GlobalData) MutateBessSocPct(n float32) bool {
 	return rcv._tab.MutateFloat32Slot(18, n)
 }
 
+func (rcv *GlobalData) AvgCo2() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(20))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *GlobalData) MutateAvgCo2(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(20, n)
+}
+
 func GlobalDataStart(builder *flatbuffers.Builder) {
-	builder.StartObject(8)
+	builder.StartObject(9)
 }
 func GlobalDataAddBuildingLoadMw(builder *flatbuffers.Builder, buildingLoadMw float32) {
 	builder.PrependFloat32Slot(0, buildingLoadMw, 0.0)
@@ -163,6 +175,9 @@ func GlobalDataAddBessDischargeMw(builder *flatbuffers.Builder, bessDischargeMw 
 }
 func GlobalDataAddBessSocPct(builder *flatbuffers.Builder, bessSocPct float32) {
 	builder.PrependFloat32Slot(7, bessSocPct, 0.0)
+}
+func GlobalDataAddAvgCo2(builder *flatbuffers.Builder, avgCo2 float32) {
+	builder.PrependFloat32Slot(8, avgCo2, 0.0)
 }
 func GlobalDataEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

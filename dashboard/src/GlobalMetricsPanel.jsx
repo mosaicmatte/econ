@@ -102,12 +102,14 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
   // bar tracks real plant utilization (rises on peak/fault) instead of a hard-coded constant.
   const coolingCapacityPct = Math.max(0, Math.min(100, (bldgLoad / DESIGN_PEAK_MW) * 100));
 
-  // Real deltas: change between the last two persisted history samples (pwr is kW, co2 encodes
-  // occupancy as 400 + pax*0.85). No more random demo numbers on the HMI cards.
+  // Real deltas: change between the last two history samples. Occupancy delta reads the
+  // occupancy field directly — it used to be reverse-engineered from the co2 series as
+  // (Δco2)/0.85, which stopped being occupancy the moment co2 came from a real NDIR
+  // sensor instead of the estimate. No more random demo numbers on the HMI cards.
   const h = loadHistory || [];
   const a = h[h.length - 2], b = h[h.length - 1];
   const loadDelta = a && b ? +(((b.pwr - a.pwr) / 1000)).toFixed(2) : 0;
-  const occDelta = a && b ? Math.round((b.co2 - a.co2) / 0.85) : 0;
+  const occDelta = a && b && b.occ !== undefined ? b.occ - a.occ : 0;
   
   return (
     <aside className="hud-dock-right" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width, padding: '1rem', position: 'absolute' }}>

@@ -474,6 +474,35 @@ func (z *ZoneSim) co2Fresh() bool {
 	return !z.HwCo2At.IsZero() && time.Since(z.HwCo2At) < hwStaleAfter
 }
 
+// avgCo2 is the building CO2 figure, and it prefers reality: the average of whatever
+// fresh NDIR sensors are actually reporting, falling back to a modelled estimate only
+// when nothing is measuring. One function feeds both the TimescaleDB history and the
+// live stream, so a real sensor sitting at 900 ppm can never coexist with a chart
+// serenely plotting a modelled 450.
+//
+// The estimate is the mean of per-zone steady states (400 ppm outdoor + 15 ppm per
+// occupant in the zone, the same model the dashboard uses for a single zone) — NOT
+// 400 + total_occupants*k, which treats every person in the building as if they shared
+// one room and, at 6,000 occupants, "estimated" 5,500 ppm: an occupational exposure
+// limit, not a ventilated building's average. Callers hold e.mu.
+func (e *Engine) avgCo2(totalOccupants int) float64 {
+	var sum float64
+	var n int
+	for _, z := range e.Zones {
+		if z.HwCo2 > 0 && z.co2Fresh() {
+			sum += z.HwCo2
+			n++
+		}
+	}
+	if n > 0 {
+		return sum / float64(n)
+	}
+	if len(e.Zones) == 0 {
+		return 400.0
+	}
+	return 400.0 + 15.0*float64(totalOccupants)/float64(len(e.Zones))
+}
+
 // applyHardware pulls every hardware-bound zone's air temperature toward the physical
 // sensor reading — a fast exponential blend (~1 s at 30 FPS) rather than a hard jump,
 // so the dashboard never teleports. The thermal model keeps integrating underneath and
@@ -908,23 +937,7 @@ func (e *Engine) broadcast() {
 			e.Persist("GLOBAL", "buildingLoadMw", buildingLoadMW)
 			e.Persist("GLOBAL", "coolingOutputMw", coolingOutputMW)
 			e.Persist("GLOBAL", "systemHealth", systemHealth)
-			// Building CO2 prefers reality: average whatever fresh NDIR sensors are actually
-			// reporting, and only fall back to the occupancy-derived estimate when nothing is
-			// measuring it. Otherwise a real sensor could sit at 900 ppm while the graph
-			// serenely plotted a modelled 450.
-			avgCo2 := 400.0 + float64(totalOccupants)*0.85
-			var co2Sum float64
-			var co2N int
-			for _, z := range e.Zones {
-				if z.HwCo2 > 0 && z.co2Fresh() {
-					co2Sum += z.HwCo2
-					co2N++
-				}
-			}
-			if co2N > 0 {
-				avgCo2 = co2Sum / float64(co2N)
-			}
-			e.Persist("GLOBAL", "avgCo2", avgCo2)
+			e.Persist("GLOBAL", "avgCo2", e.avgCo2(totalOccupants))
 			for id, z := range e.Zones {
 				e.Persist(id, "temp", z.Temp)
 				e.Persist(id, "occupancy", float64(z.Occupancy))
@@ -1011,6 +1024,7 @@ func (e *Engine) broadcast() {
 		Telemetry.GlobalDataAddEnergySavedMw(builder, float32(energySavedMW))
 		Telemetry.GlobalDataAddBessDischargeMw(builder, float32(bessDischargeMW))
 		Telemetry.GlobalDataAddBessSocPct(builder, float32(bessSocPct))
+		Telemetry.GlobalDataAddAvgCo2(builder, float32(e.avgCo2(totalOccupants)))
 		globalPos := Telemetry.GlobalDataEnd(builder)
 
 		// Build SimState

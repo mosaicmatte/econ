@@ -33,6 +33,8 @@ table GlobalData {
   energySavedMw: float;
   bessDischargeMw: float = 0;  // appended: + discharging to grid, - charging (0 = no BESS)
   bessSocPct: float = 0;       // appended: battery state of charge, 0..100
+  avgCo2: float = 0;           // appended: building CO2 ppm, real sensors preferred over the
+                               // occupancy estimate — the engine picks, so every client agrees
 }
 
 table SimState {

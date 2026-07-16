@@ -62,8 +62,13 @@ bessSocPct():number {
   return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
 }
 
+avgCo2():number {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
 static startGlobalData(builder:flatbuffers.Builder) {
-  builder.startObject(8);
+  builder.startObject(9);
 }
 
 static addBuildingLoadMw(builder:flatbuffers.Builder, buildingLoadMw:number) {
@@ -98,12 +103,16 @@ static addBessSocPct(builder:flatbuffers.Builder, bessSocPct:number) {
   builder.addFieldFloat32(7, bessSocPct, 0.0);
 }
 
+static addAvgCo2(builder:flatbuffers.Builder, avgCo2:number) {
+  builder.addFieldFloat32(8, avgCo2, 0.0);
+}
+
 static endGlobalData(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, systemHealth:number, totalOccupants:number, coolingOutputMw:number, plantCop:number, energySavedMw:number, bessDischargeMw:number, bessSocPct:number):flatbuffers.Offset {
+static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, systemHealth:number, totalOccupants:number, coolingOutputMw:number, plantCop:number, energySavedMw:number, bessDischargeMw:number, bessSocPct:number, avgCo2:number):flatbuffers.Offset {
   GlobalData.startGlobalData(builder);
   GlobalData.addBuildingLoadMw(builder, buildingLoadMw);
   GlobalData.addSystemHealth(builder, systemHealth);
@@ -113,6 +122,7 @@ static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, syst
   GlobalData.addEnergySavedMw(builder, energySavedMw);
   GlobalData.addBessDischargeMw(builder, bessDischargeMw);
   GlobalData.addBessSocPct(builder, bessSocPct);
+  GlobalData.addAvgCo2(builder, avgCo2);
   return GlobalData.endGlobalData(builder);
 }
 }

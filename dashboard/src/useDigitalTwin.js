@@ -223,6 +223,8 @@ export function useDigitalTwin(onUpdate) {
         // BESS: + discharging to grid (shaving), - charging. gridPowerMw = load - discharge.
         newSimData.bessDischargeMw = g.bessDischargeMw();
         newSimData.bessSocPct = g.bessSocPct();
+        // Engine-computed building CO2 (real sensors preferred; 0 only from a pre-upgrade server).
+        newSimData.avgCo2 = g.avgCo2();
 
         const nowMs = Date.now();
         if (nowMs - lastHistUpdateRef.current > 1000) {
@@ -230,9 +232,14 @@ export function useDigitalTwin(onUpdate) {
           setLoadHistory(prev => {
             const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const pwrDraw = Number((g.buildingLoadMw() * 1000).toFixed(1)); // kW
-            // CO2 derived from real occupancy (steady-state ventilation balance, ~400 ppm outdoor).
-            const avgCo2 = Math.round(400 + g.totalOccupants() * 0.85);
-            const newHist = [...prev, { time: timeStr, pwr: pwrDraw, co2: avgCo2 }];
+            // CO2 comes from the engine, which prefers real NDIR sensors and only falls
+            // back to its occupancy estimate when nothing is measuring — recomputing the
+            // estimate here would silently overwrite a real 842 ppm with a modelled 450.
+            // (avgCo2() reads 0 only against a pre-upgrade server; estimate locally then.)
+            const avgCo2 = Math.round(g.avgCo2() > 0 ? g.avgCo2() : 400 + g.totalOccupants() * 0.85);
+            // Occupancy travels as its own field: deriving it back out of co2 breaks the
+            // moment co2 is sensor-driven rather than the estimate.
+            const newHist = [...prev, { time: timeStr, pwr: pwrDraw, co2: avgCo2, occ: g.totalOccupants() }];
             if (newHist.length > 60) newHist.shift();
             return newHist;
           });
