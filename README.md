@@ -6,6 +6,28 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-21 — The PROFILER plots real cooling, drills into real history, works on a phone
+>
+> **The Zone Performance scatter's Y-axis said "Cooling kW" but plotted each zone's
+> internal heat-gain constant.** It now plots the *actual* cooling power delivered —
+> `Q = ρ·V̇·cp·ΔT` computed from each zone's live VAV airflow against the 12 °C supply
+> temperature (verified: 2–11 kW per zone, server rooms highest). The same real figure
+> replaces the last fabricated constant in the panel: the "unoccupied but wasting" card
+> used a flat `2 kW + …` guess; it now reports the zone's genuine cooling electrical
+> (thermal cooling / live plant COP), and skips 24/7-critical server/mechanical rooms
+> the way the plug sweep already does. The peak-shaving insight no longer fires on a
+> hardcoded `> 3 MW` regardless of the clock — it's driven by the EVN TOU clock (in cao
+> điểm, or within 90 minutes of it), matching the AI Insights panel. Biggest add:
+> **tap any point to drill into that zone's real persisted history** — temperature (with
+> its setpoint line) and, for sensor-backed zones, measured CO₂ — pulled from the new
+> `/api/series` endpoint, so the scatter is a door into the last hour, not just a
+> snapshot. And it's finally **mobile-correct**: the analytics screen now passes
+> `setAutoPilot` (its action buttons were dead on mobile) and `setSelectedZone`, the
+> chart and insights scale up for touch, and scatter symbols are enlarged on phones so
+> a fingertip can actually land on one — the tap-target fix that made the drill-down
+> usable on mobile at all. Proven end-to-end on both viewports against live TimescaleDB
+> history.
+>
 > ### 2026-07-21 — AFDD alerts carry queryable evidence
 >
 > **The AFDD residual was write-only — persisted to TimescaleDB but readable by
