@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Brain, Zap, AlertTriangle, TrendingDown, ThermometerSnowflake, Activity, Radio, Plug, CloudOff, Wind, WifiOff } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { money, energyCostPerDay, peakShiftSavingPerMonth, rateStr, touPeriod, minutesToPeak, TARIFF } from './tariff';
 import { useOpsStatus, untilLabel } from './useOpsStatus';
 import { usePlugs } from './usePlugs';
+import { API_BASE } from './api';
 
 export default function AiInsightsPanel({ simData, activeScenario, faultTarget, aiForecast, setAutoPilot, hardwareNodes = {}, setSelectedZone, sendManualOverride, onOpenPlugs }) {
   // Every card's action is a real one: an actuation over the websocket (pre-cool window,
@@ -99,11 +100,12 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       generated.push({
         id: 'afdd',
         type: 'critical',
+        expandable: true, // expands the persisted residual trend — the maintenance evidence
+        afddZone: afddNodes[0].zoneId,
         icon: <AlertTriangle size={18} color="var(--accent-red)" />,
         title: 'AFDD: Physics Divergence',
         message: `${afddNodes.map((n) => (n.zoneId || '').replace('zone-', '')).join(', ')} reading ${afddNodes.map((n) => `${(n.residual || 0).toFixed(1)}°C`).join(', ')} away from the calibrated thermal model — possible coil/damper fault, blocked diffuser or open window.`,
-        action: 'INSPECT IN 3D',
-        onAction: () => setSelectedZone && setSelectedZone(afddNodes[0].zoneId),
+        action: 'VIEW DRIFT HISTORY',
       });
     }
 
@@ -430,7 +432,11 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
                 {insight.message}
               </p>
 
-              {insight.expandable && isExpanded && renderDetail(insight.id)}
+              {insight.expandable && isExpanded && (
+                insight.id === 'afdd'
+                  ? <AfddDriftDetail zoneId={insight.afddZone} />
+                  : renderDetail(insight.id)
+              )}
 
               {insight.action && (() => {
                 // Expandables toggle inline detail; the rest run their REAL action —
@@ -487,6 +493,54 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
           to { opacity: 1; }
         }
       `}</style>
+    </div>
+  );
+}
+
+// AfddDriftDetail pulls the zone's persisted AFDD residual from TimescaleDB
+// (/api/series) and charts it — the maintenance evidence behind a physics-divergence
+// alert. A residual that has been climbing for an hour is a developing fault; a spike
+// that just appeared is worth a second look before dispatching anyone. The 2.0 °C
+// reference line is the engine's own afddThreshold (the level that raised this card).
+function AfddDriftDetail({ zoneId }) {
+  const [series, setSeries] = useState(null); // null = loading, [] = no history yet
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE}/api/series?zone=${encodeURIComponent(zoneId)}&metric=afddResidual&minutes=120`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => { if (alive) setSeries(Array.isArray(d) ? d : []); })
+      .catch(() => { if (alive) setSeries([]); });
+    return () => { alive = false; };
+  }, [zoneId]);
+
+  if (series === null) {
+    return <div style={{ marginTop: '6px', fontSize: '10px', color: 'var(--text-muted)' }}>Loading residual history…</div>;
+  }
+  if (series.length === 0) {
+    return (
+      <div style={{ marginTop: '6px', fontSize: '10px', color: 'var(--text-muted)' }}>
+        No persisted residual yet — history begins once TimescaleDB has logged this sensor-bound zone (≈1 Hz). The live residual is on the node badge above.
+      </div>
+    );
+  }
+  const data = series.map((p) => ({ t: p.t.slice(11, 16), r: +p.v.toFixed(2) }));
+  const peak = data.reduce((m, d) => Math.max(m, d.r), 0);
+  return (
+    <div style={{ marginTop: '6px' }}>
+      <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginBottom: '4px', letterSpacing: '0.04em' }}>
+        AFDD RESIDUAL · |MEASURED − 2R1C MODEL| · LAST 2H · PEAK {peak.toFixed(1)}°C
+      </div>
+      <div style={{ width: '100%', height: 120 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -22 }}>
+            <XAxis dataKey="t" tick={{ fontSize: 8, fill: 'var(--text-muted)' }} tickLine={false} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} interval="preserveStartEnd" minTickGap={40} />
+            <YAxis tick={{ fontSize: 8, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} domain={[0, 'auto']} />
+            <Tooltip contentStyle={{ background: 'rgba(10,10,10,0.95)', border: '1px solid var(--border-glass)', borderRadius: 6, fontSize: 10 }} labelStyle={{ color: 'var(--text-secondary)' }} formatter={(v) => [`${v}°C`, 'residual']} />
+            <ReferenceLine y={2.0} stroke="var(--accent-red)" strokeDasharray="4 4" label={{ value: 'FAULT', fontSize: 8, fill: 'var(--accent-red)', position: 'insideTopRight' }} />
+            <Line type="monotone" dataKey="r" stroke="var(--accent-red)" strokeWidth={2} dot={false} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
