@@ -121,8 +121,32 @@ func (rcv *ZoneData) MutateCo2(n float32) bool {
 	return rcv._tab.MutateFloat32Slot(16, n)
 }
 
+func (rcv *ZoneData) PlugW() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(18))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *ZoneData) MutatePlugW(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(18, n)
+}
+
+func (rcv *ZoneData) PlugShed() bool {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(20))
+	if o != 0 {
+		return rcv._tab.GetBool(o + rcv._tab.Pos)
+	}
+	return false
+}
+
+func (rcv *ZoneData) MutatePlugShed(n bool) bool {
+	return rcv._tab.MutateBoolSlot(20, n)
+}
+
 func ZoneDataStart(builder *flatbuffers.Builder) {
-	builder.StartObject(7)
+	builder.StartObject(9)
 }
 func ZoneDataAddId(builder *flatbuffers.Builder, id flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(id), 0)
@@ -144,6 +168,12 @@ func ZoneDataAddHumidity(builder *flatbuffers.Builder, humidity float32) {
 }
 func ZoneDataAddCo2(builder *flatbuffers.Builder, co2 float32) {
 	builder.PrependFloat32Slot(6, co2, 0.0)
+}
+func ZoneDataAddPlugW(builder *flatbuffers.Builder, plugW float32) {
+	builder.PrependFloat32Slot(7, plugW, 0.0)
+}
+func ZoneDataAddPlugShed(builder *flatbuffers.Builder, plugShed bool) {
+	builder.PrependBoolSlot(8, plugShed, false)
 }
 func ZoneDataEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

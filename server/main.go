@@ -78,6 +78,12 @@ func main() {
 	http.HandleFunc("/api/building/backups", backupsHandler())
 	http.HandleFunc("/api/building/rollback", rollbackHandler(engine))
 
+	// 8. Plug-load management (APLC): the end use a conventional BMS neither meters nor
+	// controls — and the largest one in the Hanoi case study (26.4% of energy). GET =
+	// snapshot + phantom leaderboard; POST = sweep policy (guarded, audited, durable).
+	loadPlugState(engine)
+	http.HandleFunc("/api/plugs", plugsHandler(engine))
+
 	// Connect to the MQTT broker: ingest real occupancy from the CV/edge layer and
 	// publish actuation commands to the ESP32. Non-blocking; the sim runs regardless.
 	startMQTT(engine)
@@ -85,6 +91,7 @@ func main() {
 	go engine.Start()
 	go precoolLoop(engine)
 	go weatherLoop(engine)
+	go plugPersistLoop(engine)
 
 	// 2. WebSocket endpoint for telemetry streaming
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {

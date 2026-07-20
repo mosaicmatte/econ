@@ -149,8 +149,56 @@ func (rcv *GlobalData) MutateAvgCo2(n float32) bool {
 	return rcv._tab.MutateFloat32Slot(20, n)
 }
 
+func (rcv *GlobalData) PlugKw() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(22))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *GlobalData) MutatePlugKw(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(22, n)
+}
+
+func (rcv *GlobalData) PlugStandbyKw() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(24))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *GlobalData) MutatePlugStandbyKw(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(24, n)
+}
+
+func (rcv *GlobalData) PlugShedKw() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(26))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *GlobalData) MutatePlugShedKw(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(26, n)
+}
+
+func (rcv *GlobalData) PlugSavedKwh() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(28))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *GlobalData) MutatePlugSavedKwh(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(28, n)
+}
+
 func GlobalDataStart(builder *flatbuffers.Builder) {
-	builder.StartObject(9)
+	builder.StartObject(13)
 }
 func GlobalDataAddBuildingLoadMw(builder *flatbuffers.Builder, buildingLoadMw float32) {
 	builder.PrependFloat32Slot(0, buildingLoadMw, 0.0)
@@ -178,6 +226,18 @@ func GlobalDataAddBessSocPct(builder *flatbuffers.Builder, bessSocPct float32) {
 }
 func GlobalDataAddAvgCo2(builder *flatbuffers.Builder, avgCo2 float32) {
 	builder.PrependFloat32Slot(8, avgCo2, 0.0)
+}
+func GlobalDataAddPlugKw(builder *flatbuffers.Builder, plugKw float32) {
+	builder.PrependFloat32Slot(9, plugKw, 0.0)
+}
+func GlobalDataAddPlugStandbyKw(builder *flatbuffers.Builder, plugStandbyKw float32) {
+	builder.PrependFloat32Slot(10, plugStandbyKw, 0.0)
+}
+func GlobalDataAddPlugShedKw(builder *flatbuffers.Builder, plugShedKw float32) {
+	builder.PrependFloat32Slot(11, plugShedKw, 0.0)
+}
+func GlobalDataAddPlugSavedKwh(builder *flatbuffers.Builder, plugSavedKwh float32) {
+	builder.PrependFloat32Slot(12, plugSavedKwh, 0.0)
 }
 func GlobalDataEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

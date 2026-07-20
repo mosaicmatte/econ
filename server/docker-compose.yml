@@ -33,6 +33,10 @@ services:
       # the running building then require this token (X-Admin-Token). Empty = open, for
       # the local demo only.
       - ECON_ADMIN_TOKEN=${ECON_ADMIN_TOKEN:-}
+      # Building-local timezone. The APLC plug sweep arms OUTSIDE work hours by the
+      # wall clock of the building, not of the container (which defaults to UTC — 7
+      # hours off in Vietnam, i.e. armed at lunch, disarmed at midnight).
+      - TZ=${TZ:-Asia/Ho_Chi_Minh}
     volumes:
       # Deployed buildings, their automatic backups, and the audit log must survive a
       # container rebuild — without this, `docker compose up --build` silently reverts

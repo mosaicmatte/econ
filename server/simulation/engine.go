@@ -38,6 +38,7 @@ type ZoneData struct {
 	BimAssetId        string       `json:"bim_asset_id"`
 	Volume            float64      `json:"volume"`
 	WallArea          float64      `json:"wallArea"`
+	Polygon           [][]float64  `json:"polygon"` // floor outline in metres; sizes the plug model
 	ThermalProperties ThermalProps `json:"thermalProperties"`
 	HvacMapping       HvacMap      `json:"hvacMapping"`
 }
@@ -87,6 +88,16 @@ type ZoneSim struct {
 	HwCo2    float64   // last measured CO2 (ppm), valid while HwCo2At is fresh
 	HwCo2At  time.Time // when HwCo2 arrived; zero = no NDIR sensor has ever reported
 	HwOnline bool      // broker LWT verdict from econ/status/<topic>
+	// Automated Plug Load Control (see plugs.go). PlugStandbyW is sized from the zone's
+	// real floor area at build time; PlugShed flips when the after-hours sweep cuts the
+	// zone's switchable sockets. HwPlugW/HwPlugAt carry a live SCT-013 clamp reading,
+	// under the same per-field freshness rules as every other sensor.
+	PlugStandbyW          float64
+	PlugShed              bool
+	PlugVacantSince       time.Time // zero while occupied; set at the moment occupancy hits 0
+	HwPlugW               float64
+	HwPlugAt              time.Time
+	LastBroadcastPlugShed bool
 	// Physics-grounded AFDD (roadmap challenge 2): while a real sensor pins this zone,
 	// ShadowTemp keeps integrating the pure 2R1C model with NO sensor pull. The smoothed
 	// |measured − modeled| residual is the fault signal — a healthy room tracks its
@@ -129,6 +140,12 @@ type Engine struct {
 	Bess       Battery
 	lastLoadMw float64   // latest computed building electrical load (MW), fed to BESS dispatch
 	lastBessAt time.Time // wall-clock of the last BESS integration step
+	// Automated Plug Load Control (plugs.go): sweep policy, cumulative avoided energy,
+	// and the wall-clock anchor its integration runs on (sim time accelerates; savings
+	// must not).
+	Plug         PlugConfig
+	plugSavedKwh float64
+	lastPlugAt   time.Time
 	// Live outdoor temperature from the weather poller (main.go). Same freshness
 	// philosophy as the zone sensors: outdoorAt records when the value arrived, and a
 	// value the poller has not refreshed within outdoorStaleAfter stops driving the
@@ -150,6 +167,8 @@ func NewEngine() *Engine {
 		demoAssign: make(map[string]string),
 		Bess:       NewBattery(),
 		lastBessAt: time.Now(),
+		Plug:       defaultPlugConfig(),
+		lastPlugAt: time.Now(),
 	}
 
 	data, err := os.ReadFile("./data/building-data.json")
@@ -194,6 +213,15 @@ func (e *Engine) buildFromJSON(data []byte) error {
 			if baseSp == 0 {
 				baseSp = temp
 			}
+			// Plug standby scales with real floor area (shoelace over the digitized
+			// polygon; volume/3m where only a volume exists; a small default otherwise).
+			areaM2 := polygonAreaM2(z.Polygon)
+			if areaM2 <= 0 && z.Volume > 0 {
+				areaM2 = z.Volume / 3.0
+			}
+			if areaM2 <= 0 {
+				areaM2 = plugDefaultAreaM2
+			}
 			e.Zones[z.ZoneId] = &ZoneSim{
 				Temp:         temp,
 				WallTemp:     temp,
@@ -216,6 +244,7 @@ func (e *Engine) buildFromJSON(data []byte) error {
 				LastBroadcastTemp: 24.0,
 				LightsOn:     true,
 				LastBroadcastLights: true,
+				PlugStandbyW: areaM2 * plugStandbyWPerM2,
 			}
 		}
 	}
@@ -317,6 +346,7 @@ type Measurement struct {
 	Temp      *float64
 	Humidity  *float64
 	Co2       *float64
+	PlugW     *float64 // measured plug-circuit draw (SCT-013 clamp), watts
 	Source    string
 	TempReal  bool
 }
@@ -365,6 +395,10 @@ func (e *Engine) IngestTelemetry(zoneRef, topicSuffix string, m Measurement) {
 	if m.Co2 != nil {
 		z.HwCo2 = *m.Co2
 		z.HwCo2At = time.Now()
+	}
+	if m.PlugW != nil {
+		z.HwPlugW = *m.PlugW
+		z.HwPlugAt = time.Now()
 	}
 }
 
@@ -608,6 +642,7 @@ func (e *Engine) SetNodeStatus(topicSuffix string, online bool) {
 			z.HwTempAt = time.Time{}
 			z.HwHumAt = time.Time{}
 			z.HwCo2At = time.Time{}
+			z.HwPlugAt = time.Time{}
 		}
 	}
 }
@@ -651,6 +686,9 @@ type HardwareNode struct {
 	ShadowTemp float64 `json:"shadowTemp"`
 	Residual   float64 `json:"residual"`
 	AfddAlert  bool    `json:"afddAlert"`
+	// APLC: live clamp watts (0 = no meter reporting) and current sweep state.
+	PlugW    float64 `json:"plugW"`
+	PlugShed bool    `json:"plugShed"`
 }
 
 // HardwareStatus snapshots every zone currently bound to a physical edge node, for the
@@ -667,12 +705,15 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 		// Report an environmental only while its own sensor is still reporting, so this
 		// endpoint agrees with the telemetry stream rather than showing a last-known value
 		// the dashboard has already dropped.
-		hum, co2 := 0.0, 0.0
+		hum, co2, plugW := 0.0, 0.0, 0.0
 		if z.humFresh() {
 			hum = z.HwHum
 		}
 		if z.co2Fresh() {
 			co2 = z.HwCo2
+		}
+		if z.plugFresh() {
+			plugW = z.HwPlugW
 		}
 		out = append(out, HardwareNode{
 			ZoneId:     id,
@@ -691,6 +732,8 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 			ShadowTemp: z.ShadowTemp,
 			Residual:   z.ResidualEma,
 			AfddAlert:  z.ShadowTemp != 0 && z.ResidualEma > afddThreshold,
+			PlugW:      plugW,
+			PlugShed:   z.PlugShed,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ZoneId < out[j].ZoneId })
@@ -786,6 +829,10 @@ func (e *Engine) Start() {
 		// Occupancy-driven optimizer + edge actuation (publishes only on state change).
 		e.actuate()
 		e.applyHardware()
+
+		// After-hours plug sweep (APLC): shed/restore switchable sockets on verified
+		// vacancy, accumulate avoided energy on wall-clock time.
+		e.plugTick(time.Now())
 
 		// BESS dispatch: TOU-driven charge/discharge against the last computed building load,
 		// integrated on real wall-clock time so the state of charge trends realistically.
@@ -924,6 +971,9 @@ func (e *Engine) broadcast() {
 		savedLightingW := 0.0  // lighting cut on vacant (set-back) zones
 		savedThermalW := 0.0   // cooling demand avoided on vacant (set-back) zones
 		alarmCount := 0        // zones far enough past the band to be a genuine alarm
+		plugTotalW := 0.0      // live plug draw (measured where clamped, modelled otherwise)
+		plugStandbyW := 0.0    // the always-on phantom portion of plugTotalW
+		plugShedW := 0.0       // switchable watts currently swept off by the APLC
 		// Half-comfort point: a zone this many °C *beyond* its deadband scores 0.5 comfort.
 		const sigmaComfort2 = 2.5 * 2.5
 		// °C past the deadband before a zone is "critical". Matches the dashboard's own
@@ -959,6 +1009,13 @@ func (e *Engine) broadcast() {
 				savedLightingW += 2000.0
 				savedThermalW += z.BaseHeatGain * 0.25
 			}
+			// Plug loads (APLC, plugs.go): the end use the case-study BMS could not see.
+			pTot, pStandby := z.plugNowW()
+			plugTotalW += pTot
+			plugStandbyW += pStandby
+			if z.PlugShed {
+				plugShedW += z.PlugStandbyW * plugSwitchableFrac
+			}
 		}
 
 		// Plant coefficient of performance degrades as the building is strained (chillers
@@ -971,7 +1028,12 @@ func (e *Engine) broadcast() {
 
 		coolingOutputMW := totalHeatW / 1e6      // thermal cooling delivered (MW)
 		coolingElectricalMW := coolingOutputMW / plantCop
-		const baseElectricalMW = 2.0             // lighting + plug + fans baseline
+		// Non-HVAC electrical: lighting + fans + elevators as a fixed baseline, plus the
+		// LIVE plug-load figure — no longer a constant, so the sweep's effect shows up in
+		// the building load the moment sockets shed. (Plug loads were 26.4% of the Hanoi
+		// case-study tower's energy; hiding them inside a constant is how that happens.)
+		const nonPlugBaseMW = 1.15 // lighting + fans + elevators baseline
+		baseElectricalMW := nonPlugBaseMW + plugTotalW/1e6
 		buildingLoadMW := coolingElectricalMW + baseElectricalMW
 		energySavedMW := (savedLightingW + savedThermalW/plantCop) / 1e6
 		// Feed the load to the BESS dispatcher (read next tick) and snapshot battery state.
@@ -1002,6 +1064,7 @@ func (e *Engine) broadcast() {
 			e.Persist("GLOBAL", "coolingOutputMw", coolingOutputMW)
 			e.Persist("GLOBAL", "systemHealth", systemHealth)
 			e.Persist("GLOBAL", "avgCo2", e.avgCo2(totalOccupants))
+			e.Persist("GLOBAL", "plugKw", plugTotalW/1000)
 			for id, z := range e.Zones {
 				e.Persist(id, "temp", z.Temp)
 				e.Persist(id, "occupancy", float64(z.Occupancy))
@@ -1024,11 +1087,12 @@ func (e *Engine) broadcast() {
 		zoneOffsets := make([]flatbuffers.UOffsetT, 0)
 		for id, z := range e.Zones {
 			noiseTemp := z.Temp + getNoise(0.08)
-			// A lighting flip must stream even when the temperature hasn't moved past
-			// the dedupe threshold, or the 3D view would dim/undim a frame too late.
-			if math.Abs(noiseTemp-z.LastBroadcastTemp) > 0.05 || z.LightsOn != z.LastBroadcastLights {
+			// A lighting or plug-shed flip must stream even when the temperature hasn't
+			// moved past the dedupe threshold, or the UI would show it a frame too late.
+			if math.Abs(noiseTemp-z.LastBroadcastTemp) > 0.05 || z.LightsOn != z.LastBroadcastLights || z.PlugShed != z.LastBroadcastPlugShed {
 				z.LastBroadcastTemp = noiseTemp
 				z.LastBroadcastLights = z.LightsOn
+				z.LastBroadcastPlugShed = z.PlugShed
 				idStr := builder.CreateString(id)
 				Telemetry.ZoneDataStart(builder)
 				Telemetry.ZoneDataAddId(builder, idStr)
@@ -1050,6 +1114,9 @@ func (e *Engine) broadcast() {
 				}
 				Telemetry.ZoneDataAddHumidity(builder, hwHum)
 				Telemetry.ZoneDataAddCo2(builder, hwCo2)
+				zPlugW, _ := z.plugNowW()
+				Telemetry.ZoneDataAddPlugW(builder, float32(zPlugW))
+				Telemetry.ZoneDataAddPlugShed(builder, z.PlugShed)
 				zoneOffsets = append(zoneOffsets, Telemetry.ZoneDataEnd(builder))
 			}
 		}
@@ -1089,6 +1156,10 @@ func (e *Engine) broadcast() {
 		Telemetry.GlobalDataAddBessDischargeMw(builder, float32(bessDischargeMW))
 		Telemetry.GlobalDataAddBessSocPct(builder, float32(bessSocPct))
 		Telemetry.GlobalDataAddAvgCo2(builder, float32(e.avgCo2(totalOccupants)))
+		Telemetry.GlobalDataAddPlugKw(builder, float32(plugTotalW/1000))
+		Telemetry.GlobalDataAddPlugStandbyKw(builder, float32(plugStandbyW/1000))
+		Telemetry.GlobalDataAddPlugShedKw(builder, float32(plugShedW/1000))
+		Telemetry.GlobalDataAddPlugSavedKwh(builder, float32(e.plugSavedKwh))
 		globalPos := Telemetry.GlobalDataEnd(builder)
 
 		// Build SimState

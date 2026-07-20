@@ -27,6 +27,7 @@ type telemetryMsg struct {
 	Temperature *float64 `json:"temperature"`
 	Humidity    *float64 `json:"humidity"`
 	Co2         *float64 `json:"co2"`
+	PlugW       *float64 `json:"plugW"` // measured plug-circuit watts (SCT-013 clamp)
 	Source      string   `json:"source"`
 	TempReal    bool     `json:"tempReal"`
 }
@@ -100,6 +101,7 @@ func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 		Temp:      msg.Temperature,
 		Humidity:  msg.Humidity,
 		Co2:       msg.Co2,
+		PlugW:     msg.PlugW,
 		Source:    msg.Source,
 		TempReal:  msg.TempReal,
 	})

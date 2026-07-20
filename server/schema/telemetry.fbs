@@ -8,6 +8,8 @@ table ZoneData {
   lightsOn: bool = true;  // appended field (backward-compatible); actuated lighting state
   humidity: float = 0;    // appended: measured %RH from a bound sensor (0 = none reporting)
   co2: float = 0;         // appended: measured ppm from a bound NDIR sensor (0 = none)
+  plugW: float = 0;       // appended: plug-load draw in W (measured clamp if bound, else model)
+  plugShed: bool = false; // appended: non-critical sockets currently swept off by the APLC
 }
 
 table VavData {
@@ -35,6 +37,13 @@ table GlobalData {
   bessSocPct: float = 0;       // appended: battery state of charge, 0..100
   avgCo2: float = 0;           // appended: building CO2 ppm, real sensors preferred over the
                                // occupancy estimate — the engine picks, so every client agrees
+  // Plug-load management (APLC). Plug loads are the end use a conventional BMS neither
+  // meters nor controls — and the largest one in the Hanoi office case study this
+  // project benchmarks against (26.4% of energy, Luong et al. 2025).
+  plugKw: float = 0;           // appended: total plug draw right now (active + standby - shed)
+  plugStandbyKw: float = 0;    // appended: the always-on phantom portion of plugKw
+  plugShedKw: float = 0;       // appended: kW currently switched off by the after-hours sweep
+  plugSavedKwh: float = 0;     // appended: cumulative energy the sweep has avoided
 }
 
 table SimState {
