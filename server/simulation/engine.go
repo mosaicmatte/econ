@@ -57,6 +57,7 @@ type ZoneSim struct {
 	WallTemp          float64
 	Type              string
 	BimAssetId        string
+	AreaM2            float64 // real floor area (digitized polygon); sizes plug + lighting models
 	Occupancy         int
 	BaseHeatGain      float64
 	SolarGainMult     float64
@@ -244,6 +245,7 @@ func (e *Engine) buildFromJSON(data []byte) error {
 				LastBroadcastTemp: 24.0,
 				LightsOn:     true,
 				LastBroadcastLights: true,
+				AreaM2:       areaM2,
 				PlugStandbyW: areaM2 * plugStandbyWPerM2,
 			}
 		}
@@ -1004,9 +1006,13 @@ func (e *Engine) broadcast() {
 				alarmCount++
 			}
 			// Occupancy-driven savings: a live zone in setback (lights off) avoids its
-			// lighting load and a chunk of its internal-gain cooling.
+			// lighting load and a chunk of its internal-gain cooling. Lighting scales
+			// with the zone's REAL floor area at an LED office lighting power density —
+			// the previous flat 2 kW credited a 9 m² closet and a 650 m² floor plate
+			// identically, which is not a number anyone can report.
+			const lightingWPerM2 = 9.0 // LED office LPD (W/m²), TCVN/ASHRAE 90.1 order
 			if z.Live && z.Setpoint > z.BaseSetpoint+0.01 {
-				savedLightingW += 2000.0
+				savedLightingW += z.AreaM2 * lightingWPerM2
 				savedThermalW += z.BaseHeatGain * 0.25
 			}
 			// Plug loads (APLC, plugs.go): the end use the case-study BMS could not see.
