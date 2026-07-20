@@ -6,6 +6,31 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-21 — The forecast pipeline runs on sampled reality
+>
+> **The LSTM's input window is now a real sampled hour, not a photocopied instant.**
+> `ForecastWindow` used to admit in its own comment that the engine "keeps no telemetry
+> history yet" and replicated the current building-average twelve times — an hour-shaped
+> input the model had to treat as history. The engine now keeps a rolling window: one
+> `[avg room temp, avg airflow fraction]` timestep every 5 minutes (the exact cadence
+> the model was trained at, `SEQ_LEN=12`), hardware-pinned temperatures included since
+> a bound zone's temp *is* the measured value. While the buffer warms up after a boot
+> the window is left-padded and `/api/forecast` says so — `window_real_samples`/`window_len`
+> ride the response and both AI panels show "warming up: n/12 real samples" instead of
+> presenting padding as history (verified live: 1/12 at boot, 2/12 after the first
+> 5-minute interval). Second fix: **one weather truth.** The weather poller now fetches
+> humidity alongside temperature, and the Go engine hands both to the Python forecaster
+> in the `/predict` request — plausibility-gated on the Python side — so the forecast
+> and the envelope physics can never disagree about the sky; `weather_source` reports
+> `"engine"` (confirmed live: 26.0 °C / 87 %RH flowing end-to-end where the forecaster
+> previously flagged its own keyless fallback). The auto-pre-cool poller builds its
+> request through the same path, so automated decisions and the dashboard card always
+> see the same prediction. Third: AFDD residuals for sensor-bound zones now persist to
+> TimescaleDB (`afddResidual` series) — a "dispatch technician" card is backed by a
+> queryable drift history, not just a live LED. Three new engine tests cover warm-up
+> padding, sampling cadence/order, and the weather handover's freshness-and-completeness
+> gate.
+>
 > ### 2026-07-21 — AI Insights now reasons over the building, not the demo
 >
 > **Every card in the AI panels (desktop + mobile) is now generated from a real signal,
