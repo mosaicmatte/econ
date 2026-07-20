@@ -28,6 +28,19 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 > constant (floor area, EUI, fault targets, design peak) computes from the live building.
 > The bundled copy remains only as the offline fallback.
 >
+> **Deploying a building is treated as the operational change it is.** The previous
+> building and ontology are backed up automatically before every deploy (last 20 kept,
+> restorable from the import panel or `POST /api/building/rollback`), every deploy and
+> rollback lands in an append-only audit log (timestamp, source file, zone/floor counts,
+> payload hash), and setting `ECON_ADMIN_TOKEN` in the compose environment gates both
+> destructive endpoints behind an `X-Admin-Token` header — the UI asks for the token only
+> when the server demands it, so the local demo stays frictionless. Payloads with
+> duplicate zoneIds or absurd zone counts are rejected before the swap, and the data
+> directory moved to a named volume so a deployed building, its backups and its audit
+> trail survive `docker compose up --build`. All verified live: 401 without and with a
+> wrong token, deploy + automatic 1,350-zone backup, duplicate-id rejection, container
+> recreate with the deployed building intact, rollback, and a two-entry audit log.
+>
 > ### 2026-07-16 — The envelope gets real weather, and the sensor path stops lying
 >
 > **The 2R1C physics now integrates against live outdoor temperature.** A poller feeds
