@@ -158,11 +158,26 @@ export function useDigitalTwin(onUpdate) {
   // [GEMINI IMPLEMENTATION END]
 
   useEffect(() => {
-    const ws = new WebSocket(WS_URL);
-    ws.binaryType = 'arraybuffer';
-    wsRef.current = ws;
+    // The stream must survive a backend restart: without reconnect logic, redeploying
+    // the engine silently freezes every open dashboard on its last frame — polls keep
+    // refreshing so the page LOOKS alive while every streamed number is stale. Reconnect
+    // with a short backoff until the effect is torn down.
+    let alive = true;
+    let retryTimer = null;
 
-    ws.onmessage = (event) => {
+    const connect = () => {
+      if (!alive) return;
+      const ws = new WebSocket(WS_URL);
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
+
+      ws.onclose = () => {
+        if (!alive) return;
+        wsRef.current = null;
+        retryTimer = setTimeout(connect, 3000);
+      };
+
+      ws.onmessage = (event) => {
       const buf = new flatbuffers.ByteBuffer(new Uint8Array(event.data));
       const state = SimState.getRootAsSimState(buf);
       
@@ -256,14 +271,19 @@ export function useDigitalTwin(onUpdate) {
 
       simDataRef.current = newSimData;
       setSimData(newSimData);
-      
+
       if (onUpdate) {
         onUpdate(newSimData, activeScenarioRef.current);
       }
+      };
     };
 
+    connect();
+
     return () => {
-      ws.close();
+      alive = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (wsRef.current) wsRef.current.close();
       wsRef.current = null;
     };
   }, []); // eslint-disable-line
