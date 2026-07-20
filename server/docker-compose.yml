@@ -28,10 +28,21 @@ services:
       - DB_URL=postgres://econ:econ@db:5432/econ?sslmode=disable
       - MQTT_BROKER=tcp://mqtt:1883
       - FORECAST_URL=http://forecasting:8000  # consumed by /api/forecast proxy
+      - DIGITIZER_URL=http://digitizer:8000   # consumed by /api/digitize proxy
     depends_on:
       - db
       - mqtt
       - forecasting
+
+  # Blueprint digitizer (FastAPI): DXF/PDF/image in, building-data.json out, wrapping
+  # ai_modules/branch_b_digitization. The dashboard talks to it only through the Go
+  # server's /api/digitize proxy, so the frontend keeps a single backend origin.
+  digitizer:
+    build:
+      context: ..
+      dockerfile: digitizer/Dockerfile
+    ports:
+      - "8090:8000"
 
   # Python LSTM peak-load forecaster (FastAPI). Trains at build time, so it ships with real
   # weights + scaler (no random-init predictions). Independent of db/mqtt. POST /predict,
