@@ -6,6 +6,36 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-21 — Plug loads: the end use the BMS can't touch
+>
+> **Both Vietnamese office case studies this project benchmarks against say the same
+> thing: the biggest energy consumer is the one the BMS doesn't manage.** In the 2025
+> Hanoi tower study (117,000 m², full BMS on chillers/lighting/pumps/fans/elevators),
+> plug loads were the *largest* end use — 26.4% of energy, 35.3% of CO₂ — precisely
+> because a BMS stops at the wall socket. The 57-building survey (Hoang et al. 2022)
+> puts appliance intensity at 17.7–20 kWh/m²·yr, second only to air conditioning. ECON
+> now closes that loop with **Automated Plug Load Control (APLC)**: every zone carries
+> a plug model sized from its real digitized floor area (1.2 W/m² always-on standby +
+> 65 W per present occupant, coincidence-weighted per the survey's own k·factor
+> methodology), and an **after-hours sweep** sheds the switchable 70% of standby in
+> zones that are *verifiably empty* — the occupancy the twin already senses via
+> CV/mmWave/PIR — then restores them the instant presence returns (`PLUG_OFF`/`PLUG_ON`
+> over MQTT, proven live end-to-end). Server rooms and mechanical spaces are never
+> swept. Where an ESP32 carries the new `USE_PLUG` build (SCT-013 clamp on GPIO34,
+> plug relay on GPIO25, fail-energized on boot), measured watts replace the model under
+> the same per-field freshness rules as every other sensor. Savings integrate on
+> wall-clock time and survive rebuilds on the data volume (verified: 0.109 kWh crossed
+> a container recreate), priced in VND at the EVN tariff and in CO₂ at the same 0.6766
+> kg/kWh grid factor the case study used. Policy changes (work hours, grace, enable)
+> are POST `/api/plugs` — admin-token-guarded when set, audited to the same
+> `deploy-log.jsonl` as building deploys. Desktop gained a **PLUGS** tab (live draw,
+> phantom-load leaderboard, sweep policy editor); mobile's Energy screen gained a Plug
+> Loads card with the sweep toggle and a split Energy Flow (plug vs lighting+fans).
+> Found and fixed in the process: the container ran on UTC, which would have armed the
+> sweep at lunch and disarmed it at midnight — the image now ships tzdata with
+> `TZ=Asia/Ho_Chi_Minh` compose default, because a schedule that switches a building's
+> sockets must run on the building's clock.
+>
 > ### 2026-07-20 — Blueprints in, buildings out
 >
 > **A real-world drawing can now become the running twin without touching a terminal.**
