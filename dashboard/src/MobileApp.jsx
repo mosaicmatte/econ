@@ -316,12 +316,14 @@ export default function MobileApp() {
              <MobileImpactScreen simData={simData} aiForecast={aiForecast} hardwareNodes={hardwareNodes} onClose={() => setActiveModal(null)} />
           )}
           {activeModal === 'analytics' && (
-             <TelemetryPanel 
-                simData={simData} 
-                loadHistory={loadHistory} 
-                activeScenario={activeScenario} 
+             <TelemetryPanel
+                simData={simData}
+                loadHistory={loadHistory}
+                activeScenario={activeScenario}
                 faultTarget={faultTarget}
                 autoPilot={autoPilot}
+                setAutoPilot={setAutoPilot}
+                setSelectedZone={(id) => { setSelectedZone(id); setActiveModal(null); }}
                 onOpenMaintenance={() => {}}
                 isMobile={true}
              />

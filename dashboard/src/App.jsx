@@ -746,6 +746,7 @@ function App() {
                   onOpenMaintenance={() => setMaintenanceTarget(failingZone ? failingZone.bim_asset_id : null)}
                   autoPilot={autoPilot}
                   setAutoPilot={setAutoPilot}
+                  setSelectedZone={setSelectedZone}
                 />
               ) : (
                 <AiInsightsPanel
