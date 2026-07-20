@@ -1,17 +1,20 @@
 import React, { useMemo, useState } from 'react';
-import { Brain, Zap, AlertTriangle, TrendingDown, Activity, Radio, ThermometerSnowflake, Power } from 'lucide-react';
-import { money, energyCostPerDay, peakShiftSavingPerMonth } from './tariff';
+import { Brain, Zap, AlertTriangle, TrendingDown, Activity, Radio, ThermometerSnowflake, Power, Plug, CloudOff, Wind, WifiOff } from 'lucide-react';
+import { money, energyCostPerDay, peakShiftSavingPerMonth, rateStr, touPeriod, minutesToPeak, TARIFF } from './tariff';
+import { useOpsStatus, untilLabel } from './useOpsStatus';
+import { usePlugs } from './usePlugs';
 
 // Mobile "AI & Automation" screen — the phone-sized twin of the desktop AI Insights panel.
 // Gives the operator the three things the app is meant to offer on the go:
 //   1. AUTOMATE  — a master Auto-Pilot switch (the autonomous optimizer intent).
 //   2. RECOMMENDATIONS — the same live, data-driven insights the desktop shows, each with a
-//      real action (open a pre-cool window, fly to a faulting room, engage auto-pilot).
+//      real action (open a pre-cool window, purge a stale-air room, fly to a faulting room).
 //   3. MANUAL    — a reminder that tapping any room in the 3D view opens per-zone overrides.
-// All figures are live (engine stream + EVN tariff); nothing here is hard-coded.
+// Every card is generated from real state: the telemetry stream, the edge-node registry,
+// the EVN TOU clock, and the engine's own control loops (pre-cool, plug sweep, weather).
 export default function MobileAIScreen({
   simData = {}, activeScenario, faultTarget, aiForecast, hardwareNodes = {},
-  autoPilot, setAutoPilot, sendManualOverride, onFocusZone, onClose,
+  autoPilot, setAutoPilot, sendManualOverride, onFocusZone, onOpenEnergy, onClose,
 }) {
   const [engaged, setEngaged] = useState({});
   const mark = (id) => setEngaged((e) => ({ ...e, [id]: true }));
@@ -25,6 +28,10 @@ export default function MobileAIScreen({
   const hvacMw = plantCop > 0 ? Math.min(loadMw, (simData.coolingOutputMw || 0) / plantCop) : 0;
   const shedKw = 0.05 * hvacMw * 1000; // ~5%-per-°C deadband/pre-cool shave
   const hwList = Object.values(hardwareNodes || {});
+
+  // Live control-loop state from the engine (shared hooks with the desktop panel).
+  const { precool, weather } = useOpsStatus();
+  const { status: plugStatus } = usePlugs();
 
   const recs = useMemo(() => {
     const out = [];
@@ -43,7 +50,20 @@ export default function MobileAIScreen({
       });
     }
 
-    // 2. Physics-grounded AFDD divergence (real hardware residual).
+    // 2. A bound edge node the broker has declared dead (MQTT Last Will) — a field
+    // callout: its zone has fallen back to pure simulation.
+    const dead = hwList.filter((n) => !n.online);
+    if (dead.length) {
+      const n = dead[0];
+      out.push({
+        id: 'offline', accent: '#FF3B30', icon: <WifiOff size={20} color="#FF3B30" />,
+        title: `Edge Node${dead.length > 1 ? 's' : ''} Offline`,
+        message: `${dead.map((d) => `${(d.source || 'edge').toUpperCase()} on ${(d.zoneId || '').replace('zone-', '')}`).join('; ')} — broker LWT reports offline. Sensing and socket control are gone until the node returns.`,
+        actionLabel: 'SHOW ZONE →', onAction: () => onFocusZone && onFocusZone(n.zoneId),
+      });
+    }
+
+    // 3. Physics-grounded AFDD divergence (real hardware residual).
     const afdd = hwList.filter((n) => n.afddAlert);
     if (afdd.length) {
       const n = afdd[0];
@@ -55,18 +75,38 @@ export default function MobileAIScreen({
       });
     }
 
-    // 3. High grid demand → forecast-driven pre-cooling (a REAL global action).
-    if (activeScenario === 'peak') {
+    // 3b. Measured CO₂ over the comfort line — only a real NDIR can raise this, and the
+    // action is a real purge override (lights off, max airflow flush, 15-min latch).
+    const staleAir = zones.filter((z) => (z.co2 || 0) > 1000).sort((a, b) => b.co2 - a.co2);
+    if (staleAir.length) {
+      const z = staleAir[0];
       out.push({
-        id: 'precool', accent: '#FFD60A', icon: <TrendingDown size={20} color="#FFD60A" />,
-        title: 'High Grid Demand',
-        message: `Pre-cool the thermal mass now so chillers coast through the 17:30–22:30 peak hours — shifting ≈ ${shedKw.toFixed(0)} kW off peak saves ≈ ${money(peakShiftSavingPerMonth(shedKw))}/month.`,
-        actionLabel: 'ACTIVATE PRE-COOLING',
-        onAction: () => { sendManualOverride && sendManualOverride('precool', 'GLOBAL'); setAutoPilot && setAutoPilot(true); },
+        id: 'co2', accent: '#F5C242', icon: <Wind size={20} color="#F5C242" />,
+        title: 'Measured CO₂ High',
+        message: `${z.label} reads ${Math.round(z.co2)} ppm from its NDIR sensor (guideline ≤ 1000). Ventilation is not keeping up with occupancy.`,
+        actionLabel: 'PURGE ZONE', onAction: () => sendManualOverride && sendManualOverride('purge', z.id),
       });
     }
 
-    // 4. LSTM forecast (informational).
+    // 4. High grid demand — the EVN TOU CLOCK decides, not a demo toggle: in cao điểm,
+    // or within 90 minutes of it. Reflects the engine's real pre-cool window state.
+    const tou = touPeriod();
+    const toPeak = minutesToPeak();
+    if (tou === 'peak' || (toPeak !== null && toPeak <= 90)) {
+      const windowOpen = !!precool?.active;
+      out.push({
+        id: 'precool', accent: '#FFD60A', icon: <TrendingDown size={20} color="#FFD60A" />,
+        title: tou === 'peak' ? 'Peak Tariff Running Now' : `Peak Tariff in ${toPeak} min`,
+        message: windowOpen
+          ? `A pre-cool window is open until ${untilLabel(precool.until)} — thermal mass is charging so chillers coast through the ${rateStr('peak')}/kWh window.`
+          : `${tou === 'peak' ? `Cao điểm is charging ${rateStr('peak')}/kWh right now.` : `Cao điểm (${rateStr('peak')}/kWh) begins at 17:30.`} Pre-cooling shifts ≈ ${shedKw.toFixed(0)} kW off peak ≈ ${money(peakShiftSavingPerMonth(shedKw))}/month.`,
+        actionLabel: windowOpen ? `✓ OPEN UNTIL ${untilLabel(precool.until)}` : 'ACTIVATE PRE-COOLING',
+        done: windowOpen,
+        onAction: windowOpen ? undefined : () => { sendManualOverride && sendManualOverride('precool', 'GLOBAL'); },
+      });
+    }
+
+    // 5. LSTM forecast (informational).
     if (aiForecast && aiForecast.predicted_peak_load) {
       out.push({
         id: 'forecast', accent: '#4A90E2', icon: <Activity size={20} color="#4A90E2" />,
@@ -75,7 +115,36 @@ export default function MobileAIScreen({
       });
     }
 
-    // 5. Physical edge nodes bound in.
+    // 5b. Weather feed stale → envelope on the climatological fallback.
+    if (weather && !weather.live) {
+      out.push({
+        id: 'weather', accent: '#F5C242', icon: <CloudOff size={20} color="#F5C242" />,
+        title: 'Weather Feed Stale',
+        message: `Open-Meteo has not refreshed${weather.ageSec > 0 ? ` in ${(weather.ageSec / 3600).toFixed(1)} h` : ''}. The envelope physics is running on the ${weather.outdoorC.toFixed(1)} °C fallback — loads and forecasts are less trustworthy until it recovers.`,
+      });
+    }
+
+    // 5c. Plug sweep (APLC): the engine's own after-hours socket control, live.
+    if (plugStatus) {
+      const saved = simData.plugSavedKwh ?? plugStatus.savedKwh ?? 0;
+      if (!plugStatus.config?.enabled) {
+        out.push({
+          id: 'plugs', accent: '#F5C242', icon: <Plug size={20} color="#F5C242" />,
+          title: 'Plug Sweep Disabled',
+          message: `${(simData.plugStandbyKw ?? plugStatus.standbyKw ?? 0).toFixed(1)} kW of always-on standby has no after-hours control — the case-study buildings lost 26.4% of their energy to exactly this.`,
+          actionLabel: 'OPEN ENERGY →', onAction: onOpenEnergy,
+        });
+      } else if (plugStatus.armed) {
+        out.push({
+          id: 'plugs', accent: '#3DDC84', icon: <Plug size={20} color="#3DDC84" />,
+          title: 'Plug Sweep Armed',
+          message: `${plugStatus.shedZones} vacant zone${plugStatus.shedZones === 1 ? '' : 's'} swept — ${(simData.plugShedKw ?? plugStatus.shedKw ?? 0).toFixed(1)} kW off. Avoided so far: ${saved.toFixed(1)} kWh ≈ ${money(saved * TARIFF.normalPerKwh)}. Sockets restore on presence.`,
+          actionLabel: 'OPEN ENERGY →', onAction: onOpenEnergy,
+        });
+      }
+    }
+
+    // 6. Physical edge nodes bound in.
     if (hwList.length) {
       const online = hwList.filter((n) => n.online).length;
       out.push({
@@ -85,14 +154,18 @@ export default function MobileAIScreen({
       });
     }
 
-    // 6. Unoccupied waste → engage auto-pilot.
-    const wasting = zones.filter((z) => z.occupancy === 0 && z.load > 0);
-    if (wasting.length) {
+    // 7. Unoccupied zones still at occupied setpoints — priced through the live COP at
+    // the live tariff, and attributed honestly: instrumented zones set back themselves.
+    // 24/7-critical types excluded: an empty server room being cooled is correct, not waste.
+    const wasting = zones.filter((z) =>
+      z.occupancy === 0 && z.load > 0 && z.lightsOn !== false
+      && z.type !== 'server-room' && z.type !== 'mechanical');
+    if (wasting.length && plantCop > 0) {
+      const wasteKw = wasting.reduce((acc, z) => acc + z.load, 0) / plantCop;
       out.push({
         id: 'eco', accent: '#4A90E2', icon: <Zap size={20} color="#4A90E2" />,
-        title: 'Energy Optimization',
-        message: `${wasting.length} zones are unoccupied but still drawing cooling. Auto-Pilot will set them back automatically.`,
-        actionLabel: 'ENGAGE AUTO-PILOT', onAction: () => setAutoPilot && setAutoPilot(true),
+        title: 'Unoccupied, Still Cooled',
+        message: `${wasting.length} unoccupied zone${wasting.length === 1 ? '' : 's'} still held at occupied setpoints — ≈ ${wasteKw.toFixed(1)} kW electrical (${money(energyCostPerDay(wasteKw))}/day). Zones with presence sensors set back automatically; the rest wait for edge nodes or the after-hours plug sweep.`,
       });
     }
 
@@ -114,7 +187,7 @@ export default function MobileAIScreen({
     });
 
     return out;
-  }, [simData, activeScenario, faultTarget, aiForecast, hwList, shedKw, savingsPct, savedMw, onFocusZone, sendManualOverride, setAutoPilot]);
+  }, [simData, activeScenario, faultTarget, aiForecast, hwList, shedKw, savingsPct, savedMw, onFocusZone, sendManualOverride, setAutoPilot, precool, weather, plugStatus, onOpenEnergy]);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', color: '#fff', background: '#000', fontFamily: 'system-ui, -apple-system, "SF Pro Display", sans-serif', padding: '20px', minHeight: '100dvh', overflowY: 'auto' }}>

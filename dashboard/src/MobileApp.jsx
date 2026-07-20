@@ -302,6 +302,7 @@ export default function MobileApp() {
                 setAutoPilot={setAutoPilot}
                 sendManualOverride={sendManualOverride}
                 onFocusZone={(id) => { setSelectedZone(id); setActiveModal(null); }}
+                onOpenEnergy={() => setActiveModal('energy')}
                 onClose={() => setActiveModal(null)}
              />
           )}

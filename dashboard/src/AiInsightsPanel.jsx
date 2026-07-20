@@ -1,25 +1,22 @@
 import React, { useMemo, useState } from 'react';
-import { Brain, Zap, AlertTriangle, TrendingDown, ThermometerSnowflake, Activity, Radio } from 'lucide-react';
+import { Brain, Zap, AlertTriangle, TrendingDown, ThermometerSnowflake, Activity, Radio, Plug, CloudOff, Wind, WifiOff } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { money, energyCostPerDay, peakShiftSavingPerMonth, rateStr } from './tariff';
+import { money, energyCostPerDay, peakShiftSavingPerMonth, rateStr, touPeriod, minutesToPeak, TARIFF } from './tariff';
+import { useOpsStatus, untilLabel } from './useOpsStatus';
+import { usePlugs } from './usePlugs';
 
-export default function AiInsightsPanel({ simData, activeScenario, faultTarget, aiForecast, setAutoPilot, hardwareNodes = {}, setSelectedZone, sendManualOverride }) {
-  // Insight actions that have been engaged (id set). Clicking an action hands the recommendation
-  // to the autonomous controller (autoPilot) and marks it engaged — so the button does something.
+export default function AiInsightsPanel({ simData, activeScenario, faultTarget, aiForecast, setAutoPilot, hardwareNodes = {}, setSelectedZone, sendManualOverride, onOpenPlugs }) {
+  // Every card's action is a real one: an actuation over the websocket (pre-cool window,
+  // purge override), a navigation (fly the 3D camera to the zone, open the PLUGS tab),
+  // or an inline expansion of live detail. Engaged state marks fire-once actuations.
   const [engaged, setEngaged] = useState({});
-  // Cards that carry live detail (forecast chart, model metrics, hardware nodes) expand inline
-  // instead of engaging the controller.
   const [expanded, setExpanded] = useState({});
-  const engage = (id) => {
-    setEngaged((e) => ({ ...e, [id]: true }));
-    if (id === 'peak' && sendManualOverride) {
-      // Real actuation: the engine opens a 20-minute pre-cool window and drives every
-      // occupied zone below setpoint (commands go out to the physical edge nodes too).
-      sendManualOverride('precool', 'GLOBAL');
-    }
-    if (setAutoPilot) setAutoPilot(true);
-  };
   const toggle = (id) => setExpanded((e) => ({ ...e, [id]: !e[id] }));
+
+  // Live operational signals: pre-cool window, weather feed, plug sweep. Polled from the
+  // engine so this panel reasons over what the building is DOING, not over UI state.
+  const { precool, weather } = useOpsStatus();
+  const { status: plugStatus } = usePlugs();
 
   const hwList = Object.values(hardwareNodes || {});
   const hwOnline = hwList.filter((n) => n.online).length;
@@ -42,12 +39,17 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
     });
   }, [aiForecast?.predicted_peak_load, loadMw]);
 
-  // Dynamically generate insights based on simulation state
+  // Insights are generated from what the building is actually doing: the telemetry
+  // stream, the edge-node registry, the TOU clock, and the engine's own control loops
+  // (pre-cool window, plug sweep, weather feed). Demo scenario toggles only add cards;
+  // they never gate a real signal.
   const insights = useMemo(() => {
     const generated = [];
     const zones = Object.values(simData.zones || {});
+    const cop = simData.plantCop || 0;
 
-    // 1. Critical Scenario Fault
+    // 1. Critical scenario fault → REAL remediation: a websocket override that floods
+    // the zone with cooling (engine publishes to the edge node and latches 15 min).
     if (activeScenario === 'fault' && faultTarget) {
       generated.push({
         id: 'fault',
@@ -55,7 +57,24 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
         icon: <AlertTriangle size={18} color="var(--accent-red)" />,
         title: 'Thermal Runaway Detected',
         message: `Zone ${faultTarget} is experiencing a critical thermal failure. Cooling capacity is degraded.`,
-        action: 'OVERRIDE VAV SETTINGS'
+        action: 'FLOOD ZONE WITH COOLING',
+        once: true,
+        onAction: () => sendManualOverride && sendManualOverride('cool', faultTarget),
+      });
+    }
+
+    // 1b. A bound edge node the broker has declared dead (MQTT Last Will). Its zone has
+    // fallen back to simulation — that is a field callout, not a UI state.
+    const deadNodes = hwList.filter((n) => !n.online);
+    if (deadNodes.length > 0) {
+      generated.push({
+        id: 'offline',
+        type: 'critical',
+        icon: <WifiOff size={18} color="var(--accent-red)" />,
+        title: `Edge Node${deadNodes.length > 1 ? 's' : ''} Offline`,
+        message: `${deadNodes.map((n) => `${(n.source || 'edge').toUpperCase()} on ${(n.zoneId || '').replace('zone-', '')}`).join('; ')} — broker LWT reports offline. The zone${deadNodes.length > 1 ? 's have' : ' has'} fallen back to the 2R1C model; sensing and socket control are gone until the node returns.`,
+        action: 'SHOW IN 3D',
+        onAction: () => setSelectedZone && setSelectedZone(deadNodes[0].zoneId),
       });
     }
 
@@ -83,25 +102,49 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
         icon: <AlertTriangle size={18} color="var(--accent-red)" />,
         title: 'AFDD: Physics Divergence',
         message: `${afddNodes.map((n) => (n.zoneId || '').replace('zone-', '')).join(', ')} reading ${afddNodes.map((n) => `${(n.residual || 0).toFixed(1)}°C`).join(', ')} away from the calibrated thermal model — possible coil/damper fault, blocked diffuser or open window.`,
-        action: 'DISPATCH TECHNICIAN'
+        action: 'INSPECT IN 3D',
+        onAction: () => setSelectedZone && setSelectedZone(afddNodes[0].zoneId),
       });
     }
 
-    // 3. High Demand Period
-    if (activeScenario === 'peak') {
-      // Pre-cooling's value in Vietnam is shifting cooling load off the expensive peak hours
-      // energy rate (~5% of cooling electrical load; see tariff.js). The plant's electrical
-      // draw comes from the live stream (thermal cooling / COP), not a hard-coded baseline.
-      const cop = simData.plantCop || 0;
+    // 2c. Measured air quality: an NDIR sensor reading over the 1000 ppm comfort line.
+    // Only real sensors can raise this (co2 > 0 in the stream = a live ACD1200), and
+    // the action is a real purge override — lights off, max airflow flush, 15-min latch.
+    const staleAir = zones.filter((z) => (z.co2 || 0) > 1000).sort((a, b) => b.co2 - a.co2);
+    if (staleAir.length > 0) {
+      const worst = staleAir[0];
+      generated.push({
+        id: 'co2',
+        type: 'warning',
+        icon: <Wind size={18} color="var(--accent-yellow)" />,
+        title: 'Measured CO₂ Above Comfort Line',
+        message: `${worst.label} reads ${Math.round(worst.co2)} ppm from its NDIR sensor (comfort guideline ≤ 1000 ppm). Ventilation is not keeping up with occupancy — purge the zone or raise its outdoor-air fraction.`,
+        action: 'PURGE ZONE',
+        once: true,
+        onAction: () => sendManualOverride && sendManualOverride('purge', worst.id),
+      });
+    }
+
+    // 3. High grid demand — driven by the EVN TOU CLOCK, not a demo toggle: warn while
+    // cao điểm is running, and ahead of it when it starts within 90 minutes. The card
+    // reflects the engine's real pre-cool window state and its action opens one.
+    const tou = touPeriod();
+    const toPeak = minutesToPeak();
+    if (tou === 'peak' || (toPeak !== null && toPeak <= 90)) {
       const hvacMw = cop > 0 ? Math.min(loadMw, (simData.coolingOutputMw || 0) / cop) : 0;
-      const shedKw = 0.05 * hvacMw * 1000;
+      const shedKw = 0.05 * hvacMw * 1000; // ≈5% coast from a charged thermal mass (estimate)
+      const windowOpen = !!precool?.active;
       generated.push({
         id: 'peak',
-        type: 'warning',
-        icon: <TrendingDown size={18} color="var(--accent-yellow)" />,
-        title: 'High Grid Demand',
-        message: `Evening peak hours (17:30–22:30) are the costly window. Pre-cooling charges thermal mass during normal-rate hours so chillers coast through the peak — shifting ≈ ${shedKw.toFixed(0)} kW off peak hours saves roughly ${money(peakShiftSavingPerMonth(shedKw))}/month (peak ${rateStr('peak')}/kWh vs ${rateStr('normal')}/kWh normal).`,
-        action: 'ACTIVATE PRE-COOLING'
+        type: tou === 'peak' ? 'warning' : 'info',
+        icon: <TrendingDown size={18} color={tou === 'peak' ? 'var(--accent-yellow)' : 'var(--accent-blue)'} />,
+        title: tou === 'peak' ? 'Peak Tariff Running Now' : `Peak Tariff in ${toPeak} min`,
+        message: `${tou === 'peak' ? 'The 17:30–22:30 cao điểm window is charging ' + rateStr('peak') + '/kWh right now.' : `Cao điểm (${rateStr('peak')}/kWh vs ${rateStr('normal')} normal) begins at 17:30.`} ${windowOpen ? `A pre-cool window is OPEN until ${untilLabel(precool.until)} — thermal mass is charging so chillers can coast.` : `Pre-cooling now charges the thermal mass at the cheaper rate — shifting ≈ ${shedKw.toFixed(0)} kW off peak saves roughly ${money(peakShiftSavingPerMonth(shedKw))}/month.`}`,
+        action: windowOpen ? 'PRE-COOLING' : 'ACTIVATE PRE-COOLING',
+        done: windowOpen,
+        doneLabel: `✓ OPEN UNTIL ${untilLabel(precool?.until)}`,
+        once: true,
+        onAction: () => sendManualOverride && sendManualOverride('precool', 'GLOBAL'),
       });
     }
 
@@ -118,16 +161,63 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       });
     }
 
-    // 4. Unoccupied Wasting
-    const wastingZones = zones.filter((z) => z.occupancy === 0 && z.load > 0);
-    if (wastingZones.length > 0) {
+    // 3b. The envelope's weather feed has gone stale: the physics is integrating against
+    // the 30 °C climatological fallback, so loads and forecasts degrade together.
+    if (weather && !weather.live) {
+      generated.push({
+        id: 'weather',
+        type: 'warning',
+        icon: <CloudOff size={18} color="var(--accent-yellow)" />,
+        title: 'Weather Feed Stale',
+        message: `The Open-Meteo feed has not refreshed${weather.ageSec > 0 ? ` in ${(weather.ageSec / 3600).toFixed(1)} h` : ''}. The 2R1C envelope is running on the ${weather.outdoorC.toFixed(1)} °C climatological fallback — envelope loads and the LSTM forecast are less trustworthy until the feed recovers.`,
+      });
+    }
+
+    // 3c. Plug loads (APLC): the sweep's live state, from the engine. Disabled after
+    // hours = the phantom runs unmanaged, which is a cost, not a preference.
+    if (plugStatus) {
+      const saved = simData.plugSavedKwh ?? plugStatus.savedKwh ?? 0;
+      if (!plugStatus.config?.enabled) {
+        generated.push({
+          id: 'plugs',
+          type: 'warning',
+          icon: <Plug size={18} color="var(--accent-yellow)" />,
+          title: 'Plug Sweep Disabled',
+          message: `${(simData.plugStandbyKw ?? plugStatus.standbyKw ?? 0).toFixed(1)} kW of always-on standby is running with no after-hours control. The case-study buildings lost 26.4% of their energy to exactly this. Enable the sweep in the PLUGS tab.`,
+          action: onOpenPlugs ? 'OPEN PLUGS TAB' : undefined,
+          onAction: onOpenPlugs,
+        });
+      } else if (plugStatus.armed) {
+        generated.push({
+          id: 'plugs',
+          type: 'success',
+          icon: <Plug size={18} color="var(--accent-green)" />,
+          title: 'Plug Sweep Armed (After Hours)',
+          message: `${plugStatus.shedZones} vacant zone${plugStatus.shedZones === 1 ? '' : 's'} swept — ${(simData.plugShedKw ?? plugStatus.shedKw ?? 0).toFixed(1)} kW of switchable standby off. Cumulative avoided: ${saved.toFixed(1)} kWh ≈ ${money(saved * TARIFF.normalPerKwh)}. Sockets restore the instant presence returns.`,
+          action: onOpenPlugs ? 'OPEN PLUGS TAB' : undefined,
+          onAction: onOpenPlugs,
+        });
+      }
+    }
+
+    // 4. Unoccupied zones still holding occupied setpoints. Priced honestly: their heat
+    // load through the LIVE plant COP at today's tariff — and attributed honestly: the
+    // optimizer sets back instrumented zones itself; unmetered zones wait for sensors.
+    // 24/7-critical types are excluded — an empty server room being cooled is correct
+    // operation, not waste, exactly as the plug sweep's critical list already encodes.
+    const wastingZones = zones.filter((z) =>
+      z.occupancy === 0 && z.load > 0 && z.lightsOn !== false
+      && z.type !== 'server-room' && z.type !== 'mechanical');
+    if (wastingZones.length > 0 && cop > 0) {
+      const wasteKw = wastingZones.reduce((acc, z) => acc + z.load, 0) / cop;
       generated.push({
         id: 'wasting',
         type: 'info',
         icon: <Zap size={18} color="var(--accent-blue)" />,
-        title: 'Energy Optimization Opportunity',
-        message: `${wastingZones.length} zones are currently unoccupied but consuming ${wastingZones.reduce((acc, z) => acc + z.load, 0).toFixed(1)} kW of cooling power.`,
-        action: 'APPLY ECO SETBACK'
+        title: 'Unoccupied Zones at Occupied Setpoints',
+        message: `${wastingZones.length} unoccupied zone${wastingZones.length === 1 ? '' : 's'} still cooled and lit as if occupied — ≈ ${wasteKw.toFixed(1)} kW electrical at the plant's live COP (${money(energyCostPerDay(wasteKw))}/day at the current rate). Zones with presence sensors set back automatically; the rest are why the after-hours plug sweep and more edge nodes pay for themselves.`,
+        action: onOpenPlugs ? 'OPEN PLUGS TAB' : undefined,
+        onAction: onOpenPlugs,
       });
     }
 
@@ -140,7 +230,6 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
         icon: <ThermometerSnowflake size={18} color="var(--accent-yellow)" />,
         title: 'Thermal Drift Detected',
         message: `${hotZones.length} zones have drifted above their cooling deadband. Likely airflow starvation — check the Zone Performance scatter (Telemetry tab) for which zones are hot but barely drawing cooling, then raise AHU static pressure or release their VAV dampers.`,
-        action: 'OPTIMIZE PRESSURE'
       });
     }
 
@@ -156,7 +245,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
     });
 
     return generated;
-  }, [simData, activeScenario, faultTarget, aiForecast, hwList, hwOnline, savingsPct, savedMw]);
+  }, [simData, activeScenario, faultTarget, aiForecast, hwList, hwOnline, savingsPct, savedMw, loadMw, precool, weather, plugStatus, sendManualOverride, setSelectedZone, onOpenPlugs]);
 
   // ---- Inline detail sections for the expandable cards ----
   const renderDetail = (id) => {
@@ -191,6 +280,12 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
         ['Zones simulated', `${Object.keys(simData.zones || {}).length}`],
         ['Physical nodes', `${hwList.length} (${hwOnline} online)`],
         ['Forecaster', aiForecast ? `LSTM · ${aiForecast.weather_source === 'fallback' ? 'fallback weather' : 'live weather'}` : 'offline'],
+        // Live control-loop state, straight from the engine's own endpoints.
+        ['Outdoor (envelope)', weather ? `${weather.outdoorC.toFixed(1)} °C · ${weather.live ? 'live Open-Meteo' : 'fallback'}` : '—'],
+        ['TOU band now', rateStr(touPeriod()) + '/kWh'],
+        ['Pre-cool window', precool?.active ? `open until ${untilLabel(precool.until)}` : 'closed'],
+        ['Plug sweep', plugStatus ? (plugStatus.config?.enabled ? (plugStatus.armed ? `armed · ${plugStatus.shedZones} zones swept` : 'disarmed (work hours)') : 'disabled') : '—'],
+        ['Plug energy avoided', `${(simData.plugSavedKwh ?? plugStatus?.savedKwh ?? 0).toFixed(1)} kWh`],
       ];
       return (
         <div style={{ marginTop: '6px', display: 'grid', gridTemplateColumns: '1fr auto', rowGap: '4px', columnGap: '10px' }}>
@@ -204,6 +299,23 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       );
     }
     if (id === 'hardware') {
+      // Per-sensor coverage: which of the node's intended sensors is DELIVERING right
+      // now. These come from /api/hardware, where each field is freshness-gated —
+      // 0/false means "not measuring", never "measuring zero". A lit badge is a live
+      // sensor; a dim one is absent, failed, or stale — the honest wiring checklist.
+      const sensorBadge = (on, label, title) => (
+        <span
+          title={title}
+          style={{
+            fontSize: '8px', fontWeight: 'bold', padding: '1px 4px', borderRadius: '3px', flexShrink: 0,
+            color: on ? 'var(--accent-green)' : 'var(--text-muted)',
+            border: `1px solid ${on ? 'var(--accent-green)' : 'rgba(127,139,150,0.3)'}`,
+            opacity: on ? 1 : 0.55,
+          }}
+        >
+          {label}
+        </span>
+      );
       return (
         <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
           {hwList.map((n) => (
@@ -211,12 +323,15 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
               key={n.zoneId}
               onClick={() => setSelectedZone && setSelectedZone(n.zoneId)}
               title="Click to fly the 3D view to this zone"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', cursor: setSelectedZone ? 'pointer' : 'default', fontFamily: 'monospace', fontSize: '10px' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', cursor: setSelectedZone ? 'pointer' : 'default', fontFamily: 'monospace', fontSize: '10px', flexWrap: 'wrap' }}
             >
               <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: n.online ? 'var(--accent-green)' : 'var(--text-muted)', boxShadow: n.online ? '0 0 4px var(--accent-green)' : 'none' }} />
               <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{(n.source || 'edge').toUpperCase()}</span>
-              <span style={{ color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(n.zoneId || '').replace('zone-', '')}</span>
-              {n.tempPinned && <span style={{ color: 'var(--accent-blue)' }}>{(n.hwTemp || 0).toFixed(1)}°C</span>}
+              <span style={{ color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: '60px' }}>{(n.zoneId || '').replace('zone-', '')}</span>
+              {sensorBadge(n.tempPinned, 'T', n.tempPinned ? `temperature ${(n.hwTemp || 0).toFixed(1)}°C measured` : 'no live temperature sensor')}
+              {sensorBadge((n.humidity || 0) > 0, 'H', (n.humidity || 0) > 0 ? `humidity ${(n.humidity).toFixed(0)}%RH measured` : 'no live humidity sensor')}
+              {sensorBadge((n.co2 || 0) > 0, 'CO₂', (n.co2 || 0) > 0 ? `${Math.round(n.co2)} ppm measured (NDIR)` : 'no live CO₂ sensor')}
+              {sensorBadge((n.plugW || 0) > 0, 'W', (n.plugW || 0) > 0 ? `plug circuit ${(n.plugW).toFixed(0)} W measured (SCT-013)` : 'no live power clamp')}
               {n.shadowTemp > 0 && (
                 <span title="AFDD residual: |measured − 2R1C shadow model|" style={{ color: n.afddAlert ? 'var(--accent-red)' : 'var(--text-muted)' }}>
                   Δ{(n.residual || 0).toFixed(1)}°
@@ -224,6 +339,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
               )}
               <span style={{ color: 'var(--text-secondary)' }}>{n.occupancy ?? 0}P</span>
               <span style={{ color: n.lightsOn ? 'var(--accent-green)' : 'var(--text-muted)' }}>{n.lightsOn ? 'LIT' : 'DARK'}</span>
+              {n.plugShed && <span style={{ color: 'var(--accent-green)' }}>SWEPT</span>}
             </div>
           ))}
         </div>
@@ -309,27 +425,45 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
 
               {insight.expandable && isExpanded && renderDetail(insight.id)}
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
-                <button
-                  onClick={() => (insight.expandable ? toggle(insight.id) : engage(insight.id))}
-                  disabled={!insight.expandable && !!engaged[insight.id]}
-                  style={{
-                    background: !insight.expandable && engaged[insight.id] ? titleColor : 'transparent',
-                    border: `1px solid ${border}`,
-                    color: !insight.expandable && engaged[insight.id] ? '#000' : titleColor,
-                    padding: '6px 12px',
-                    borderRadius: '4px',
-                    fontSize: '10px',
-                    fontWeight: 'bold',
-                    cursor: !insight.expandable && engaged[insight.id] ? 'default' : 'pointer',
-                    transition: 'all 0.2s ease',
-                  }}
-                  onMouseOver={(e) => { if (insight.expandable || !engaged[insight.id]) { e.currentTarget.style.background = titleColor; e.currentTarget.style.color = '#000'; } }}
-                  onMouseOut={(e) => { if (insight.expandable || !engaged[insight.id]) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = titleColor; } }}
-                >
-                  {insight.expandable ? (isExpanded ? '▴ COLLAPSE' : insight.action) : (engaged[insight.id] ? '✓ ENGAGED' : insight.action)}
-                </button>
-              </div>
+              {insight.action && (() => {
+                // Expandables toggle inline detail; the rest run their REAL action —
+                // an override, a window, a navigation. `once` actions latch as engaged;
+                // `done` reflects engine state (e.g. a pre-cool window already open).
+                const settled = insight.done || (insight.once && !!engaged[insight.id]);
+                const label = insight.expandable
+                  ? (isExpanded ? '▴ COLLAPSE' : insight.action)
+                  : insight.done ? insight.doneLabel
+                  : (insight.once && engaged[insight.id]) ? '✓ ENGAGED'
+                  : insight.action;
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+                    <button
+                      onClick={() => {
+                        if (insight.expandable) return toggle(insight.id);
+                        if (settled) return;
+                        insight.onAction && insight.onAction();
+                        if (insight.once) setEngaged((e) => ({ ...e, [insight.id]: true }));
+                      }}
+                      disabled={!insight.expandable && settled}
+                      style={{
+                        background: !insight.expandable && settled ? titleColor : 'transparent',
+                        border: `1px solid ${border}`,
+                        color: !insight.expandable && settled ? '#000' : titleColor,
+                        padding: '6px 12px',
+                        borderRadius: '4px',
+                        fontSize: '10px',
+                        fontWeight: 'bold',
+                        cursor: !insight.expandable && settled ? 'default' : 'pointer',
+                        transition: 'all 0.2s ease',
+                      }}
+                      onMouseOver={(e) => { if (insight.expandable || !settled) { e.currentTarget.style.background = titleColor; e.currentTarget.style.color = '#000'; } }}
+                      onMouseOut={(e) => { if (insight.expandable || !settled) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = titleColor; } }}
+                    >
+                      {label}
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}

@@ -757,6 +757,7 @@ function App() {
                   hardwareNodes={hardwareNodes}
                   setSelectedZone={setSelectedZone}
                   sendManualOverride={sendManualOverride}
+                  onOpenPlugs={() => setActiveLeftTab('plugs')}
                 />
               )}
             </div>

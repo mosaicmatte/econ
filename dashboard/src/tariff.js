@@ -56,6 +56,19 @@ export function touPeriodLabel(period) {
     : 'normal hours';
 }
 
+// Minutes until the next cao điểm window opens (17:30 on a Mon–Sat), or null when peak
+// is already running or the next charged peak is more than a day away (Saturday night →
+// Monday). Lets the AI layer warn "peak begins in 40 min" off the same clock that
+// prices it, instead of a UI demo toggle.
+export function minutesToPeak(date = new Date()) {
+  if (touPeriod(date) === 'peak') return 0;
+  const day = date.getDay();
+  const mins = date.getHours() * 60 + date.getMinutes();
+  const peakStart = 17 * 60 + 30;
+  if (day !== 0 && mins < peakStart) return peakStart - mins; // later today
+  return null; // tonight's window is past (or it's Sunday): next peak is not today
+}
+
 // Current TOU energy rate (đồng/kWh).
 export function rateNow(date = new Date()) {
   const p = touPeriod(date);
