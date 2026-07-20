@@ -72,21 +72,22 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
   // normal rate gap on that shifted energy, not a (non-existent in Vietnam) demand charge.
   const shedKw = 0.05 * coolingElectricalKw;
 
+  // Likely cause is a RULE, not a model: the most common failure mode for the flagged
+  // zone's equipment class. It used to ship with an invented "96% Confidence" (a literal,
+  // per zone type) and a fixed "blast radius" no computation produced — the bar and the
+  // percentage taught operators to trust precision that did not exist. The evidence shown
+  // now is the zone's real overtemp and the real count of zones currently in alarm.
   const getRCA = (zone) => {
-    if (!zone) return { cause: 'Unknown error', blastRadius: 1, confidence: 0 };
-    if (zone.type === 'server-room') {
-      return { cause: 'CRAC unit compressor failure', blastRadius: 4, confidence: 96 };
-    }
-    if (zone.type === 'open-office') {
-      return { cause: 'VAV box damper stuck closed', blastRadius: 2, confidence: 88 };
-    }
-    if (zone.type === 'perimeter') {
-      return { cause: 'perimeter radiant heater stuck ON', blastRadius: 1, confidence: 85 };
-    }
-    return { cause: 'upstream chilled water valve failure', blastRadius: 3, confidence: 92 };
+    if (!zone) return { cause: 'unknown equipment' };
+    if (zone.type === 'server-room') return { cause: 'CRAC unit compressor failure' };
+    if (zone.type === 'open-office') return { cause: 'VAV box damper stuck closed' };
+    if (zone.type === 'perimeter') return { cause: 'perimeter radiant heater stuck ON' };
+    return { cause: 'upstream chilled water valve failure' };
   };
-  
+
   const rcaData = getRCA(faultZone);
+  const alarmingCount = Object.values(simData.zones || {}).filter((z) => z.alert).length;
+  const faultOverC = faultZone ? faultZone.temp - (faultZone.setpoint + (faultZone.deadband ?? 1)) : 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -175,11 +176,10 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
                 <div>
                   <div style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--accent-red)', letterSpacing: '0.5px' }}>ROOT CAUSE ANALYSIS</div>
                   <div style={{ fontSize: '11px', color: 'var(--text-primary)', marginTop: '4px', lineHeight: 1.4 }}>
-                    Alerts in {faultZone.label} are likely caused by a single failure in the {rcaData.cause}. Blast radius spans {rcaData.blastRadius} dependent zones.
+                    Likely cause for a {faultZone.type || 'zone'} (rule-based): {rcaData.cause}.
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
-                    <div style={{ height: '4px', width: `${rcaData.confidence}%`, background: 'var(--accent-green)', borderRadius: '2px' }} />
-                    <span style={{ fontSize: '10px', color: 'var(--accent-green)' }}>{rcaData.confidence}% Confidence</span>
+                  <div style={{ fontSize: '10px', color: 'var(--accent-green)', marginTop: '6px' }}>
+                    Evidence: {faultZone.temp.toFixed(1)}°C, {faultOverC > 0 ? `+${faultOverC.toFixed(1)}°C over` : 'inside'} the comfort limit · {alarmingCount} zone{alarmingCount === 1 ? '' : 's'} currently in alarm
                   </div>
                 </div>
               </div>
@@ -189,7 +189,7 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
                 onMouseOver={e => e.target.style.background = 'var(--accent-red)'}
                 onMouseOut={e => e.target.style.background = 'rgba(255,0,0,0.15)'}
               >
-                VIEW PREDICTIVE MAINTENANCE
+                VIEW FAULT DIAGNOSTICS
               </button>
             </div>
           )}

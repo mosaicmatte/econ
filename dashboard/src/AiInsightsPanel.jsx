@@ -139,7 +139,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
         type: 'warning',
         icon: <ThermometerSnowflake size={18} color="var(--accent-yellow)" />,
         title: 'Thermal Drift Detected',
-        message: `${hotZones.length} zones have drifted above their cooling deadband. Neural net suggests increasing supply static pressure by 0.2 inWC.`,
+        message: `${hotZones.length} zones have drifted above their cooling deadband. Likely airflow starvation — check the Zone Performance scatter (Telemetry tab) for which zones are hot but barely drawing cooling, then raise AHU static pressure or release their VAV dampers.`,
         action: 'OPTIMIZE PRESSURE'
       });
     }
@@ -241,7 +241,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
           <Brain size={18} color="var(--accent-blue)" /> AI Operations Engine
         </h3>
         <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          Real-time neural network diagnostics and actionable insights. Total building load is currently at <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{simData.buildingLoadMw?.toFixed(2)} MW</span>.
+          Rule-based diagnostics over the live telemetry stream, plus the LSTM load forecast. Total building load is currently at <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{simData.buildingLoadMw?.toFixed(2)} MW</span>.
         </p>
       </div>
 

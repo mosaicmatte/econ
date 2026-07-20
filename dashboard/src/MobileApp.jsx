@@ -337,6 +337,7 @@ export default function MobileApp() {
                 <div style={{ color: '#fff' }}>
                   {failingZone ? (() => {
                     const rca = rcaFor(failingZone);
+                    const alarming = Object.values(simData?.zones || {}).filter(z => z.alert).length;
                     const afddNode = Object.values(hardwareNodes).find(n => n.afddAlert);
                     return (
                       <div>
@@ -344,7 +345,7 @@ export default function MobileApp() {
                         <div style={{ marginBottom: '4px' }}>{failingZone.label}</div>
                         <div style={{ marginBottom: '4px' }}>{failingZone.temp.toFixed(1)}°C vs limit {(failingZone.setpoint + failingZone.deadband).toFixed(1)}°C</div>
                         <div style={{ marginBottom: '8px', color: '#FF3B30' }}>{(failingZone.temp - failingZone.setpoint).toFixed(1)}°C over setpoint</div>
-                        <div style={{ marginBottom: '12px' }}>{rca.cause} ({rca.confidence}%) — affects ~{rca.blast} zones</div>
+                        <div style={{ marginBottom: '12px' }}>Likely cause (rule-based): {rca.cause} — {alarming} zone{alarming === 1 ? '' : 's'} currently in alarm</div>
                         {afddNode && (
                           <div style={{ color: '#F5C242', fontSize: '13px', marginBottom: '12px' }}>
                             AFDD: {afddNode.zoneId} diverging from physics model (Δ{(afddNode.residual||0).toFixed(1)}°C)
@@ -402,12 +403,16 @@ function MenuItem({ icon, title, onClick, highlight, bottomText, hideChevron }) 
   );
 }
 
+// Likely cause is a RULE — the most common failure mode for the zone's equipment class —
+// and is labelled as one. The old version attached an invented confidence percentage and
+// a fixed "affects ~N zones" that no computation produced (same fabrication the desktop
+// RCA card carried).
 function rcaFor(zone) {
-  if (!zone) return { cause: 'Unknown', blast: 1, confidence: 0 };
-  if (zone.type === 'server-room') return { cause: 'CRAC compressor failure', blast: 4, confidence: 96 };
-  if (zone.type === 'open-office') return { cause: 'VAV damper stuck closed', blast: 2, confidence: 88 };
-  if (zone.type === 'perimeter')   return { cause: 'perimeter heater stuck ON', blast: 1, confidence: 85 };
-  return { cause: 'chilled-water valve failure', blast: 3, confidence: 92 };
+  if (!zone) return { cause: 'unknown equipment' };
+  if (zone.type === 'server-room') return { cause: 'CRAC compressor failure' };
+  if (zone.type === 'open-office') return { cause: 'VAV damper stuck closed' };
+  if (zone.type === 'perimeter')   return { cause: 'perimeter heater stuck ON' };
+  return { cause: 'chilled-water valve failure' };
 }
 
 function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
