@@ -157,11 +157,19 @@ func NewEngine() *Engine {
 		log.Printf("Failed to load building data: %v", err)
 		return e
 	}
+	if err := e.buildFromJSON(data); err != nil {
+		log.Printf("Failed to parse building data: %v", err)
+	}
+	return e
+}
 
+// buildFromJSON populates Zones/Vavs from a building-data.json payload. It is the single
+// construction path: NewEngine uses it at boot and ReloadBuilding uses it when a freshly
+// digitized blueprint is deployed. Not locked — callers own the locking discipline.
+func (e *Engine) buildFromJSON(data []byte) error {
 	var bd BuildingData
 	if err := json.Unmarshal(data, &bd); err != nil {
-		log.Printf("Failed to parse building data: %v", err)
-		return e
+		return err
 	}
 
 	for _, f := range bd.Floors {
@@ -218,7 +226,40 @@ func NewEngine() *Engine {
 	for _, v := range e.Vavs {
 		v.NominalFlow = v.Flow
 	}
-	return e
+	return nil
+}
+
+// ReloadBuilding swaps the running twin onto a new building — the deploy step of the
+// blueprint import flow. The physics loop, MQTT ingestion and HTTP snapshots all touch
+// zone state under e.mu, so the swap happens in one critical section: clients simply see
+// one tick of the old building followed by one tick of the new one. Everything keyed to
+// the old zones (edge-node demo bindings, actuation dedupe, fault target, pre-cool
+// window) is dropped rather than remapped — a binding onto a zone that no longer exists
+// is a lie, and the node will re-bind on its next telemetry.
+func (e *Engine) ReloadBuilding(data []byte) error {
+	// Validate on scratch state first so a malformed upload cannot leave a half-built twin.
+	scratch := &Engine{Zones: map[string]*ZoneSim{}, Vavs: map[string]*VavSim{}, PMax: 600.0, KFan: 0.01}
+	if err := scratch.buildFromJSON(data); err != nil {
+		return err
+	}
+	if len(scratch.Zones) == 0 {
+		return fmt.Errorf("blueprint produced zero zones")
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Zones = map[string]*ZoneSim{}
+	e.Vavs = map[string]*VavSim{}
+	e.lastCmd = map[string]string{}
+	e.demoAssign = map[string]string{}
+	e.FaultTarget = ""
+	e.Scenario = "peak"
+	e.PreCoolUntil = time.Time{}
+	if err := e.buildFromJSON(data); err != nil {
+		return err // unreachable in practice: scratch already parsed this payload
+	}
+	log.Printf("[building] reloaded: %d zones, %d VAVs", len(e.Zones), len(e.Vavs))
+	return nil
 }
 
 func (e *Engine) doHardyCross() {

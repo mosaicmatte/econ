@@ -69,6 +69,11 @@ func main() {
 	// it is live Open-Meteo data or the climatological fallback.
 	http.HandleFunc("/api/weather", weatherHandler(engine))
 
+	// 7. Blueprint import: digitize a real-world drawing for review, then deploy it as
+	// the running building (blueprint.go).
+	http.HandleFunc("/api/digitize", digitizeHandler())
+	http.HandleFunc("/api/building", deployBuildingHandler(engine))
+
 	// Connect to the MQTT broker: ingest real occupancy from the CV/edge layer and
 	// publish actuation commands to the ESP32. Non-blocking; the sim runs regardless.
 	startMQTT(engine)
