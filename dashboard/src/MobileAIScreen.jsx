@@ -106,12 +106,18 @@ export default function MobileAIScreen({
       });
     }
 
-    // 5. LSTM forecast (informational).
+    // 5. LSTM forecast (informational), with input provenance: whose weather it used
+    // and whether the sampled window is still warming up after a boot.
     if (aiForecast && aiForecast.predicted_peak_load) {
+      const src = aiForecast.weather_source === 'engine' ? '(engine’s live weather feed)'
+        : aiForecast.weather_source === 'fallback' ? '(fallback weather)' : '(live weather)';
+      const realN = aiForecast.window_real_samples;
+      const winLen = aiForecast.window_len || 12;
+      const warmup = realN != null && realN < winLen ? ` Window warming up: ${realN}/${winLen} real samples.` : '';
       out.push({
         id: 'forecast', accent: '#4A90E2', icon: <Activity size={20} color="#4A90E2" />,
         title: 'LSTM Load Forecast',
-        message: `Model predicts an upcoming peak of ${aiForecast.predicted_peak_load.toFixed(2)} MW ${aiForecast.weather_source === 'fallback' ? '(fallback weather).' : '(live weather).'}`,
+        message: `Model predicts an upcoming peak of ${aiForecast.predicted_peak_load.toFixed(2)} MW ${src}.${warmup}`,
       });
     }
 

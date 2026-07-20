@@ -149,14 +149,21 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
     }
 
     if (aiForecast && aiForecast.predicted_peak_load) {
-      const isFallback = aiForecast.weather_source === 'fallback';
+      const weatherNote = aiForecast.weather_source === 'engine'
+        ? 'Weather from the engine’s live Open-Meteo feed — same numbers the envelope physics uses.'
+        : aiForecast.weather_source === 'fallback' ? '(Using fallback weather.)' : '(Live weather data incorporated.)';
+      const realN = aiForecast.window_real_samples;
+      const winLen = aiForecast.window_len || 12;
+      const warmup = realN != null && realN < winLen
+        ? ` Input window warming up: ${realN}/${winLen} real 5-min samples since boot.`
+        : '';
       generated.push({
         id: 'forecast',
         type: 'info',
         expandable: true,
         icon: <Activity size={18} color="var(--accent-blue)" />,
         title: 'LSTM Load Forecast',
-        message: `Deep Learning model predicts an upcoming peak load of ${aiForecast.predicted_peak_load.toFixed(2)} MW. ${isFallback ? '(Using fallback weather)' : '(Live weather data incorporated)'}`,
+        message: `Deep Learning model predicts an upcoming peak load of ${aiForecast.predicted_peak_load.toFixed(2)} MW over the sampled last hour. ${weatherNote}${warmup}`,
         action: 'VIEW PREDICTIONS'
       });
     }
