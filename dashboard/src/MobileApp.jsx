@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Activity, AlertTriangle, Settings, Zap, ChevronRight, ChevronUp, ChevronDown, User, X, BarChart2, ShieldAlert, Brain } from 'lucide-react';
+import { Activity, AlertTriangle, Settings, Zap, ChevronRight, ChevronUp, ChevronDown, User, X, BarChart2, ShieldAlert, Brain, Building2 } from 'lucide-react';
 import { useDigitalTwin } from './useDigitalTwin';
 import { API_BASE } from './api';
 import BuildingModel from './BuildingModel';
@@ -9,8 +9,10 @@ import TelemetryLogs from './TelemetryLogs';
 import MobileEnergyScreen from './MobileEnergyScreen';
 import MobileImpactScreen from './MobileImpactScreen';
 import MobileAIScreen from './MobileAIScreen';
+import BlueprintImportPanel from './BlueprintImportPanel';
 import LiveWeatherBackground from './LiveWeatherBackground';
-import buildingData from './building-data.json';
+import { getBuilding } from './buildingStore';
+const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 import { DEFAULT_FAULT_TARGET } from './useDigitalTwin';
 
 // The floor to open on: the one holding the default critical asset, read from the loaded
@@ -255,7 +257,13 @@ export default function MobileApp() {
             onClick={() => setActiveModal('controls')}
             bottomText={`Active: ${activeScenario}`}
           />
-          
+          <MenuItem
+            icon={<Building2 size={20} color="#3DDC84" />}
+            title="Import Blueprint"
+            onClick={() => setActiveModal('blueprint')}
+            bottomText="Photograph or upload a floorplan — deploy it as the twin"
+          />
+
         </div>
         <div style={{ height: '40px' }} /> {/* Bottom padding */}
       </div>
@@ -299,6 +307,9 @@ export default function MobileApp() {
           )}
           {activeModal === 'energy' && (
              <MobileEnergyScreen simData={simData} globalMetrics={globalMetrics} loadHistory={loadHistory} onClose={() => setActiveModal(null)} />
+          )}
+          {activeModal === 'blueprint' && (
+             <BlueprintImportPanel mobile onClose={() => setActiveModal(null)} />
           )}
           {activeModal === 'impact' && (
              <MobileImpactScreen simData={simData} aiForecast={aiForecast} hardwareNodes={hardwareNodes} onClose={() => setActiveModal(null)} />

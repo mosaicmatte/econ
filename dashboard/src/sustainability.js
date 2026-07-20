@@ -6,7 +6,8 @@
 // a constant standing in for data. Floor area comes from the digitized zone polygons (the same
 // building-data.json the engine loads), so a regenerated building recomputes everything.
 
-import buildingData from './building-data.json';
+import { getBuilding } from './buildingStore';
+const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 
 const num = (v, d) => (v != null && !Number.isNaN(Number(v)) ? Number(v) : d);
 

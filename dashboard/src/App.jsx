@@ -3,11 +3,13 @@ import { Users, Wind, Box, Zap, AlertTriangle, Activity, Settings, Map, Camera, 
 import { ReactFlow, Background, Controls, Handle, Position, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import BuildingModel, { SingleFloorLayout } from './BuildingModel';
-import buildingData from './building-data.json';
+import { getBuilding } from './buildingStore';
+const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 import TelemetryPanel from './TelemetryPanel';
 import GlobalMetricsPanel from './GlobalMetricsPanel';
 import TelemetryLogs from './TelemetryLogs';
 import MaintenanceDrawer from './MaintenanceDrawer';
+import BlueprintImportPanel from './BlueprintImportPanel';
 import AiInsightsPanel from './AiInsightsPanel';
 import * as flatbuffers from 'flatbuffers';
 import MobileImpactScreen from './MobileImpactScreen';
@@ -258,6 +260,7 @@ function App() {
   const [leftPanelSize, setLeftPanelSize] = useState({ w: 360 });
   const [showWindSim, setShowWindSim] = useState(true);
   const [maintenanceTarget, setMaintenanceTarget] = useState(null);
+  const [showImport, setShowImport] = useState(false);
   const [ontology, setOntology] = useState(null);
   const [viewMode, setViewMode] = useState('hybrid');
   const ontologyRef = useRef(null);
@@ -801,13 +804,22 @@ function App() {
         >
           HYBRID
         </button>
-        <button 
+        <button
           onClick={() => setViewMode('logical')}
           style={{ padding: '6px 12px', fontSize: '11px', borderRadius: '4px', border: 'none', cursor: 'pointer', background: viewMode === 'logical' ? 'var(--accent-blue)' : 'transparent', color: viewMode === 'logical' ? '#fff' : 'var(--text-secondary)', fontWeight: 'bold' }}
         >
           LOGICAL
         </button>
+        <button
+          onClick={() => setShowImport(true)}
+          title="Digitize a DXF / PDF / scanned floorplan into a new building"
+          style={{ padding: '6px 12px', fontSize: '11px', borderRadius: '4px', border: 'none', cursor: 'pointer', background: 'transparent', color: 'var(--accent-green)', fontWeight: 'bold', borderLeft: '1px solid var(--border-glass)' }}
+        >
+          + BLUEPRINT
+        </button>
       </div>
+
+      {showImport && <BlueprintImportPanel onClose={() => setShowImport(false)} />}
 
       {/* COMMAND BAR (Floating Bottom Center) */}
       <div className="hud-command-bar">

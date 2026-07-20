@@ -1,7 +1,8 @@
 import React from 'react';
 import { Activity, Users, Thermometer, Zap, BarChart2 } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area } from 'recharts';
-import buildingData from './building-data.json';
+import { getBuilding } from './buildingStore';
+const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 import { API_BASE } from './api';
 import { money, energyCostPerDay, touPeriod, touPeriodLabel } from './tariff';
 import {

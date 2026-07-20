@@ -1,7 +1,8 @@
 import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import buildingData from './building-data.json';
+import { getBuilding } from './buildingStore';
+const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 
 // Curl noise helper
 function makeNoise() {

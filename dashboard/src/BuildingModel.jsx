@@ -3,7 +3,8 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html, Edges } from '@react-three/drei';
 import * as THREE from 'three';
 import { Evaluator, Brush, SUBTRACTION } from 'three-bvh-csg';
-import buildingData from './building-data.json';
+import { getBuilding } from './buildingStore';
+const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import FloorInfrastructure from './FloorInfrastructure';
 

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import * as flatbuffers from 'flatbuffers';
 import { SimState } from './telemetry';
-import buildingData from './building-data.json';
+import { getBuilding } from './buildingStore';
+const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 import { API_BASE, WS_URL } from './api';
 
 const INTEGRATION_BY_TYPE = {
