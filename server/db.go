@@ -192,3 +192,96 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // [GEMINI IMPLEMENTATION END]
+
+// seriesAllowed is the set of metrics the generic series endpoint will serve. It is an
+// allow-list, not because sensor_type is interpolated (it is parameterized), but because
+// the endpoint is a public read surface: naming exactly what a client may pull keeps it a
+// telemetry API instead of an open query into whatever the engine happens to persist.
+var seriesAllowed = map[string]bool{
+	"temp": true, "occupancy": true, "humidity": true, "co2": true,
+	"afddResidual": true, "buildingLoadMw": true, "coolingOutputMw": true,
+	"systemHealth": true, "avgCo2": true, "plugKw": true,
+}
+
+// seriesHandler serves one metric's time series for one zone as [{t, v}], newest-last.
+// This is the read path for everything the engine persists that the two hardcoded
+// history queries never exposed — most importantly the per-zone AFDD residual, which
+// is the queryable maintenance evidence behind a "physics divergence" alert: an
+// operator (or the dashboard) can pull how long a room has actually been drifting from
+// its 2R1C model, not just see the live LED.
+//
+//	GET /api/series?zone=zone-office-3-lvl1&metric=afddResidual&minutes=120
+//
+// Short windows read the raw hypertable at 1-second buckets; windows over ~6 h read the
+// 5-minute continuous aggregate so a day-long pull stays one cheap query.
+func seriesHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if DB == nil {
+		w.Write([]byte("[]"))
+		return
+	}
+
+	zone := r.URL.Query().Get("zone")
+	metric := r.URL.Query().Get("metric")
+	if zone == "" || !seriesAllowed[metric] {
+		http.Error(w, `query must be ?zone=<id>&metric=<one of the telemetry series>`, http.StatusBadRequest)
+		return
+	}
+
+	minutes := 60
+	if m := r.URL.Query().Get("minutes"); m != "" {
+		if v, err := strconv.Atoi(m); err == nil && v > 0 && v <= 60*24*7 {
+			minutes = v
+		}
+	}
+
+	// Keep the payload bounded with an ADAPTIVE bucket instead of switching data sources:
+	// bucketSecs = ceil(windowSeconds / maxPoints), so a 2 h window returns ~1000 points
+	// at ~7 s each and a 5 min window returns 1 s points. The raw hypertable (7-day
+	// retention) is queried directly for any window it still holds — the continuous
+	// aggregate is only for windows beyond that, where its 5-minute lag is irrelevant.
+	// The earlier "switch to the aggregate past 1000 rows" was wrong: it routed a 30-min
+	// AFDD pull into a materialized view that lags 5+ minutes, so a just-alerting zone's
+	// freshly-persisted residual read as empty.
+	const maxPoints = 1000
+	const rawRetentionMin = 7 * 24 * 60
+	bucketSecs := (minutes*60 + maxPoints - 1) / maxPoints
+	if bucketSecs < 1 {
+		bucketSecs = 1
+	}
+	var rows *sql.Rows
+	var err error
+	if minutes > rawRetentionMin {
+		rows, err = DB.Query(`
+			SELECT to_char(time_bucket(make_interval(secs => $4), bucket), 'YYYY-MM-DD"T"HH24:MI:SS'), AVG(avg_value)
+			FROM sensor_readings_5m
+			WHERE zone_id = $1 AND sensor_type = $2 AND bucket > now() - make_interval(mins => $3)
+			GROUP BY 1 ORDER BY 1 ASC`, zone, metric, minutes, bucketSecs)
+	} else {
+		rows, err = DB.Query(`
+			SELECT to_char(time_bucket(make_interval(secs => $4), time), 'YYYY-MM-DD"T"HH24:MI:SS'), AVG(value)
+			FROM sensor_readings
+			WHERE zone_id = $1 AND sensor_type = $2 AND time > now() - make_interval(mins => $3)
+			GROUP BY 1 ORDER BY 1 ASC`, zone, metric, minutes, bucketSecs)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type point struct {
+		T string  `json:"t"`
+		V float64 `json:"v"`
+	}
+	out := []point{}
+	for rows.Next() {
+		var p point
+		if err := rows.Scan(&p.T, &p.V); err == nil {
+			out = append(out, p)
+		}
+	}
+	b, _ := json.Marshal(out)
+	w.Write(b)
+}

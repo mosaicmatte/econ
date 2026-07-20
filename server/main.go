@@ -50,6 +50,12 @@ func main() {
 	http.HandleFunc("/api/history", historyHandler)
 	// [GEMINI IMPLEMENTATION END]
 
+	// Generic per-zone, per-metric time series (TimescaleDB). The read path for
+	// everything the engine persists beyond the two hardcoded history charts — most
+	// importantly the AFDD residual, the queryable drift history behind a "dispatch
+	// technician" alert. GET /api/series?zone=&metric=&minutes=
+	http.HandleFunc("/api/series", seriesHandler)
+
 	// 3. Peak-load forecast: proxy a live-telemetry window to the Python LSTM service.
 	http.HandleFunc("/api/forecast", forecastHandler(engine))
 
