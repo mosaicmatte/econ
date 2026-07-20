@@ -80,6 +80,37 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 #ifndef USE_MMWAVE
   #define USE_MMWAVE 0               // HLK-LD2410C radar -> presence incl. stationary people
 #endif
+#ifndef USE_PLUG
+  // Plug-load node (APLC): SCT-013 current clamp -> measured plug-circuit watts, plus a
+  // second relay that switches the zone's non-critical socket circuit. This is the load a
+  // conventional BMS neither meters nor controls — 26.4% of energy in the Hanoi office
+  // case study — and the reason this node exists.
+  #define USE_PLUG 0
+#endif
+
+#if USE_PLUG
+  // SCT-013 on GPIO34: ADC1 channel 6, input-only. Deliberate — ADC2 is unusable while
+  // WiFi is up, and an input-only pin can never be misconfigured into driving the clamp.
+  // Wiring (SCT-013-000, 100 A : 50 mA current-output variant): burden resistor ~33 Ω
+  // across the jack, DC bias the signal to 3.3 V/2 with a 10k/10k divider + 10 µF, tip
+  // to GPIO34. The -030 (1 V voltage-output) variant needs only the bias divider.
+  #ifndef PLUG_ADC_PIN
+    #define PLUG_ADC_PIN 34
+  #endif
+  // Plug-circuit relay (active HIGH), separate from the lighting relay on GPIO23. Boots
+  // ON: a reboot must never leave the room's sockets dead (fail-energized, like a BMS).
+  #ifndef PLUG_RELAY_PIN
+    #define PLUG_RELAY_PIN 25
+  #endif
+  // Calibration: amps of primary current per volt at the ADC. 100 A / (0.05 A × 33 Ω)
+  // ≈ 60.6 for the -000 variant with a 33 Ω burden; 30.0 for the -030 (30 A / 1 V).
+  #ifndef PLUG_CAL_A_PER_V
+    #define PLUG_CAL_A_PER_V 60.6
+  #endif
+  #ifndef PLUG_MAINS_V
+    #define PLUG_MAINS_V 230.0       // Vietnam single-phase nominal
+  #endif
+#endif
 
 #if USE_SHT30 || USE_CO2
   #include <Wire.h>
@@ -97,6 +128,9 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #endif
   #if I2C_SDA == 19 || I2C_SCL == 19
     #error "I2C pin collides with IR_PIN (GPIO19) - pick another pin via -DI2C_SDA/-DI2C_SCL"
+  #endif
+  #if USE_PLUG && (I2C_SDA == 25 || I2C_SCL == 25)
+    #error "I2C pin collides with PLUG_RELAY_PIN (GPIO25) - pick another pin via -DI2C_SDA/-DI2C_SCL"
   #endif
 
   // CRC-8, polynomial 0x31, init 0xFF. Shared: the SHT30 (datasheet 4.12) and the ASAIR
@@ -308,6 +342,36 @@ void setLights(bool on) {
   Serial.printf("[relay] lights %s\n", on ? "ON" : "OFF");
 }
 
+#if USE_PLUG
+bool plugOn = true;  // fail-energized: sockets are live until the engine says otherwise
+
+void setPlug(bool on) {
+  plugOn = on;
+  digitalWrite(PLUG_RELAY_PIN, on ? HIGH : LOW);
+  Serial.printf("[relay] plug circuit %s\n", on ? "ON" : "OFF");
+}
+
+// True-RMS current over ~100 ms (≈5 mains cycles at 50 Hz): sample fast, subtract the
+// DC bias as the window mean, RMS the AC residue. Returns amps, or -1 when the window
+// was starved of samples (then the field is omitted — never fabricated).
+float readPlugAmps() {
+  double sum = 0, sumSq = 0;
+  int n = 0;
+  unsigned long start = millis();
+  while (millis() - start < 100) {
+    int v = analogRead(PLUG_ADC_PIN);
+    sum += v;
+    sumSq += (double)v * v;
+    n++;
+  }
+  if (n < 100) return -1;
+  double mean = sum / n;
+  double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
+  float amps = (float)(rmsCounts * (3.3 / 4095.0) * PLUG_CAL_A_PER_V);
+  return amps < 0.10 ? 0.0f : amps;  // below the clamp's noise floor = genuinely off
+}
+#endif
+
 // ---------------- COMMAND PARSING ----------------
 // Accepts "LIGHTS_ON;SETPOINT=22.0", "LIGHTS_OFF;SETPOINT=26.0", or "HVAC_SET:23".
 // Ignores any extra ;KEY=VAL tokens (e.g. the gateway's ;SRC=FAILSAFE).
@@ -322,6 +386,12 @@ void handleCommand(const String& msg) {
     else if (tok == "LIGHTS_OFF") setLights(false);
     else if (tok.startsWith("SETPOINT=")) applyHvacSetpoint(tok.substring(9).toFloat());
     else if (tok.startsWith("HVAC_SET:")) applyHvacSetpoint(tok.substring(9).toFloat());
+#if USE_PLUG
+    // After-hours sweep (APLC, plugs.go): the engine sheds the zone's non-critical
+    // sockets on verified vacancy and restores them the instant presence returns.
+    else if (tok == "PLUG_ON")  setPlug(true);
+    else if (tok == "PLUG_OFF") setPlug(false);
+#endif
 
     if (sep == -1) break;
     start = sep + 1;
@@ -410,6 +480,17 @@ void readAndPublish() {
   // occupancy itself — that estimate belongs there, where it is labelled as one.
 #endif
 
+  // --- plug circuit (APLC) ---
+#if USE_PLUG
+  float amps = readPlugAmps();
+  if (amps >= 0) {
+    doc["plugW"] = round(amps * PLUG_MAINS_V * 10) / 10.0;  // measured, engine-side model yields
+  } else {
+    Serial.println("[plug] ADC window starved -> omitted (engine keeps modelling)");
+  }
+  doc["plug"] = plugOn ? "ON" : "OFF";
+#endif
+
   doc["lights"]      = lightsOn ? "ON" : "OFF";
   doc["setpoint"]    = hvacSetpointC;
 
@@ -472,6 +553,13 @@ void setup() {
   #endif
   Serial.printf("[co2] ACD1200 expected at I2C 0x%02X (120 s preheat; needs a 5V<->3.3V level shifter)\n",
                 ACD1200_ADDR);
+#endif
+#if USE_PLUG
+  pinMode(PLUG_RELAY_PIN, OUTPUT);
+  setPlug(true);  // fail-energized: sockets live from boot until the engine sheds them
+  analogReadResolution(12);
+  Serial.printf("[plug] SCT-013 on GPIO%d (cal %.1f A/V), relay on GPIO%d\n",
+                PLUG_ADC_PIN, (double)PLUG_CAL_A_PER_V, PLUG_RELAY_PIN);
 #endif
 #if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
   // Calibrate the untouched touch level; a touch reads far below this baseline.
