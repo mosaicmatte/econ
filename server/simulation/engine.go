@@ -147,14 +147,37 @@ type Engine struct {
 	Plug         PlugConfig
 	plugSavedKwh float64
 	lastPlugAt   time.Time
-	// Live outdoor temperature from the weather poller (main.go). Same freshness
+	// Live outdoor conditions from the weather poller (main.go). Same freshness
 	// philosophy as the zone sensors: outdoorAt records when the value arrived, and a
 	// value the poller has not refreshed within outdoorStaleAfter stops driving the
 	// envelope — the physics falls back to climatology rather than integrating against
-	// a reading from hours ago as if it were current.
+	// a reading from hours ago as if it were current. Humidity rides along for the
+	// LSTM forecaster, which was trained on [.., outdoor_temp, outdoor_humidity].
 	outdoorTemp float64
+	outdoorHum  float64
 	outdoorAt   time.Time
+	// Rolling telemetry window for the LSTM forecaster: one [avg room temp, avg airflow
+	// fraction] sample every histInterval, most recent last. This is what makes the
+	// forecast input a REAL last-hour sequence — including hardware-pinned temperatures
+	// — instead of the current instant photocopied twelve times.
+	histBuf    []histSample
+	lastHistAt time.Time
 }
+
+// histSample is one forecaster timestep: building-average room temperature and
+// building-average airflow fraction (0..1 of nominal), captured together.
+type histSample struct {
+	temp float64
+	flow float64
+}
+
+const (
+	// histInterval MUST match the cadence the LSTM was trained at (SEQ_LEN=12 steps of
+	// 5 minutes — the last hour). Changing one without the other feeds the model a
+	// sequence at a timescale it has never seen.
+	histInterval = 5 * time.Minute
+	histKeep     = 12
+)
 
 func NewEngine() *Engine {
 	e := &Engine{
@@ -533,12 +556,28 @@ const outdoorFallbackC = 30.0
 // every 10 minutes, so three missed hours means the feed is genuinely down, not jittery.
 const outdoorStaleAfter = 3 * time.Hour
 
-// SetOutdoorTemp ingests one outdoor reading from the weather poller.
+// SetOutdoorTemp ingests one outdoor reading from the weather poller. Humidity may be
+// zero when the fetch didn't include it; the forecaster path checks for that.
 func (e *Engine) SetOutdoorTemp(c float64) {
+	e.SetOutdoor(c, 0)
+}
+
+func (e *Engine) SetOutdoor(c, humPct float64) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.outdoorTemp = c
+	e.outdoorHum = humPct
 	e.outdoorAt = time.Now()
+}
+
+// OutdoorForForecast reports the outdoor conditions the forecaster should use, and
+// whether they are live enough to hand over. Both readings arrive together from
+// Open-Meteo, so one freshness verdict covers them.
+func (e *Engine) OutdoorForForecast() (tempC, humPct float64, live bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	t, ok := e.outdoorNow()
+	return t, e.outdoorHum, ok && e.outdoorHum > 0
 }
 
 // outdoorNow returns the temperature the envelope should integrate against and whether it
@@ -836,6 +875,10 @@ func (e *Engine) Start() {
 		// vacancy, accumulate avoided energy on wall-clock time.
 		e.plugTick(time.Now())
 
+		// One forecaster timestep every histInterval: the LSTM's input window is a
+		// real sampled hour, not a photocopied instant.
+		e.sampleHistory(time.Now())
+
 		// BESS dispatch: TOU-driven charge/discharge against the last computed building load,
 		// integrated on real wall-clock time so the state of charge trends realistically.
 		now := time.Now()
@@ -923,15 +966,12 @@ func (e *Engine) tick(dt float64) {
 		}
 }
 
-// ForecastWindow builds the [room_temp(°C), airflow_fraction(0..1)] sequence the Python
-// forecaster expects, from the current zone/VAV state. Airflow is normalized to a fraction of
-// each VAV's nominal flow so it matches the model's training scale (the engine's raw m³/s would
-// be far out of distribution). The engine keeps no telemetry history yet, so the current
-// building-average conditions are replicated across `seqLen` steps.
-func (e *Engine) ForecastWindow(seqLen int) [][]float64 {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
+// currentAvg computes the building-average room temperature and airflow fraction —
+// one forecaster timestep. Airflow is normalized to each VAV's nominal flow so it
+// matches the model's training scale (raw m³/s would be far out of distribution).
+// Hardware-pinned zone temperatures are naturally included: z.Temp IS the measured
+// value while a sensor is fresh. Lock held.
+func (e *Engine) currentAvg() histSample {
 	tempSum := 0.0
 	for _, z := range e.Zones {
 		tempSum += z.Temp
@@ -944,21 +984,59 @@ func (e *Engine) ForecastWindow(seqLen int) [][]float64 {
 		}
 		flowSum += math.Max(0, math.Min(1, frac))
 	}
-
-	avgTemp := 24.0
+	s := histSample{temp: 24.0, flow: 0.5}
 	if len(e.Zones) > 0 {
-		avgTemp = tempSum / float64(len(e.Zones))
+		s.temp = tempSum / float64(len(e.Zones))
 	}
-	avgFlow := 0.5
 	if len(e.Vavs) > 0 {
-		avgFlow = flowSum / float64(len(e.Vavs))
+		s.flow = flowSum / float64(len(e.Vavs))
+	}
+	return s
+}
+
+// sampleHistory appends one timestep to the forecaster's rolling window every
+// histInterval. Called from Start's loop with e.mu held; the first tick seeds the
+// buffer immediately so a fresh boot has at least one real sample.
+func (e *Engine) sampleHistory(now time.Time) {
+	if !e.lastHistAt.IsZero() && now.Sub(e.lastHistAt) < histInterval {
+		return
+	}
+	e.lastHistAt = now
+	e.histBuf = append(e.histBuf, e.currentAvg())
+	if len(e.histBuf) > histKeep {
+		e.histBuf = e.histBuf[len(e.histBuf)-histKeep:]
+	}
+}
+
+// ForecastWindow returns the [room_temp(°C), airflow_fraction(0..1)] sequence the
+// Python forecaster expects — the REAL sampled last hour, most recent last — plus how
+// many of the timesteps are genuine samples. While the buffer is still warming up
+// after a boot, the window is left-padded with the oldest real sample (or the current
+// state when the buffer is empty), and the caller can report that honestly instead of
+// presenting a photocopied instant as an hour of history.
+func (e *Engine) ForecastWindow(seqLen int) ([][]float64, int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	real := e.histBuf
+	if len(real) > seqLen {
+		real = real[len(real)-seqLen:]
+	}
+	pad := e.currentAvg()
+	if len(real) > 0 {
+		pad = real[0]
 	}
 
 	seq := make([][]float64, seqLen)
 	for i := range seq {
-		seq[i] = []float64{avgTemp, avgFlow}
+		idx := i - (seqLen - len(real))
+		s := pad
+		if idx >= 0 {
+			s = real[idx]
+		}
+		seq[i] = []float64{s.temp, s.flow}
 	}
-	return seq
+	return seq, len(real)
 }
 
 func (e *Engine) broadcast() {
@@ -1081,6 +1159,12 @@ func (e *Engine) broadcast() {
 				}
 				if z.HwCo2 > 0 && z.co2Fresh() {
 					e.Persist(id, "co2", z.HwCo2)
+				}
+				// AFDD residual history for sensor-bound zones: the maintenance
+				// evidence behind a "dispatch technician" card — how long the room
+				// has been drifting from its physics, queryable, not just a live LED.
+				if z.ShadowTemp != 0 && z.hwFresh() {
+					e.Persist(id, "afddResidual", z.ResidualEma)
 				}
 			}
 		}

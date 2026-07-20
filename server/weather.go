@@ -34,8 +34,11 @@ func weatherCoord(env string, fallback float64) float64 {
 func weatherLoop(engine *simulation.Engine) {
 	lat := weatherCoord("WEATHER_LAT", 10.8231)
 	lon := weatherCoord("WEATHER_LON", 106.6297)
+	// Humidity rides along with temperature: the LSTM forecaster was trained on
+	// [.., outdoor_temp, outdoor_humidity], so the engine hands it BOTH from the same
+	// live feed the envelope physics uses — one weather truth for every consumer.
 	url := fmt.Sprintf(
-		"https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m",
+		"https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,relative_humidity_2m",
 		lat, lon)
 	client := &http.Client{Timeout: 8 * time.Second}
 	log.Printf("[weather] poller up: lat=%.4f lon=%.4f every %s", lat, lon, weatherPoll)
@@ -50,21 +53,25 @@ func weatherLoop(engine *simulation.Engine) {
 		var payload struct {
 			Current struct {
 				Temperature float64 `json:"temperature_2m"`
+				Humidity    float64 `json:"relative_humidity_2m"`
 			} `json:"current"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 			log.Printf("[weather] bad response (%v); ignored", err)
 			return
 		}
-		t := payload.Current.Temperature
+		t, h := payload.Current.Temperature, payload.Current.Humidity
 		// Plausibility gate, same spirit as the edge firmware's range checks: a zero
 		// from a broken decode must not become "0 °C in Saigon".
 		if t < -40 || t > 55 {
 			log.Printf("[weather] implausible %.1f C; ignored", t)
 			return
 		}
-		engine.SetOutdoorTemp(t)
-		log.Printf("[weather] outdoor %.1f C -> envelope", t)
+		if h < 0 || h > 100 {
+			h = 0 // temperature is still good; humidity just isn't
+		}
+		engine.SetOutdoor(t, h)
+		log.Printf("[weather] outdoor %.1f C / %.0f%%RH -> envelope + forecaster", t, h)
 	}
 
 	fetch() // once at boot, then on the ticker
@@ -81,8 +88,10 @@ func weatherHandler(engine *simulation.Engine) http.HandlerFunc {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 		t, live, age := engine.OutdoorStatus()
+		_, hum, _ := engine.OutdoorForForecast()
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"outdoorC": t,
+			"humidity": hum,    // %RH; 0 = not in the last fetch
 			"live":     live,   // false = climatological fallback in use
 			"ageSec":   age,    // -1 = never fetched
 			"source":   "open-meteo",

@@ -35,6 +35,12 @@ else:
 class ForecastRequest(BaseModel):
     # Go backend sends a sequence of sensor readings: [[room_temp, airflow], ...]
     sensor_sequence: list[list[float]]
+    # Optional weather handover: the Go engine's own live Open-Meteo readings — the same
+    # numbers its 2R1C envelope integrates against. When provided (and plausible), they
+    # are used directly so the forecaster and the physics never disagree about the
+    # weather; when absent, this service falls back to its own fetch and labels it.
+    outdoor_temp: float | None = None
+    outdoor_humidity: float | None = None
 
     @field_validator("sensor_sequence")
     @classmethod
@@ -53,7 +59,7 @@ class ForecastResponse(BaseModel):
     predicted_peak_load: float
     outdoor_temp_used: float
     outdoor_humidity_used: float
-    weather_source: str  # 'live' | 'cache' | 'fallback'
+    weather_source: str  # 'engine' | 'live' | 'cache' | 'fallback'
 
 
 @app.get("/health")
@@ -67,7 +73,17 @@ def predict_peak_load(request: ForecastRequest):
         raise HTTPException(status_code=503,
                             detail="Model not trained: run train.py to produce weights + scaler.")
     try:
-        outdoor_temp, outdoor_humidity, source = fetch_weather_features()
+        # Prefer the engine's weather handover (one weather truth across services);
+        # plausibility-gated so a corrupt value degrades to the local fetch, never
+        # into the model.
+        if (request.outdoor_temp is not None and request.outdoor_humidity is not None
+                and -40 <= request.outdoor_temp <= 55
+                and 0 < request.outdoor_humidity <= 100):
+            outdoor_temp = request.outdoor_temp
+            outdoor_humidity = request.outdoor_humidity
+            source = "engine"
+        else:
+            outdoor_temp, outdoor_humidity, source = fetch_weather_features()
 
         # Combine per-timestep sensor data with the (shared) weather features.
         combined = [row + [outdoor_temp, outdoor_humidity] for row in request.sensor_sequence]

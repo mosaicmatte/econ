@@ -56,7 +56,11 @@ func precoolLoop(engine *simulation.Engine) {
 			continue // hysteresis after the last auto-window
 		}
 
-		body, _ := json.Marshal(forecastRequest{SensorSequence: engine.ForecastWindow(12)})
+		// Same request builder as /api/forecast: real sampled window + the engine's
+		// live outdoor conditions, so auto-pre-cool decisions and the dashboard's
+		// forecast card are always looking at the same prediction.
+		req, _ := buildForecastRequest(engine)
+		body, _ := json.Marshal(req)
 		resp, err := client.Post(base+"/predict", "application/json", bytes.NewReader(body))
 		if err != nil {
 			continue // forecaster unreachable: run without pre-cooling
