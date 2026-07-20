@@ -1,7 +1,9 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { money, energyCostPerDay, rateStr, touPeriod, touPeriodLabel } from './tariff';
+import { money, energyCostPerDay, rateStr, touPeriod, touPeriodLabel, TARIFF } from './tariff';
+import { GRID_EF_KG_PER_KWH } from './sustainability';
+import { usePlugs } from './usePlugs';
 
 export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory, onClose }) {
   const loadMw   = globalMetrics?.buildingLoadMw ?? simData?.buildingLoadMw ?? 0;
@@ -21,13 +23,22 @@ export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory
   const stateLabel = idle ? 'Idle' : charging ? `Charging ${Math.abs(dischMw).toFixed(2)} MW`
                      : `Discharging ${dischMw.toFixed(2)} MW`;
 
+  // Plug loads (APLC): live stream numbers + the sweep policy from /api/plugs.
+  const { status: plugStatus, updateConfig: updatePlugConfig } = usePlugs();
+  const plugMw     = (simData?.plugKw ?? 0) / 1000;
+  const plugShedKw = simData?.plugShedKw ?? 0;
+  const plugSaved  = simData?.plugSavedKwh ?? 0;
+  const otherMw    = Math.max(0, baseMw - plugMw); // lighting + fans, plug split out
+  const plugPct    = loadMw > 0 ? (plugMw / loadMw * 100).toFixed(0) + '%' : '0%';
+  const sweepOn    = plugStatus?.config?.enabled ?? false;
+
   const chartData = (loadHistory || []).map(item => ({
     t: item.time.slice(0, 5),
     kw: item.pwr
   }));
 
   const hvacPct = loadMw > 0 ? (hvacMw / loadMw * 100).toFixed(0) + '%' : '0%';
-  const basePct = loadMw > 0 ? (baseMw / loadMw * 100).toFixed(0) + '%' : '0%';
+  const otherPct = loadMw > 0 ? (otherMw / loadMw * 100).toFixed(0) + '%' : '0%';
   const totalPct = '100%';
   const savedPct = (loadMw + savedMw) > 0 ? (savedMw / (loadMw + savedMw) * 100).toFixed(0) + '%' : '0%';
 
@@ -107,12 +118,54 @@ export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory
         )}
       </div>
 
-      {/* 5) "Energy Flow" breakdown card */}
+      {/* 5) Plug loads (APLC) — the load the case-study BMS couldn't meter or switch */}
+      <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '16px', padding: '16px', marginBottom: '20px', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+          <div style={{ fontSize: '16px', fontWeight: '600' }}>Plug Loads</div>
+          <button
+            onClick={() => updatePlugConfig({ enabled: !sweepOn })}
+            style={{
+              fontSize: '12px', fontWeight: 'bold', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer',
+              background: sweepOn ? 'rgba(61,220,132,0.12)' : 'rgba(255,255,255,0.08)',
+              border: `1px solid ${sweepOn ? '#3DDC84' : 'rgba(255,255,255,0.15)'}`,
+              color: sweepOn ? '#3DDC84' : 'rgba(255,255,255,0.6)',
+            }}
+          >
+            {sweepOn ? 'Sweep ON' : 'Sweep OFF'}
+          </button>
+        </div>
+        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '12px' }}>
+          Largest end use in the Hanoi case study (26.4%) — its BMS couldn't switch sockets. This one can.
+        </div>
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
+          <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: '10px', padding: '10px' }}>
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>Draw now ({plugPct} of load)</div>
+            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#F5C242' }}>{(plugMw * 1000).toFixed(0)} kW</div>
+          </div>
+          <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: '10px', padding: '10px' }}>
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>Swept off · {plugStatus?.shedZones ?? 0} zones</div>
+            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#3DDC84' }}>{plugShedKw.toFixed(1)} kW</div>
+          </div>
+        </div>
+        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
+          Avoided so far: <span style={{ color: '#3DDC84', fontWeight: '600' }}>{plugSaved.toFixed(1)} kWh</span>
+          {' · '}<span style={{ color: '#3DDC84', fontWeight: '600' }}>{money(plugSaved * TARIFF.normalPerKwh)}</span>
+          {' · '}<span style={{ color: '#3DDC84', fontWeight: '600' }}>{(plugSaved * GRID_EF_KG_PER_KWH).toFixed(1)} kg CO₂</span>
+        </div>
+        {plugStatus?.armed && (
+          <div style={{ fontSize: '11px', color: '#4A90E2', marginTop: '8px', fontWeight: '600' }}>
+            ● Sweep armed (after hours) — vacant zones shed after {plugStatus?.config?.graceMinutes ?? 15} min
+          </div>
+        )}
+      </div>
+
+      {/* 6) "Energy Flow" breakdown card */}
       <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '16px', padding: '20px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '40px' }}>
         <h3 style={{ margin: '0 0 20px 0', fontSize: '18px', fontWeight: '600' }}>Energy Flow</h3>
-        
+
         <FlowRow label="HVAC (cooling electrical)" value={`${hvacMw.toFixed(2)} MW`} pct={hvacPct} color="#F5C242" />
-        <FlowRow label="Lighting + plug + fans" value={`${baseMw.toFixed(2)} MW`} pct={basePct} color="#4A90E2" />
+        <FlowRow label="Plug loads (APLC)" value={`${plugMw.toFixed(2)} MW`} pct={plugPct} color="#F58C42" />
+        <FlowRow label="Lighting + fans" value={`${otherMw.toFixed(2)} MW`} pct={otherPct} color="#4A90E2" />
         <FlowRow label="Total building load" value={`${loadMw.toFixed(2)} MW`} pct={totalPct} color="#B8B8B8" />
         <FlowRow label="Grid draw (after battery)" value={`${gridMw.toFixed(2)} MW`} pct="" color="#B8B8B8" />
         <FlowRow label="Autonomous saving (setback)" value={`-${savedMw.toFixed(2)} MW`} pct={savedPct} color="#3DDC84" isCredit />

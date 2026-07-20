@@ -59,8 +59,18 @@ co2():number {
   return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
 }
 
+plugW():number {
+  const offset = this.bb!.__offset(this.bb_pos, 18);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
+plugShed():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
 static startZoneData(builder:flatbuffers.Builder) {
-  builder.startObject(7);
+  builder.startObject(9);
 }
 
 static addId(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset) {
@@ -91,12 +101,20 @@ static addCo2(builder:flatbuffers.Builder, co2:number) {
   builder.addFieldFloat32(6, co2, 0.0);
 }
 
+static addPlugW(builder:flatbuffers.Builder, plugW:number) {
+  builder.addFieldFloat32(7, plugW, 0.0);
+}
+
+static addPlugShed(builder:flatbuffers.Builder, plugShed:boolean) {
+  builder.addFieldInt8(8, +plugShed, +false);
+}
+
 static endZoneData(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createZoneData(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset, temp:number, occupants:number, load:number, lightsOn:boolean, humidity:number, co2:number):flatbuffers.Offset {
+static createZoneData(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset, temp:number, occupants:number, load:number, lightsOn:boolean, humidity:number, co2:number, plugW:number, plugShed:boolean):flatbuffers.Offset {
   ZoneData.startZoneData(builder);
   ZoneData.addId(builder, idOffset);
   ZoneData.addTemp(builder, temp);
@@ -105,6 +123,8 @@ static createZoneData(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset, 
   ZoneData.addLightsOn(builder, lightsOn);
   ZoneData.addHumidity(builder, humidity);
   ZoneData.addCo2(builder, co2);
+  ZoneData.addPlugW(builder, plugW);
+  ZoneData.addPlugShed(builder, plugShed);
   return ZoneData.endZoneData(builder);
 }
 }

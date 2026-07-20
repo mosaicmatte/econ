@@ -67,8 +67,28 @@ avgCo2():number {
   return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
 }
 
+plugKw():number {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
+plugStandbyKw():number {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
+plugShedKw():number {
+  const offset = this.bb!.__offset(this.bb_pos, 26);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
+plugSavedKwh():number {
+  const offset = this.bb!.__offset(this.bb_pos, 28);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
 static startGlobalData(builder:flatbuffers.Builder) {
-  builder.startObject(9);
+  builder.startObject(13);
 }
 
 static addBuildingLoadMw(builder:flatbuffers.Builder, buildingLoadMw:number) {
@@ -107,12 +127,28 @@ static addAvgCo2(builder:flatbuffers.Builder, avgCo2:number) {
   builder.addFieldFloat32(8, avgCo2, 0.0);
 }
 
+static addPlugKw(builder:flatbuffers.Builder, plugKw:number) {
+  builder.addFieldFloat32(9, plugKw, 0.0);
+}
+
+static addPlugStandbyKw(builder:flatbuffers.Builder, plugStandbyKw:number) {
+  builder.addFieldFloat32(10, plugStandbyKw, 0.0);
+}
+
+static addPlugShedKw(builder:flatbuffers.Builder, plugShedKw:number) {
+  builder.addFieldFloat32(11, plugShedKw, 0.0);
+}
+
+static addPlugSavedKwh(builder:flatbuffers.Builder, plugSavedKwh:number) {
+  builder.addFieldFloat32(12, plugSavedKwh, 0.0);
+}
+
 static endGlobalData(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, systemHealth:number, totalOccupants:number, coolingOutputMw:number, plantCop:number, energySavedMw:number, bessDischargeMw:number, bessSocPct:number, avgCo2:number):flatbuffers.Offset {
+static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, systemHealth:number, totalOccupants:number, coolingOutputMw:number, plantCop:number, energySavedMw:number, bessDischargeMw:number, bessSocPct:number, avgCo2:number, plugKw:number, plugStandbyKw:number, plugShedKw:number, plugSavedKwh:number):flatbuffers.Offset {
   GlobalData.startGlobalData(builder);
   GlobalData.addBuildingLoadMw(builder, buildingLoadMw);
   GlobalData.addSystemHealth(builder, systemHealth);
@@ -123,6 +159,10 @@ static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, syst
   GlobalData.addBessDischargeMw(builder, bessDischargeMw);
   GlobalData.addBessSocPct(builder, bessSocPct);
   GlobalData.addAvgCo2(builder, avgCo2);
+  GlobalData.addPlugKw(builder, plugKw);
+  GlobalData.addPlugStandbyKw(builder, plugStandbyKw);
+  GlobalData.addPlugShedKw(builder, plugShedKw);
+  GlobalData.addPlugSavedKwh(builder, plugSavedKwh);
   return GlobalData.endGlobalData(builder);
 }
 }

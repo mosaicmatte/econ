@@ -199,6 +199,8 @@ export function useDigitalTwin(onUpdate) {
             newSimData.zones[id] = {
               ...newSimData.zones[id], temp, load: z.load(), occupancy: z.occupants(),
               lightsOn: z.lightsOn(), humidity: z.humidity(), co2: z.co2(), alert,
+              // APLC: live plug draw (clamp if metered, model otherwise) + sweep state.
+              plugW: z.plugW(), plugShed: z.plugShed(),
             };
         }
       }
@@ -226,6 +228,11 @@ export function useDigitalTwin(onUpdate) {
         newSimData.bessSocPct = g.bessSocPct();
         // Engine-computed building CO2 (real sensors preferred; 0 only from a pre-upgrade server).
         newSimData.avgCo2 = g.avgCo2();
+        // APLC: the plug-load picture, engine-computed so every client agrees.
+        newSimData.plugKw = g.plugKw();
+        newSimData.plugStandbyKw = g.plugStandbyKw();
+        newSimData.plugShedKw = g.plugShedKw();
+        newSimData.plugSavedKwh = g.plugSavedKwh();
 
         const nowMs = Date.now();
         if (nowMs - lastHistUpdateRef.current > 1000) {

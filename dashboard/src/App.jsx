@@ -11,6 +11,7 @@ import TelemetryLogs from './TelemetryLogs';
 import MaintenanceDrawer from './MaintenanceDrawer';
 import BlueprintImportPanel from './BlueprintImportPanel';
 import AiInsightsPanel from './AiInsightsPanel';
+import PlugLoadPanel from './PlugLoadPanel';
 import * as flatbuffers from 'flatbuffers';
 import MobileImpactScreen from './MobileImpactScreen';
 import LiveWeatherBackground from './LiveWeatherBackground';
@@ -717,16 +718,24 @@ function App() {
               >
                 PROFILER
               </button>
-              <button 
+              <button
                 onClick={() => setActiveLeftTab('logs')}
                 style={{ flex: 1, padding: '12px', background: activeLeftTab === 'logs' ? 'rgba(0, 163, 224, 0.1)' : 'transparent', color: activeLeftTab === 'logs' ? 'var(--accent-blue)' : 'var(--text-secondary)', border: 'none', borderBottom: activeLeftTab === 'logs' ? '2px solid var(--accent-blue)' : 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
               >
                 LOGS
               </button>
+              <button
+                onClick={() => setActiveLeftTab('plugs')}
+                style={{ flex: 1, padding: '12px', background: activeLeftTab === 'plugs' ? 'rgba(0, 163, 224, 0.1)' : 'transparent', color: activeLeftTab === 'plugs' ? 'var(--accent-blue)' : 'var(--text-secondary)', border: 'none', borderBottom: activeLeftTab === 'plugs' ? '2px solid var(--accent-blue)' : 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
+              >
+                PLUGS
+              </button>
             </div>
             
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
-              {activeLeftTab === 'logs' ? (
+              {activeLeftTab === 'plugs' ? (
+                <PlugLoadPanel simData={simData} />
+              ) : activeLeftTab === 'logs' ? (
                 <TelemetryLogs simData={simData} />
               ) : activeLeftTab === 'telemetry' ? (
                 <TelemetryPanel
