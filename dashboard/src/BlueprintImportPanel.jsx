@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { UploadCloud, FileCheck2, AlertTriangle, Building2, Loader2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { UploadCloud, FileCheck2, AlertTriangle, Building2, Loader2, History, KeyRound } from 'lucide-react';
 import { API_BASE } from './api';
 
 // Blueprint -> twin, in two explicit steps so nothing deploys sight-unseen:
@@ -21,7 +21,27 @@ export default function BlueprintImportPanel({ onClose, mobile = false }) {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  // Operational guardrails: the server may require an admin token for anything that
+  // replaces the running building (ECON_ADMIN_TOKEN). We only ask for it after a 401,
+  // so the demo flow stays frictionless and the commercial flow stays gated.
+  const [token, setToken] = useState('');
+  const [needToken, setNeedToken] = useState(false);
+  const [backups, setBackups] = useState([]);
+  const [restoring, setRestoring] = useState(null);
   const inputRef = useRef(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/building/backups`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => setBackups(Array.isArray(list) ? list : []))
+      .catch(() => {});
+  }, []);
+
+  const adminHeaders = token ? { 'X-Admin-Token': token } : {};
+  const handleAuthFailure = () => {
+    setNeedToken(true);
+    setError('This server requires an admin token to replace the running building. Enter it below and retry.');
+  };
 
   const pick = (f) => {
     if (!f) return;
@@ -62,9 +82,14 @@ export default function BlueprintImportPanel({ onClose, mobile = false }) {
     try {
       const r = await fetch(`${API_BASE}/api/building`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ buildingData: result.buildingData, ontology: result.ontology }),
+        headers: { 'Content-Type': 'application/json', ...adminHeaders },
+        body: JSON.stringify({
+          buildingData: result.buildingData,
+          ontology: result.ontology,
+          source: file?.name || 'unknown', // lands in the server's audit log
+        }),
       });
+      if (r.status === 401) { handleAuthFailure(); setDeploying(false); return; }
       if (!r.ok) throw new Error(await r.text());
       // The engine is already running the new building; a full reload makes the
       // frontend refetch geometry at boot and rebuild everything on it.
@@ -72,6 +97,25 @@ export default function BlueprintImportPanel({ onClose, mobile = false }) {
     } catch (e) {
       setError(String(e.message || e));
       setDeploying(false);
+    }
+  };
+
+  const restore = async (name) => {
+    if (restoring) return;
+    setRestoring(name);
+    setError(null);
+    try {
+      const r = await fetch(`${API_BASE}/api/building/rollback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...adminHeaders },
+        body: JSON.stringify({ name }),
+      });
+      if (r.status === 401) { handleAuthFailure(); setRestoring(null); return; }
+      if (!r.ok) throw new Error(await r.text());
+      window.location.reload();
+    } catch (e) {
+      setError(String(e.message || e));
+      setRestoring(null);
     }
   };
 
@@ -177,6 +221,16 @@ export default function BlueprintImportPanel({ onClose, mobile = false }) {
           </div>
         )}
 
+        {needToken && (
+          <div>
+            <div style={{ ...label, display: 'flex', alignItems: 'center', gap: '6px' }}><KeyRound size={11} /> ADMIN TOKEN</div>
+            <input
+              style={input} type="password" value={token} placeholder="X-Admin-Token"
+              onChange={(e) => setToken(e.target.value)} autoComplete="off"
+            />
+          </div>
+        )}
+
         {/* Review — everything the pipeline found, before anything changes */}
         {s && (
           <div style={{ background: 'rgba(61,220,132,0.06)', border: '1px solid rgba(61,220,132,0.35)', borderRadius: '8px', padding: '12px', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -200,8 +254,33 @@ export default function BlueprintImportPanel({ onClose, mobile = false }) {
               {deploying ? 'DEPLOYING…' : 'DEPLOY TO TWIN (replaces current building)'}
             </button>
             <div style={{ fontSize: '10.5px', opacity: 0.6, lineHeight: 1.5 }}>
-              Deploy swaps the live engine onto this building and reloads the app. Zone
-              telemetry history starts fresh; edge nodes re-bind on their next message.
+              Deploy swaps the live engine onto this building and reloads the app. The
+              current building is backed up server-side first and the change is written
+              to the audit log. Zone telemetry history starts fresh; edge nodes re-bind
+              on their next message.
+            </div>
+          </div>
+        )}
+
+        {/* Restore — the automatic pre-deploy backups, newest first */}
+        {backups.length > 0 && (
+          <div style={{ borderTop: `1px solid ${mobile ? 'rgba(255,255,255,0.12)' : 'var(--border-glass)'}`, paddingTop: '12px' }}>
+            <div style={{ ...label, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+              <History size={11} /> PREVIOUS BUILDINGS ({backups.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '150px', overflowY: 'auto' }}>
+              {backups.map((b) => (
+                <div key={b.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '11.5px', fontFamily: 'monospace', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '7px 10px' }}>
+                  <span>{b.name}</span>
+                  <span style={{ opacity: 0.6 }}>{b.floors} fl · {b.zones} zones</span>
+                  <button
+                    onClick={() => restore(b.name)} disabled={!!restoring}
+                    style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: 'inherit', padding: '3px 10px', fontSize: '10px', fontWeight: 'bold', cursor: restoring ? 'default' : 'pointer' }}
+                  >
+                    {restoring === b.name ? 'RESTORING…' : 'RESTORE'}
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         )}
