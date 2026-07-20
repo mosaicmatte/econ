@@ -70,9 +70,13 @@ func main() {
 	http.HandleFunc("/api/weather", weatherHandler(engine))
 
 	// 7. Blueprint import: digitize a real-world drawing for review, then deploy it as
-	// the running building (blueprint.go).
+	// the running building. Deploy/rollback are guarded by ECON_ADMIN_TOKEN when set,
+	// back up the previous building automatically, and append to the audit log
+	// (blueprint.go).
 	http.HandleFunc("/api/digitize", digitizeHandler())
 	http.HandleFunc("/api/building", deployBuildingHandler(engine))
+	http.HandleFunc("/api/building/backups", backupsHandler())
+	http.HandleFunc("/api/building/rollback", rollbackHandler(engine))
 
 	// Connect to the MQTT broker: ingest real occupancy from the CV/edge layer and
 	// publish actuation commands to the ESP32. Non-blocking; the sim runs regardless.

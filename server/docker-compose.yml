@@ -29,6 +29,16 @@ services:
       - MQTT_BROKER=tcp://mqtt:1883
       - FORECAST_URL=http://forecasting:8000  # consumed by /api/forecast proxy
       - DIGITIZER_URL=http://digitizer:8000   # consumed by /api/digitize proxy
+      # Set in a .env next to this file for commercial deployments: deploy/rollback of
+      # the running building then require this token (X-Admin-Token). Empty = open, for
+      # the local demo only.
+      - ECON_ADMIN_TOKEN=${ECON_ADMIN_TOKEN:-}
+    volumes:
+      # Deployed buildings, their automatic backups, and the audit log must survive a
+      # container rebuild — without this, `docker compose up --build` silently reverts
+      # the building to the one baked into the image. Named volume seeds from the image
+      # on first creation.
+      - server-data:/app/data
     depends_on:
       - db
       - mqtt
@@ -60,3 +70,4 @@ services:
 
 volumes:
   db-data:
+  server-data:

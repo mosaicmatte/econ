@@ -245,6 +245,29 @@ func (e *Engine) ReloadBuilding(data []byte) error {
 	if len(scratch.Zones) == 0 {
 		return fmt.Errorf("blueprint produced zero zones")
 	}
+	// Structural sanity a professional deployment needs stated, not assumed:
+	// duplicate zoneIds would silently last-write-win in the map (two rooms, one
+	// simulated), and an absurd zone count is a corrupt or hostile payload, not a
+	// building — the physics loop is O(zones) at 30 Hz.
+	var declared struct {
+		Floors []struct {
+			Zones []struct {
+				ZoneId string `json:"zoneId"`
+			} `json:"zones"`
+		} `json:"floors"`
+	}
+	if err := json.Unmarshal(data, &declared); err == nil {
+		n := 0
+		for _, f := range declared.Floors {
+			n += len(f.Zones)
+		}
+		if n > 50000 {
+			return fmt.Errorf("%d zones exceeds the 50,000-zone limit", n)
+		}
+		if n != len(scratch.Zones) {
+			return fmt.Errorf("%d zones declared but only %d unique zoneIds — duplicate ids in the payload", n, len(scratch.Zones))
+		}
+	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
