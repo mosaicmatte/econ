@@ -6,6 +6,27 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-21 — AFDD alerts carry queryable evidence
+>
+> **The AFDD residual was write-only — persisted to TimescaleDB but readable by
+> nothing.** A "physics divergence" card showed a live number with no way to answer the
+> question a technician actually asks: *how long has this been happening?* A new generic
+> read path, `GET /api/series?zone=&metric=&minutes=`, serves any persisted zone metric
+> (AFDD residual, measured CO₂/humidity, plug kW, temperature, load…) as a bounded time
+> series — an allow-listed public surface with an **adaptive time bucket** so a 5-minute
+> pull and a 7-day pull both come back at ≤1000 points. The AFDD card is now expandable
+> on desktop and charts the zone's real residual history with the engine's own 2 °C
+> fault threshold marked — a developing fault (a residual climbing for an hour) reads
+> differently from a transient spike, and now you can see which. Proven end-to-end on
+> the live stack: a real ESP32 temperature (34 °C) diverging from its 2R1C shadow model
+> grew the residual 0.18 → 12.0 °C, TimescaleDB logged it, `/api/series` returned the
+> 68-point drift curve, and the card rendered it. **A real bug this shook out:** the
+> first cut of the endpoint switched to the 5-minute continuous aggregate for any window
+> over ~17 minutes — but that materialized view lags 5+ minutes, so a just-alerting
+> zone's freshly-persisted residual came back empty. It now reads the raw hypertable
+> directly for any window inside its 7-day retention, using the aggregate only beyond
+> that where its lag is irrelevant.
+>
 > ### 2026-07-21 — The forecast pipeline runs on sampled reality
 >
 > **The LSTM's input window is now a real sampled hour, not a photocopied instant.**
