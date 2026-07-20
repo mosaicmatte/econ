@@ -6,6 +6,31 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-21 — AI Insights now reasons over the building, not the demo
+>
+> **Every card in the AI panels (desktop + mobile) is now generated from a real signal,
+> and every button performs a real action.** The "High Grid Demand" card previously fired
+> off the *demo scenario toggle*; it now runs off the EVN TOU clock itself — warning
+> while cao điểm is charging and up to 90 minutes ahead of it — and reflects the
+> engine's actual pre-cool window (`/api/precool`), showing *open until HH:MM* instead
+> of re-offering a window that is already running. New data-driven cards: **measured
+> CO₂ over 1000 ppm** (only a live NDIR can raise it; its PURGE button sends a real
+> override — verified on the broker as `LIGHTS_OFF;SETPOINT=18.0` on the node's command
+> topic), **edge node offline** (broker LWT), **weather feed stale** (envelope running
+> on the climatological fallback), and the **plug sweep's** live state with cumulative
+> savings. The hardware card grew a per-sensor coverage checklist — T/H/CO₂/W badges
+> per node, lit only while that sensor is actually delivering — so a half-wired ESP32
+> reads as exactly that. Dishonest math fixed along the way: the "wasting zones" card
+> was calling internal heat load "cooling power" and counting empty *server rooms* as
+> waste (cooling an empty server room is correct operation) — it now prices genuinely
+> wasteful zones through the live plant COP at the live tariff; the engine's flat
+> 2,000 W lighting-setback credit became area-based (9 W/m² LED LPD over each zone's
+> real digitized floor area); and the fault card's dead "override" button now floods
+> the zone with cooling via the real override path. One deployment bug this exposed:
+> the dashboard's WebSocket never reconnected, so restarting the engine silently froze
+> every open dashboard on its last frame while the polls kept it looking alive — the
+> stream now reconnects with a 3-second backoff, verified live mid-session.
+>
 > ### 2026-07-21 — Plug loads: the end use the BMS can't touch
 >
 > **Both Vietnamese office case studies this project benchmarks against say the same
