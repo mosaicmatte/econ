@@ -6,6 +6,28 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-20 — Blueprints in, buildings out
+>
+> **A real-world drawing can now become the running twin without touching a terminal.**
+> Desktop grew a *+ Blueprint* button and mobile an *Import Blueprint* menu entry (with
+> camera capture — photograph the paper drawing); both feed a new dockerized digitizer
+> service that wraps Branch B end to end. AutoCAD DXF is parsed as vectors — closed
+> polylines become rooms, text labels become zone types, and `$INSUNITS` gives real
+> dimensions (a millimetre test floor came back 29×19 m with the footprint override
+> correctly ignored); DXFs without room polylines are rasterized and fed to the CV
+> pipeline, as are PDFs (poppler) and image scans/photos. The flow is two-step by
+> design — digitize returns a review (zone count, types, method, units) and nothing
+> changes until *Deploy*, which hot-swaps the running engine in one critical section
+> (`[building] reloaded: 12 zones, 12 VAVs` mid-simulation, verified live, original
+> 1,350-zone building restored the same way).
+>
+> **The dashboard stopped baking geometry into the bundle.** Seven modules imported
+> building-data.json at build time, so a deployed blueprint would run in the engine while
+> every panel kept rendering the compiled-in building. The app now boots in two stages:
+> fetch the engine's geometry first, then import the module graph, so every derived
+> constant (floor area, EUI, fault targets, design peak) computes from the live building.
+> The bundled copy remains only as the offline fallback.
+>
 > ### 2026-07-16 — The envelope gets real weather, and the sensor path stops lying
 >
 > **The 2R1C physics now integrates against live outdoor temperature.** A poller feeds
