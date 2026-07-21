@@ -22,6 +22,12 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
   const { status: plugStatus } = usePlugs();
   const [drill, setDrill] = useState(null); // {id, name, sensor} of the zone being inspected
 
+  // Real autonomous-optimizer state, straight from the engine stream — not a per-card
+  // guess. zonesInSetback is how many zones Auto-Pilot is actually holding in setback;
+  // energySavedMw is the engine's own computed saving from that setback.
+  const zonesInSetback = simData.zonesInSetback || 0;
+  const autoSavedKw = (simData.energySavedMw || 0) * 1000;
+
   // Chart-level click resolves to the NEAREST point via the active tooltip payload — so a
   // tap anywhere near a dot drills in. A per-point onClick would demand a pixel-perfect hit
   // on a 4 px circle, which is fine with a mouse but unusable on a phone (the whole reason
@@ -242,6 +248,34 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
 
+          {/* AUTONOMOUS ACTION — the real one. Every number here is streamed from the
+              engine's optimizer (zonesInSetback, energySavedMw), and the button is a real
+              control: it sends {action:autopilot} over the websocket so the engine
+              actually suspends or resumes setback. No per-card estimate, no cosmetic toggle. */}
+          <div style={{ background: autoPilot ? 'rgba(0,255,0,0.05)' : 'rgba(255,165,0,0.05)', border: autoPilot ? '1px solid rgba(0,255,0,0.25)' : '1px solid rgba(255,165,0,0.35)', borderRadius: '6px', padding: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+              <Zap size={16} color={autoPilot ? 'var(--accent-green)' : 'orange'} style={{ marginTop: '2px', flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '12px', fontWeight: 'bold', color: autoPilot ? 'var(--accent-green)' : 'orange', letterSpacing: '0.5px' }}>
+                  {autoPilot ? 'AUTONOMOUS ACTION — ACTIVE' : 'AUTO-PILOT SUSPENDED'}
+                </div>
+                <div style={{ fontSize: fontBig, color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.4 }}>
+                  {autoPilot ? (
+                    <>Occupancy-driven optimizer is holding <b style={{ color: 'var(--text-primary)' }}>{zonesInSetback}</b> zone{zonesInSetback === 1 ? '' : 's'} in energy-saving setback right now — <b style={{ color: 'var(--accent-green)' }}>{autoSavedKw.toFixed(0)} kW</b> avoided ({money(energyCostPerDay(autoSavedKw))}/day at the current {rateLabel} rate). These figures are streamed from the engine, not estimated.</>
+                  ) : (
+                    <>The autonomous optimizer is <b style={{ color: 'orange' }}>OFF</b> — it has released its setbacks to the occupied baseline and you are in manual control (manual vetoes are kept). Re-engaging lets it set back vacant zones automatically.</>
+                  )}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setAutoPilot && setAutoPilot(!autoPilot)}
+              style={{ width: '100%', background: autoPilot ? 'transparent' : 'orange', border: `1px solid ${autoPilot ? 'var(--accent-green)' : 'orange'}`, color: autoPilot ? 'var(--accent-green)' : '#000', padding: isMobile ? '10px' : '7px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold', letterSpacing: '1px' }}
+            >
+              {autoPilot ? 'DISENGAGE AUTO-PILOT' : 'ENGAGE AUTO-PILOT'}
+            </button>
+          </div>
+
           {/* Critical Fault Insight (Root Cause Analysis) */}
           {isFault && faultZone && (
             <div style={{ background: 'rgba(255,0,0,0.05)', border: '1px solid rgba(255,0,0,0.3)', borderRadius: '6px', padding: '12px' }}>
@@ -268,21 +302,24 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
             </div>
           )}
 
-          {/* Optimization Insight (Auto-Pilot Aware) */}
+          {/* A concrete example of what the optimizer is (or would be) doing — a single
+              named zone, so the building-level summary above has a face. The cooling
+              figure is real (from the zone's VAV flow); the framing matches the real
+              Auto-Pilot state rather than claiming a setback that isn't happening. */}
           {unoccupiedWasting.map((z, i) => (
-            <div key={i} style={{ background: autoPilot ? 'rgba(0,255,0,0.05)' : 'rgba(255,255,255,0.02)', border: autoPilot ? '1px solid rgba(0,255,0,0.2)' : '1px solid var(--border-glass)', borderRadius: '6px', padding: '12px' }}>
-               <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                <Zap size={16} color="var(--accent-green)" style={{ marginTop: '2px', flexShrink: 0 }} />
+            <div key={i} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '6px', padding: '12px' }}>
+               <div style={{ display: 'flex', gap: '8px', marginBottom: autoPilot ? 0 : '8px' }}>
+                <Zap size={16} color={autoPilot ? 'var(--accent-green)' : 'var(--text-secondary)'} style={{ marginTop: '2px', flexShrink: 0 }} />
                 <div>
-                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: autoPilot ? 'var(--accent-green)' : 'var(--text-primary)', letterSpacing: '0.5px' }}>
-                    {autoPilot ? 'AUTONOMOUS ACTION' : 'SETPOINT OPTIMIZATION'}
+                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-primary)', letterSpacing: '0.5px' }}>
+                    EXAMPLE ZONE
                   </div>
                   <div style={{ fontSize: fontBig, color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.4 }}>
-                    {z.label} is unoccupied but its VAV is still delivering ≈ {zoneWasteKw(z).toFixed(1)} kW of cooling electrical.
-                    <div style={{ marginTop: '4px', color: 'var(--accent-green)' }}>
+                    {z.label} is unoccupied and its VAV is delivering ≈ {zoneWasteKw(z).toFixed(1)} kW of cooling electrical ({money(energyCostPerDay(zoneWasteKw(z)))}/day at {rateLabel}).
+                    <div style={{ marginTop: '4px', color: autoPilot ? 'var(--accent-green)' : 'orange' }}>
                       {autoPilot
-                        ? `Setback engaged — saving ≈ ${money(energyCostPerDay(zoneWasteKw(z)))}/day at the current ${rateLabel} rate.`
-                        : `Financial impact ≈ ${money(energyCostPerDay(zoneWasteKw(z)))}/day at the current ${rateLabel} rate.`}
+                        ? 'Auto-Pilot is setting this back automatically.'
+                        : 'Auto-Pilot is off — this is running unmanaged.'}
                     </div>
                   </div>
                 </div>
@@ -290,9 +327,9 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
               {!autoPilot && (
                 <button
                   onClick={applySuggestion}
-                  style={{ width: '100%', background: 'transparent', border: '1px solid var(--accent-green)', color: 'var(--accent-green)', padding: isMobile ? '10px' : '6px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold', letterSpacing: '1px', marginTop: '4px' }}
+                  style={{ width: '100%', background: 'transparent', border: '1px solid orange', color: 'orange', padding: isMobile ? '10px' : '6px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold', letterSpacing: '1px', marginTop: '4px' }}
                 >
-                  PREVIEW & APPLY SETBACK
+                  ENGAGE AUTO-PILOT
                 </button>
               )}
             </div>
@@ -328,31 +365,22 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
             </div>
           )}
 
-          {/* 2. Thermal Comfort Anomaly Insight */}
+          {/* 2. Thermal Comfort Anomaly Insight — describes the observed state honestly.
+              The plant's VAVs already modulate open as a zone's temperature error grows
+              (the cooling law), so we say that, rather than inventing a specific "+15%". */}
           {outOfBand.slice(0, isMobile ? 3 : 8).map((z, i) => (
-            <div key={`comfort-${i}`} style={{ background: autoPilot ? 'rgba(0,255,0,0.05)' : 'rgba(255,255,255,0.02)', border: autoPilot ? '1px solid rgba(0,255,0,0.2)' : '1px solid var(--border-glass)', borderRadius: '6px', padding: '12px' }}>
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                <Activity size={16} color={autoPilot ? "var(--accent-green)" : "var(--accent-yellow)"} style={{ marginTop: '2px', flexShrink: 0 }} />
+            <div key={`comfort-${i}`} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '6px', padding: '12px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <Activity size={16} color="var(--accent-yellow)" style={{ marginTop: '2px', flexShrink: 0 }} />
                 <div>
-                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: autoPilot ? 'var(--accent-green)' : 'var(--accent-yellow)', letterSpacing: '0.5px' }}>
-                    {autoPilot ? 'AUTONOMOUS COMFORT CORRECTION' : 'THERMAL COMFORT ANOMALY'}
+                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--accent-yellow)', letterSpacing: '0.5px' }}>
+                    THERMAL COMFORT ANOMALY
                   </div>
                   <div style={{ fontSize: fontBig, color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.4 }}>
-                    {z.label} is currently {z.temp.toFixed(1)}°C (Limit: {(z.setpoint + z.deadband).toFixed(1)}°C). Occupant discomfort predicted.
-                    <div style={{ marginTop: '4px', color: 'var(--accent-green)' }}>
-                      {autoPilot ? 'Auto-Adjusted VAV flow +15% to restore comfort parameters.' : 'Suggested: Increase VAV flow +15%.'}
-                    </div>
+                    {z.label} is {z.temp.toFixed(1)}°C, above its {(z.setpoint + z.deadband).toFixed(1)}°C comfort limit — its VAV is modulating toward maximum flow. If it persists, the zone is airflow-starved (check its damper/valve on the scatter above), not short of setpoint.
                   </div>
                 </div>
               </div>
-              {!autoPilot && (
-                <button
-                  onClick={applySuggestion}
-                  style={{ width: '100%', background: 'transparent', border: '1px solid var(--accent-yellow)', color: 'var(--accent-yellow)', padding: isMobile ? '10px' : '6px', fontSize: '10px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold', letterSpacing: '1px', marginTop: '4px' }}
-                >
-                  PREVIEW & INCREASE FLOW
-                </button>
-              )}
             </div>
           ))}
 

@@ -185,15 +185,17 @@ export default function MobileAIScreen({
       });
     }
 
-    // 8. Always-present nominal/savings summary.
+    // 8. Always-present autonomous-operations summary — real engine numbers.
     out.push({
-      id: 'nominal', accent: '#3DDC84', icon: <Brain size={20} color="#3DDC84" />,
-      title: 'Autonomous Operations',
-      message: `Occupancy-driven setback is balancing comfort and energy. Live saving: ${savingsPct.toFixed(1)}% of plant load (≈ ${money(energyCostPerDay(savedMw * 1000))}/day).`,
+      id: 'nominal', accent: autoPilot ? '#3DDC84' : '#FFD60A', icon: <Brain size={20} color={autoPilot ? '#3DDC84' : '#FFD60A'} />,
+      title: autoPilot ? 'Autonomous Operations Active' : 'Auto-Pilot Suspended',
+      message: autoPilot
+        ? `Optimizer is holding ${simData.zonesInSetback ?? 0} zone${(simData.zonesInSetback ?? 0) === 1 ? '' : 's'} in setback — ${savingsPct.toFixed(1)}% of plant load, ≈ ${money(energyCostPerDay(savedMw * 1000))}/day. Streamed from the engine, not estimated.`
+        : 'The optimizer is off — it released its setbacks to baseline and you are in manual control. Toggle Auto-Pilot above to resume autonomous setback.',
     });
 
     return out;
-  }, [simData, activeScenario, faultTarget, aiForecast, hwList, shedKw, savingsPct, savedMw, onFocusZone, sendManualOverride, setAutoPilot, precool, weather, plugStatus, onOpenEnergy]);
+  }, [simData, activeScenario, faultTarget, aiForecast, hwList, shedKw, savingsPct, savedMw, autoPilot, onFocusZone, sendManualOverride, setAutoPilot, precool, weather, plugStatus, onOpenEnergy]);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', color: '#fff', background: '#000', fontFamily: 'system-ui, -apple-system, "SF Pro Display", sans-serif', padding: '20px', minHeight: '100dvh', overflowY: 'auto' }}>
@@ -220,8 +222,8 @@ export default function MobileAIScreen({
           </div>
           <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginTop: '3px', lineHeight: 1.35 }}>
             {autoPilot
-              ? 'Autonomous optimizer is managing setbacks, lighting & pre-cooling.'
-              : 'Manual mode — you are in control. Recommendations below are suggestions.'}
+              ? `Holding ${simData.zonesInSetback ?? 0} zone${(simData.zonesInSetback ?? 0) === 1 ? '' : 's'} in setback — ${((simData.energySavedMw || 0) * 1000).toFixed(0)} kW saved (${money(energyCostPerDay((simData.energySavedMw || 0) * 1000))}/day). Streamed from the engine.`
+              : 'Manual mode — setpoints released to baseline, you are in control. Recommendations below are suggestions.'}
           </div>
         </div>
         {/* iOS-style track */}

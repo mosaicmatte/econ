@@ -242,14 +242,18 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       });
     }
 
-    // 6. General AI Status (Always present to avoid empty state)
+    // 6. Autonomous operations status (always present) — real engine state.
+    const apOn = simData.autoPilot !== false;
+    const inSetback = simData.zonesInSetback || 0;
     generated.push({
       id: 'general',
-      type: 'success',
+      type: apOn ? 'success' : 'warning',
       expandable: true,
-      icon: <Brain size={18} color="var(--accent-green)" />,
-      title: 'Autonomous Operations Nominal',
-      message: `Occupancy-driven setback controller is actively balancing comfort and energy. Live savings: ${savingsPct.toFixed(1)}% of plant load (${(savedMw * 1000).toFixed(0)} kW ≈ ${money(energyCostPerDay(savedMw * 1000))}/day).`,
+      icon: <Brain size={18} color={apOn ? 'var(--accent-green)' : 'var(--accent-yellow)'} />,
+      title: apOn ? 'Autonomous Operations Active' : 'Auto-Pilot Suspended',
+      message: apOn
+        ? `Occupancy-driven optimizer is holding ${inSetback} zone${inSetback === 1 ? '' : 's'} in setback — ${savingsPct.toFixed(1)}% of plant load (${(savedMw * 1000).toFixed(0)} kW ≈ ${money(energyCostPerDay(savedMw * 1000))}/day). Streamed from the engine.`
+        : 'The optimizer is off — it released its setbacks to the occupied baseline and the operator is in manual control. Re-engage to resume autonomous setback.',
       action: 'VIEW MODEL METRICS'
     });
 
@@ -282,6 +286,8 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
     }
     if (id === 'general') {
       const rows = [
+        ['Auto-Pilot', simData.autoPilot !== false ? 'engaged' : 'suspended (manual)'],
+        ['Zones in setback', `${simData.zonesInSetback || 0}`],
         ['Live savings', `${(savedMw * 1000).toFixed(0)} kW (${savingsPct.toFixed(1)}%)`],
         ['Utility saving', `${money(energyCostPerDay(savedMw * 1000))}/day`],
         ['Plant COP', (simData.plantCop || 0).toFixed(2)],

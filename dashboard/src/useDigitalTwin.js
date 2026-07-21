@@ -27,7 +27,7 @@ export const FAULT_ZONES = (() => {
 export const DEFAULT_FAULT_TARGET = FAULT_ZONES[0]?.id || '';
 
 export const getInitialSimData = () => {
-  const data = { scenario: 'peak', ahuPressure: 500, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, bessDischargeMw: 0, bessSocPct: 0, vavs: {}, zones: {}, logs: [] };
+  const data = { scenario: 'peak', ahuPressure: 500, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, bessDischargeMw: 0, bessSocPct: 0, zonesInSetback: 0, autoPilot: true, vavs: {}, zones: {}, logs: [] };
   buildingData.floors.forEach(floor => {
     floor.zones.forEach(z => {
       let cx = 20, cy = 20;
@@ -63,7 +63,8 @@ export const getInitialSimData = () => {
 
 export function useDigitalTwin(onUpdate) {
   const [activeScenario, setActiveScenario] = useState('peak');
-  const [autoPilot, setAutoPilot] = useState(true);
+  const [autoPilot, setAutoPilotState] = useState(true);
+  const autoPilotRef = useRef(true);
   const [faultTarget, setFaultTargetState] = useState(DEFAULT_FAULT_TARGET);
   const faultTargetRef = useRef(DEFAULT_FAULT_TARGET);
   
@@ -157,6 +158,19 @@ export function useDigitalTwin(onUpdate) {
   };
   // [GEMINI IMPLEMENTATION END]
 
+  // Auto-Pilot is a REAL engine control: toggling it sends {action:"autopilot",value}
+  // over the websocket so the engine actually suspends/resumes the optimizer. We update
+  // local state optimistically; the engine echoes the authoritative value back on the
+  // stream (below), so a rejected or externally-changed state self-corrects.
+  const setAutoPilot = (next) => {
+    const val = typeof next === 'function' ? next(autoPilotRef.current) : next;
+    autoPilotRef.current = val;
+    setAutoPilotState(val);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'autopilot', value: val }));
+    }
+  };
+
   useEffect(() => {
     // The stream must survive a backend restart: without reconnect logic, redeploying
     // the engine silently freezes every open dashboard on its last frame — polls keep
@@ -248,6 +262,17 @@ export function useDigitalTwin(onUpdate) {
         newSimData.plugStandbyKw = g.plugStandbyKw();
         newSimData.plugShedKw = g.plugShedKw();
         newSimData.plugSavedKwh = g.plugSavedKwh();
+        // Autonomous optimizer, straight from the engine: how many zones it is holding in
+        // setback right now, and its real on/off state. zonesInSetback is what makes the
+        // "autonomous action" cards report a fact instead of a per-card estimate.
+        newSimData.zonesInSetback = g.zonesInSetback();
+        newSimData.autoPilot = g.autoPilot();
+        // The engine is authoritative: if its flag ever disagrees with the local toggle
+        // (reconnect, another operator, a rejected send), adopt the engine's truth.
+        if (g.autoPilot() !== autoPilotRef.current) {
+          autoPilotRef.current = g.autoPilot();
+          setAutoPilotState(g.autoPilot());
+        }
 
         const nowMs = Date.now();
         if (nowMs - lastHistUpdateRef.current > 1000) {
