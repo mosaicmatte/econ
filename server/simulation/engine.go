@@ -147,6 +147,12 @@ type Engine struct {
 	Plug         PlugConfig
 	plugSavedKwh float64
 	lastPlugAt   time.Time
+	// Autonomous optimizer. AutoPilot is the real control flag the dashboard toggles
+	// (over the websocket, main.go): when false, actuate() is suspended and the operator
+	// owns the setpoints. zonesInSetback is how many zones it is currently holding in
+	// energy-saving setback — the genuine backing for the "autonomous action" UI.
+	AutoPilot      bool
+	zonesInSetback int
 	// Live outdoor conditions from the weather poller (main.go). Same freshness
 	// philosophy as the zone sensors: outdoorAt records when the value arrived, and a
 	// value the poller has not refreshed within outdoorStaleAfter stops driving the
@@ -193,6 +199,7 @@ func NewEngine() *Engine {
 		lastBessAt: time.Now(),
 		Plug:       defaultPlugConfig(),
 		lastPlugAt: time.Now(),
+		AutoPilot:  true,
 	}
 
 	data, err := os.ReadFile("./data/building-data.json")
@@ -485,17 +492,43 @@ const (
 	afddThreshold = 2.0 // °C
 )
 
-// actuate runs the occupancy-driven optimizer for every live (instrumented) zone: a zone
-// that has been empty past the safety delay is set back (warmer setpoint, which lowers
-// cooling load and shows up as a drop on the dashboard) and its lights are commanded off;
-// a reoccupied zone is restored. Commands publish to the edge (ESP32) only on change.
+// actuate runs the occupancy-driven optimizer: a zone empty past the safety delay is set
+// back (warmer setpoint, which lowers cooling load and shows up as a drop on the
+// dashboard) and its lights are commanded off; a reoccupied zone is restored.
+//
+// Two deliberate design points:
+//   - AutoPilot gates the whole thing. When it is off the optimizer is genuinely
+//     suspended — setpoints hold wherever they are (manual or last-commanded) and
+//     nothing autonomous is claimed. This is what the dashboard's AI toggle now
+//     actually controls, end to end, instead of only re-labelling cards.
+//   - It acts on EVERY zone, not just hardware-bound ones, so the twin's autonomy is
+//     real in the model (physics + streamed savings reflect it). MQTT commands are
+//     published ONLY to zones with a real device listening (MqttTopic set) — a pure-sim
+//     zone changes state in the engine but we don't spray commands onto topics no board
+//     subscribes to.
 func (e *Engine) actuate() {
-	preCool := time.Now().Before(e.PreCoolUntil)
-	for id, z := range e.Zones {
-		if !z.Live {
-			continue
+	if !e.AutoPilot {
+		// Suspended: release the optimizer's setbacks so the operator is handed a
+		// normally-conditioned building at its occupied baseline, not zones stranded in
+		// stale setback. Manual overrides (the human-in-the-loop veto latch) are left
+		// untouched — turning off automation must not stomp a human command.
+		for _, z := range e.Zones {
+			if time.Now().Before(z.OverrideUntil) {
+				continue
+			}
+			z.Setpoint = z.BaseSetpoint
+			z.LightsOn = true
 		}
+		e.zonesInSetback = 0
+		return
+	}
+	preCool := time.Now().Before(e.PreCoolUntil)
+	setback := 0
+	for id, z := range e.Zones {
 		if time.Now().Before(z.OverrideUntil) {
+			if z.Setpoint > z.BaseSetpoint+0.01 {
+				setback++ // a manual veto can itself be a setback; still count it
+			}
 			continue // Respect the human-in-the-loop manual override latch
 		}
 		if z.Occupancy <= 0 {
@@ -509,6 +542,7 @@ func (e *Engine) actuate() {
 		desiredSp := z.BaseSetpoint
 		if vacant {
 			desiredSp = z.BaseSetpoint + 4.0 // energy-saving setback
+			setback++
 		} else if preCool {
 			// Forecast says a demand peak is coming: run occupied zones slightly cold
 			// now (cheap thermal-mass charge) so chillers can shed load at the peak.
@@ -524,16 +558,25 @@ func (e *Engine) actuate() {
 		cmd := fmt.Sprintf("LIGHTS_%s;SETPOINT=%.1f", lightStr, desiredSp)
 		if e.lastCmd[id] != cmd {
 			e.lastCmd[id] = cmd
-			topic := z.MqttTopic
-			if topic == "" {
-				topic = id
-			}
-			log.Printf("[actuate] zone=%s occ=%d -> %s", id, z.Occupancy, cmd)
-			if e.Publish != nil {
-				e.Publish("econ/commands/"+topic, cmd)
+			// Only command zones a real device is bound to; sim zones just changed state.
+			if z.MqttTopic != "" && e.Publish != nil {
+				log.Printf("[actuate] zone=%s occ=%d -> %s", id, z.Occupancy, cmd)
+				e.Publish("econ/commands/"+z.MqttTopic, cmd)
 			}
 		}
 	}
+	e.zonesInSetback = setback
+}
+
+// SetAutoPilot toggles the autonomous optimizer. Off suspends actuate() (the operator
+// holds control); on resumes occupancy-driven setback on the next tick.
+func (e *Engine) SetAutoPilot(on bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.AutoPilot != on {
+		log.Printf("[autopilot] %v", on)
+	}
+	e.AutoPilot = on
 }
 
 // hwStaleAfter bounds how long a measured temperature keeps pinning a zone: past it the
@@ -1083,13 +1126,15 @@ func (e *Engine) broadcast() {
 			if z.Temp > sp+z.Deadband+criticalMargin {
 				alarmCount++
 			}
-			// Occupancy-driven savings: a live zone in setback (lights off) avoids its
+			// Occupancy-driven savings: a zone in setback (lights off) avoids its
 			// lighting load and a chunk of its internal-gain cooling. Lighting scales
 			// with the zone's REAL floor area at an LED office lighting power density —
 			// the previous flat 2 kW credited a 9 m² closet and a 650 m² floor plate
-			// identically, which is not a number anyone can report.
+			// identically, which is not a number anyone can report. Counted for every
+			// zone the optimizer set back, real sensor or simulated — the whole point of
+			// AutoPilot being a real control is that its savings are a real number.
 			const lightingWPerM2 = 9.0 // LED office LPD (W/m²), TCVN/ASHRAE 90.1 order
-			if z.Live && z.Setpoint > z.BaseSetpoint+0.01 {
+			if z.Setpoint > z.BaseSetpoint+0.01 {
 				savedLightingW += z.AreaM2 * lightingWPerM2
 				savedThermalW += z.BaseHeatGain * 0.25
 			}
@@ -1250,6 +1295,8 @@ func (e *Engine) broadcast() {
 		Telemetry.GlobalDataAddPlugStandbyKw(builder, float32(plugStandbyW/1000))
 		Telemetry.GlobalDataAddPlugShedKw(builder, float32(plugShedW/1000))
 		Telemetry.GlobalDataAddPlugSavedKwh(builder, float32(e.plugSavedKwh))
+		Telemetry.GlobalDataAddAutoPilot(builder, e.AutoPilot)
+		Telemetry.GlobalDataAddZonesInSetback(builder, int32(e.zonesInSetback))
 		globalPos := Telemetry.GlobalDataEnd(builder)
 
 		// Build SimState

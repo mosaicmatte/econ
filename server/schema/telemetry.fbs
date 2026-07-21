@@ -44,6 +44,12 @@ table GlobalData {
   plugStandbyKw: float = 0;    // appended: the always-on phantom portion of plugKw
   plugShedKw: float = 0;       // appended: kW currently switched off by the after-hours sweep
   plugSavedKwh: float = 0;     // appended: cumulative energy the sweep has avoided
+  // Autonomous optimizer (occupancy-driven setback). autoPilot is the engine's real
+  // control flag, not a UI toggle: when false the optimizer is suspended and the
+  // operator owns the setpoints. zonesInSetback is how many zones it is holding in
+  // energy-saving setback right now — the real backing for the "autonomous action" cards.
+  autoPilot: bool = true;      // appended
+  zonesInSetback: int = 0;     // appended
 }
 
 table SimState {

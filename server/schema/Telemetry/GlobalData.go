@@ -197,8 +197,32 @@ func (rcv *GlobalData) MutatePlugSavedKwh(n float32) bool {
 	return rcv._tab.MutateFloat32Slot(28, n)
 }
 
+func (rcv *GlobalData) AutoPilot() bool {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(30))
+	if o != 0 {
+		return rcv._tab.GetBool(o + rcv._tab.Pos)
+	}
+	return true
+}
+
+func (rcv *GlobalData) MutateAutoPilot(n bool) bool {
+	return rcv._tab.MutateBoolSlot(30, n)
+}
+
+func (rcv *GlobalData) ZonesInSetback() int32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(32))
+	if o != 0 {
+		return rcv._tab.GetInt32(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *GlobalData) MutateZonesInSetback(n int32) bool {
+	return rcv._tab.MutateInt32Slot(32, n)
+}
+
 func GlobalDataStart(builder *flatbuffers.Builder) {
-	builder.StartObject(13)
+	builder.StartObject(15)
 }
 func GlobalDataAddBuildingLoadMw(builder *flatbuffers.Builder, buildingLoadMw float32) {
 	builder.PrependFloat32Slot(0, buildingLoadMw, 0.0)
@@ -238,6 +262,12 @@ func GlobalDataAddPlugShedKw(builder *flatbuffers.Builder, plugShedKw float32) {
 }
 func GlobalDataAddPlugSavedKwh(builder *flatbuffers.Builder, plugSavedKwh float32) {
 	builder.PrependFloat32Slot(12, plugSavedKwh, 0.0)
+}
+func GlobalDataAddAutoPilot(builder *flatbuffers.Builder, autoPilot bool) {
+	builder.PrependBoolSlot(13, autoPilot, true)
+}
+func GlobalDataAddZonesInSetback(builder *flatbuffers.Builder, zonesInSetback int32) {
+	builder.PrependInt32Slot(14, zonesInSetback, 0)
 }
 func GlobalDataEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

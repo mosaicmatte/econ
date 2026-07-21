@@ -147,6 +147,17 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, engine *simulation.
 			// while leaving legacy string scenarios intact.
 			strMsg := string(msg)
 			if len(strMsg) > 0 && strMsg[0] == '{' {
+				// Auto-Pilot toggle carries a bool value, so it is parsed first with its
+				// own shape (the override map below is map[string]string and would reject
+				// it). This is what makes the dashboard's AI switch a real engine control.
+				var ap struct {
+					Action string `json:"action"`
+					Value  *bool  `json:"value"`
+				}
+				if json.Unmarshal(msg, &ap) == nil && ap.Action == "autopilot" && ap.Value != nil {
+					engine.SetAutoPilot(*ap.Value)
+					return
+				}
 				var override map[string]string
 				if err := json.Unmarshal(msg, &override); err == nil {
 					if action, ok := override["action"]; ok {
