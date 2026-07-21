@@ -6,6 +6,31 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-21 — Auto-Pilot is now a real control, and the "autonomous action" cards tell the truth
+>
+> **The AI toggle was cosmetic and the "AUTONOMOUS ACTION — Setback engaged, saving
+> X/day" cards were fabricated.** `autoPilot` lived only in the browser and was never
+> sent to the engine; `actuate()` ran only on hardware-bound (`Live`) zones, so in the
+> demo — which has none — the optimizer did *nothing*, `energySavedMw` was always 0, and
+> the cards displayed per-card estimates as if setback were happening. Now it's real end
+> to end. `Engine.AutoPilot` is a genuine flag: toggling the dashboard switch sends
+> `{action:"autopilot"}` over the websocket, `main.go` calls `SetAutoPilot`, and the
+> optimizer actually suspends or resumes. `actuate()` now acts on **every** zone (so the
+> twin's autonomy is real in the physics and the streamed savings), publishing MQTT
+> commands only to zones a real device is bound to — a pure-sim zone changes state in the
+> engine without spraying commands onto topics no board subscribes to. Turning Auto-Pilot
+> **off releases its setbacks to the occupied baseline** (a normally-conditioned building
+> handed back to the operator), while leaving manual-override vetoes untouched. The engine
+> streams the real `autoPilot` state and `zonesInSetback` count, and every card on both
+> dashboards now reports those: "holding 117 zones in setback — 353 kW avoided
+> (24.4M VND/day), streamed from the engine, not estimated." Two fabricated claims went
+> with it — the "Auto-Adjusted VAV flow +15%" comfort card (the engine does no such
+> per-zone action; it now describes the real VAV modulation) and the flat lighting-saving
+> constant. Proven on the live stack: toggling moved the engine between 117 zones /
+> 0.35 MW saved and 0 / 0, and clicking DISENGAGE in the real UI dropped ENERGY SAVED to
+> zero, flipped every card, collapsed the performance scatter back to baseline, and set
+> the command bar to AI: OFF — all from one flag, on desktop and mobile.
+>
 > ### 2026-07-21 — The PROFILER plots real cooling, drills into real history, works on a phone
 >
 > **The Zone Performance scatter's Y-axis said "Cooling kW" but plotted each zone's
