@@ -30,6 +30,7 @@ type telemetryMsg struct {
 	PlugW       *float64 `json:"plugW"` // measured plug-circuit watts (SCT-013 clamp)
 	Source      string   `json:"source"`
 	TempReal    bool     `json:"tempReal"`
+	AcReal      *bool    `json:"acReal"` // nil = firmware predates the field
 }
 
 // startMQTT connects the Go engine to the MQTT broker so it (a) ingests real telemetry
@@ -104,6 +105,7 @@ func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 		PlugW:     msg.PlugW,
 		Source:    msg.Source,
 		TempReal:  msg.TempReal,
+		AcReal:    msg.AcReal,
 	})
 	occ := -1
 	if msg.Occupancy != nil {

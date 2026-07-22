@@ -437,6 +437,67 @@ func TestExtrapolatedOutlookIsClampedAndFlagged(t *testing.T) {
 	}
 }
 
+// TestLearnedSetbackDiffersPerRoom: the vacancy setback used to be a flat +4 °C for every
+// zone in the building. The right depth is a property of the room — how fast it recovers —
+// so a responsive room should earn a deeper setback than a sluggish one, and both should
+// come out of their own identified physics rather than a constant.
+func TestLearnedSetbackDiffersPerRoom(t *testing.T) {
+	// A responsive room: strong cooling authority, so it catches up quickly.
+	quick := NewDynamics()
+	qr := healthyRoom()
+	driveRoom(quick, qr, "quick", 500, false)
+
+	// A sluggish room: the same envelope, much less cooling authority — but still enough
+	// to reach setpoint, otherwise it is refused outright (see the next test).
+	slow := NewDynamics()
+	sr := healthyRoom()
+	sr.cool = -0.8
+	driveRoom(slow, sr, "slow", 500, false)
+
+	const setpoint, outdoor, budget = 24.0, 33.0, 1800.0
+	qDelta, qOk := quick.SetbackCeiling("quick", setpoint, outdoor, budget)
+	sDelta, sOk := slow.SetbackCeiling("slow", setpoint, outdoor, budget)
+	if !qOk || !sOk {
+		t.Fatalf("both rooms should be identified: quick=%v slow=%v", qOk, sOk)
+	}
+	if qDelta <= sDelta {
+		t.Errorf("the faster-recovering room should earn the deeper setback: quick=%.2f slow=%.2f",
+			qDelta, sDelta)
+	}
+	for name, d := range map[string]float64{"quick": qDelta, "slow": sDelta} {
+		if d < setbackMinC || d > setbackMaxC {
+			t.Errorf("%s setback %.2f is outside the safe band [%.1f, %.1f]",
+				name, d, setbackMinC, setbackMaxC)
+		}
+	}
+
+	// A longer recovery budget must never yield a SHALLOWER setback.
+	long, _ := quick.SetbackCeiling("quick", setpoint, outdoor, 3600)
+	if long < qDelta {
+		t.Errorf("a longer recovery budget should allow at least as deep a setback: %.2f < %.2f",
+			long, qDelta)
+	}
+
+	// An unidentified room must fall back rather than invent a depth.
+	if _, ok := quick.SetbackCeiling("no-such-room", setpoint, outdoor, budget); ok {
+		t.Error("an unidentified room must not produce a learned setback")
+	}
+}
+
+// TestSetbackRefusedWhenRoomCannotRecover: a room that cannot reach its setpoint even at
+// full cooling has no recovery margin to spend, so it must not be set back on the strength
+// of a calculation that assumes it can catch up.
+func TestSetbackRefusedWhenRoomCannotRecover(t *testing.T) {
+	d := NewDynamics()
+	r := weakRoom()
+	driveRoom(d, r, "weak", 600, false)
+
+	// 24 °C setpoint on a hot day is beyond this room's full-flow equilibrium.
+	if delta, ok := d.SetbackCeiling("weak", 24.0, 36.0, 1800); ok {
+		t.Errorf("a room that cannot hold setpoint must not be given a learned setback, got %.2f", delta)
+	}
+}
+
 // TestMergeDropsDuplicatePrediction: when a room is ALREADY anomalous on a metric, the
 // forecast for that same metric is redundant and must not double-report it.
 func TestMergeDropsDuplicatePrediction(t *testing.T) {

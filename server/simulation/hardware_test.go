@@ -469,3 +469,47 @@ func TestOutdoorTempFreshness(t *testing.T) {
 		t.Fatalf("stale feed: want fallback %.1f/false, got %.1f/%v", outdoorFallbackC, v, live)
 	}
 }
+
+func bp(v bool) *bool { return &v }
+
+// The twin computes setbacks for every zone, but a setback only saves energy if the
+// command reaches an air conditioner. Firmware built without USE_IR_AC parses the setpoint
+// and pulses a pin — nothing more — so it reports acReal:false, and that has to survive all
+// the way to the API rather than being silently dropped on ingest.
+func TestAcRealIsIngestedAndSurfaced(t *testing.T) {
+	e := newTestEngine()
+
+	// Firmware predating the field reports nothing: "unknown", not "no".
+	e.IngestTelemetry("Level 4", "zone_1", Measurement{Occupancy: ip(1), Source: "esp32"})
+	n := findNode(t, e, "zone_1")
+	if n.AcControlKnown {
+		t.Error("a node that never reported acReal must read as unknown, not as a claim")
+	}
+
+	// A node that positively has no AC control.
+	e.IngestTelemetry("Level 4", "zone_1", Measurement{
+		Occupancy: ip(1), Source: "esp32", AcReal: bp(false)})
+	n = findNode(t, e, "zone_1")
+	if !n.AcControlKnown || n.AcReal {
+		t.Errorf("expected known=true real=false, got known=%v real=%v", n.AcControlKnown, n.AcReal)
+	}
+
+	// The same node reflashed with -DUSE_IR_AC=1.
+	e.IngestTelemetry("Level 4", "zone_1", Measurement{
+		Occupancy: ip(1), Source: "esp32", AcReal: bp(true)})
+	n = findNode(t, e, "zone_1")
+	if !n.AcControlKnown || !n.AcReal {
+		t.Errorf("expected known=true real=true, got known=%v real=%v", n.AcControlKnown, n.AcReal)
+	}
+}
+
+func findNode(t *testing.T, e *Engine, topic string) HardwareNode {
+	t.Helper()
+	for _, n := range e.HardwareStatus() {
+		if n.Topic == topic {
+			return n
+		}
+	}
+	t.Fatalf("no hardware node bound to topic %q", topic)
+	return HardwareNode{}
+}

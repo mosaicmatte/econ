@@ -35,8 +35,25 @@
 #include "wifi_secrets.h"
 const int   MQTT_PORT = 1883;
 
-const char* ZONE_LABEL    = "Level 4";     // human label sent in telemetry
-const char* ZONE_TOPIC    = "zone_1";      // topic suffix; engine maps this to a zoneId
+// Per-board identity. These MUST differ between boards: the topic suffix is what the
+// engine binds to a zone, so two nodes sharing one would interleave their telemetry into
+// the same zone and fight over its commands.
+//
+// Both are overridable at build time so one source tree flashes a whole floor without
+// editing this file per device — which is what platformio.ini and the README have always
+// documented. (They documented it before it worked: the override was in the docs and the
+// example build_flags, but nothing here read it, so every board flashed by following the
+// instructions came up as "zone_1" and collided.)
+//
+//   build_flags = -DZONE_TOPIC_OVERRIDE=\"zone_2\" -DZONE_LABEL_OVERRIDE=\"Level 5\"
+#ifndef ZONE_TOPIC_OVERRIDE
+  #define ZONE_TOPIC_OVERRIDE "zone_1"
+#endif
+#ifndef ZONE_LABEL_OVERRIDE
+  #define ZONE_LABEL_OVERRIDE "Level 4"
+#endif
+const char* ZONE_LABEL    = ZONE_LABEL_OVERRIDE;   // human label sent in telemetry
+const char* ZONE_TOPIC    = ZONE_TOPIC_OVERRIDE;   // topic suffix; engine maps this to a zoneId
 // Derived topics
 char TELEMETRY_TOPIC[48];                   // econ/telemetry/<ZONE_TOPIC>
 char COMMAND_TOPIC[48];                     // econ/commands/<ZONE_TOPIC>
@@ -326,14 +343,95 @@ void setupWifi() {
 }
 
 // ---------------- HVAC IR ----------------
-// Sends the AC setpoint via IR. Real AC control needs the IRremoteESP8266 library
-// and a per-brand protocol (Coolix/Daikin/etc.); this is the single extension point.
+// This is where the whole control loop terminates: the engine's optimizer decides a
+// setpoint, publishes it, and the node has to make a real air conditioner obey.
+//
+// For a long time it did not. applyHvacSetpoint() pulsed the pin three times and logged
+// the setpoint, which looks convincing on a scope and in the serial monitor while the AC
+// does absolutely nothing — every setback the twin reported saving energy on was, at this
+// node, a no-op. USE_IR_AC=1 now sends a genuine per-brand IR frame via IRremoteESP8266,
+// and telemetry reports which of the two is actually happening (`acReal`), so a bare demo
+// board can never be mistaken for a node that is really driving a machine.
+#ifndef USE_IR_AC
+  #define USE_IR_AC 0
+#endif
+
+#if USE_IR_AC
+  #include <IRremoteESP8266.h>
+  #include <IRsend.h>
+  #include <IRac.h>
+
+  // Which brand's protocol to speak. IRremoteESP8266's IRac wraps ~50 vendor protocols
+  // behind one state struct, so switching brands is a build flag, not a rewrite:
+  //   -DIR_AC_PROTOCOL=COOLIX     generic; many budget/OEM splits (a good first try)
+  //   -DIR_AC_PROTOCOL=DAIKIN     -DIR_AC_PROTOCOL=PANASONIC_AC
+  //   -DIR_AC_PROTOCOL=MITSUBISHI_AC   -DIR_AC_PROTOCOL=LG2   -DIR_AC_PROTOCOL=SAMSUNG_AC
+  //   -DIR_AC_PROTOCOL=TOSHIBA_AC -DIR_AC_PROTOCOL=GREE       (Casper/Nagakawa are often GREE)
+  // If the unit does not respond, capture its remote with IRremoteESP8266's IRrecvDumpV3
+  // example and use whatever protocol it decodes to.
+  #ifndef IR_AC_PROTOCOL
+    #define IR_AC_PROTOCOL COOLIX
+  #endif
+  #ifndef IR_AC_MODEL
+    #define IR_AC_MODEL 1            // vendor sub-model; 1 is the default for most
+  #endif
+  #ifndef IR_AC_FAN
+    #define IR_AC_FAN kAuto          // stdAc::fanspeed_t member name
+  #endif
+
+  IRac ac(IR_PIN);
+  bool irAcReady = false;            // protocol compiled AND supported by the library
+#endif
+
+// applyHvacSetpoint drives the room's air conditioner to `celsius`.
+//
+// Bounds are enforced here rather than trusted from the wire: a corrupt or malicious
+// SETPOINT= would otherwise be handed straight to the AC. 16-30 °C is the range essentially
+// every split unit accepts, and clamping is safer than refusing (a refused command leaves
+// the room uncontrolled, a clamped one is merely conservative).
 void applyHvacSetpoint(float celsius) {
+  if (isnan(celsius) || celsius < 16.0f || celsius > 30.0f) {
+    Serial.printf("[hvac] setpoint %.1f C out of range -> clamped\n", celsius);
+    celsius = celsius < 16.0f ? 16.0f : (celsius > 30.0f ? 30.0f : 24.0f);
+  }
   hvacSetpointC = celsius;
-  Serial.printf("[hvac] IR -> setpoint %.1f C\n", celsius);
-  // Visible pulse so a scope/LED on IR_PIN confirms a command was acted on.
+
+#if USE_IR_AC
+  if (irAcReady) {
+    // The AC's full desired state, not just a temperature: these units are stateless
+    // receivers — each frame carries mode, fan and power as well, so omitting them would
+    // let the machine fall back to whatever it last heard from the handset.
+    ac.next.protocol = decode_type_t::IR_AC_PROTOCOL;
+    ac.next.model    = IR_AC_MODEL;
+    ac.next.mode     = stdAc::opmode_t::kCool;
+    ac.next.celsius  = true;
+    ac.next.degrees  = celsius;
+    ac.next.fanspeed = stdAc::fanspeed_t::IR_AC_FAN;
+    ac.next.swingv   = stdAc::swingv_t::kOff;
+    ac.next.swingh   = stdAc::swingh_t::kOff;
+    ac.next.light    = false;
+    ac.next.beep     = false;
+    ac.next.econo    = false;
+    ac.next.filter   = false;
+    ac.next.turbo    = false;
+    ac.next.quiet    = false;
+    ac.next.clean    = false;
+    ac.next.sleep    = -1;
+    ac.next.clock    = -1;
+    ac.next.power    = true;
+    ac.sendAc();
+    Serial.printf("[hvac] IR frame sent: %s -> %.1f C\n",
+                  typeToString(decode_type_t::IR_AC_PROTOCOL).c_str(), celsius);
+    return;
+  }
+  Serial.println("[hvac] WARNING: IR AC compiled in but protocol unsupported -> not sent");
+#else
+  // No AC control fitted. The pulse is a diagnostic only — it lets a scope or an LED on
+  // IR_PIN confirm the command arrived and was parsed — and telemetry says acReal:false
+  // so nothing downstream reads this as a machine having been commanded.
+  Serial.printf("[hvac] setpoint %.1f C parsed (no IR AC compiled in; acReal:false)\n", celsius);
   for (int i = 0; i < 3; i++) { digitalWrite(IR_PIN, HIGH); delay(8); digitalWrite(IR_PIN, LOW); delay(8); }
-  // TODO(real AC): IRsendCoolix ac(IR_PIN); ac.send(buildCoolixState(celsius, lightsOn));
+#endif
 }
 
 void setLights(bool on) {
@@ -493,6 +591,14 @@ void readAndPublish() {
 
   doc["lights"]      = lightsOn ? "ON" : "OFF";
   doc["setpoint"]    = hvacSetpointC;
+  // Whether that setpoint was actually transmitted to an air conditioner, or merely
+  // parsed. Same discipline as tempReal: the twin must never count energy saved by a
+  // setback that terminated in a serial log line.
+#if USE_IR_AC
+  doc["acReal"] = irAcReady;
+#else
+  doc["acReal"] = false;
+#endif
 
   char buf[288];
   size_t n = serializeJson(doc, buf);
@@ -521,6 +627,28 @@ void setup() {
   Serial.begin(115200);
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(IR_PIN, OUTPUT);
+#if USE_IR_AC
+  // IRac has no begin() — the per-protocol sender initialises itself on send. What DOES
+  // need doing is seeding the state struct to the library's defaults, so any field this
+  // firmware does not set explicitly holds a sane value rather than whatever was on the
+  // stack.
+  IRac::initState(&ac.next);
+  // Ask the library, rather than assuming: a protocol name can compile fine and still be
+  // send-unsupported in this build of IRremoteESP8266, and finding that out at the first
+  // setpoint command (silently) is exactly the failure this whole change is about.
+  irAcReady = IRac::isProtocolSupported(decode_type_t::IR_AC_PROTOCOL);
+  if (irAcReady) {
+    Serial.printf("[hvac] IR AC control ACTIVE: %s on GPIO%d\n",
+                  typeToString(decode_type_t::IR_AC_PROTOCOL).c_str(), IR_PIN);
+  } else {
+    Serial.printf("[hvac] WARNING: protocol %s is not send-supported by this library build; "
+                  "setpoints will NOT reach the AC (acReal:false)\n",
+                  typeToString(decode_type_t::IR_AC_PROTOCOL).c_str());
+  }
+#else
+  Serial.printf("[hvac] no IR AC compiled in (build -DUSE_IR_AC=1); setpoints are parsed "
+                "but not transmitted (acReal:false)\n");
+#endif
   pinMode(STATUS_LED, OUTPUT);
   setLights(true);
 #if USE_SHT30 || USE_CO2

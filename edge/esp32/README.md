@@ -15,7 +15,10 @@ demos with zero wiring and a real deployment enables exactly the sensors it has:
 | senses | plug-circuit power | SCT-013 current clamp on **GPIO34** (ADC1, input-only) — true-RMS watts | `-DUSE_PLUG=1` |
 | actuates | zone lights | relay on **GPIO23** (active HIGH; onboard LED on GPIO2 shows MQTT link) | *(default)* |
 | actuates | plug sockets (APLC sweep) | second relay on **GPIO25** (active HIGH, fail-**energized** on boot) | `-DUSE_PLUG=1` |
-| actuates | HVAC setpoint | IR emitter on **GPIO19** (extension point for IRremoteESP8266) | *(default)* |
+| actuates | HVAC setpoint | IR emitter on **GPIO19** — real per-brand AC frames via IRremoteESP8266 | `-DUSE_IR_AC=1` |
+
+**Parts and circuits:** [../SHOPPING_LIST.md](../SHOPPING_LIST.md) and
+[../WIRING.md](../WIRING.md).
 
 Anything not compiled in is simulated and flagged honestly — a modelled temperature is sent
 as `tempReal:false` so the engine never pins zone physics to a fake, and a sensor that fails
@@ -24,7 +27,8 @@ its read simply stops publishing that field (zero always means "not measuring", 
 
 Wire contract: publishes JSON to `econ/telemetry/<ZONE_TOPIC>` every 5 s (instantly on a
 presence change), carrying whichever of `occupancy`, `temp`/`tempReal`, `humidity`, `co2`,
-`plugW` are live; executes `LIGHTS_ON|OFF;SETPOINT=<°C>` and (with the plug node)
+`plugW` are live, plus `acReal` — whether a setpoint command actually reached an air
+conditioner or was only parsed; executes `LIGHTS_ON|OFF;SETPOINT=<°C>` and (with the plug node)
 `PLUG_ON|PLUG_OFF` from `econ/commands/<ZONE_TOPIC>`; and keeps a retained online/offline
 flag on `econ/status/<ZONE_TOPIC>` via MQTT Last Will.
 
@@ -41,8 +45,11 @@ cp src/wifi_secrets.example.h src/wifi_secrets.h   # then fill in the three valu
 `MQTT_HOST` is whatever machine hosts the Mosquitto broker — with the default stack
 that is the computer running `docker compose up` in `econ/server` (find its IP with
 `ipconfig getifaddr en0` on macOS). The compose file already exposes port 1883 to the
-LAN and the broker allows anonymous clients. Per-board identity (`ZONE_TOPIC`,
-`ZONE_LABEL`) stays at the top of `src/main.cpp` — give each board a unique suffix.
+LAN and the broker allows anonymous clients. Per-board identity is a build flag — `-DZONE_TOPIC_OVERRIDE=\"zone_2\"` and
+`-DZONE_LABEL_OVERRIDE=\"Level 5\"` — so one source tree flashes a whole floor. **Every
+board needs its own topic suffix:** two nodes sharing one interleave their telemetry into a
+single zone and fight over its commands. Put labels containing spaces in `platformio.ini`
+rather than `PLATFORMIO_BUILD_FLAGS`, which the shell splits on the space.
 
 ## 2. Flash
 
@@ -82,10 +89,13 @@ TimescaleDB history) follows within seconds.
 ; platformio.ini — a fully-instrumented office node
 build_flags =
   -DZONE_TOPIC_OVERRIDE=\"zone_2\"
+  -DZONE_LABEL_OVERRIDE=\"Level 5 East\"
   -DUSE_SHT30=1     ; temperature + humidity (I2C SDA21/SCL22, addr 0x44)
   -DUSE_CO2=1       ; ASAIR ACD1200 NDIR on the same bus (addr 0x2A)
   -DUSE_MMWAVE=1    ; LD2410C radar on GPIO18 — keeps still occupants "present"
   -DUSE_PLUG=1      ; SCT-013 clamp on GPIO34 + plug relay on GPIO25
+  -DUSE_IR_AC=1     ; real AC control over IR on GPIO19
+  -DIR_AC_PROTOCOL=COOLIX
 ```
 
 Notes per sensor:
@@ -99,6 +109,16 @@ Notes per sensor:
   SCT-013-030 use `30.0` and skip the burden. `-DPLUG_MAINS_V=230` for Vietnam. The plug
   relay boots **closed** (fail-energized) so a crashed node never dark-kills a live socket,
   and the engine's after-hours sweep opens it only on verified vacancy.
+- **AC control (`USE_IR_AC`)** is what closes the loop. Without it the node parses a
+  setpoint, logs it, and pulses GPIO19 for a scope — the air conditioner never hears
+  anything, and telemetry says so with `acReal:false` so the twin does not book energy
+  savings against a setback that did nothing. With it, IRremoteESP8266 sends a genuine
+  vendor frame. Start with `-DIR_AC_PROTOCOL=COOLIX` (many budget/OEM splits); `DAIKIN`,
+  `PANASONIC_AC`, `MITSUBISHI_AC`, `LG2`, `SAMSUNG_AC`, `TOSHIBA_AC` and `GREE` (Casper and
+  Nagakawa are often Gree-compatible) are all verified to build. If the unit ignores you,
+  capture its handset with IRremoteESP8266's `IRrecvDumpV3` and use whatever it decodes to.
+  **The LED needs a driver transistor** — a bare GPIO gives about a metre of range; see
+  [../WIRING.md](../WIRING.md).
 - **mmWave (`USE_MMWAVE`)** is worth it in offices: PIR drops people who sit still, radar
   holds them, so the optimizer doesn't set back an occupied-but-quiet room.
 

@@ -106,6 +106,11 @@ type ZoneSim struct {
 	// training data or fault labels.
 	ShadowTemp  float64 // sensor-free model twin of Temp (0 = not yet seeded)
 	ResidualEma float64 // smoothed |HwTemp − ShadowTemp| in °C
+	// Does this zone's bound node actually drive an air conditioner? The optimizer will
+	// happily compute a setback for a zone whose commands terminate in a serial log line;
+	// this is what lets the twin distinguish a saving it caused from one it only imagined.
+	HwAcReal     bool
+	HwAcRealSeen bool // a node has positively reported either way
 }
 
 type VavSim struct {
@@ -411,6 +416,11 @@ type Measurement struct {
 	PlugW     *float64 // measured plug-circuit draw (SCT-013 clamp), watts
 	Source    string
 	TempReal  bool
+	// AcReal reports whether the node's setpoint commands actually reach an air
+	// conditioner, or are merely parsed and logged. A pointer because "not reported"
+	// (firmware older than the field) must stay distinct from a node that positively
+	// says its IR control is absent.
+	AcReal *bool
 }
 
 // IngestTelemetry ingests one sample from the CV/edge layer (MQTT) and marks the zone
@@ -436,6 +446,17 @@ func (e *Engine) IngestTelemetry(zoneRef, topicSuffix string, m Measurement) {
 	}
 	z.HwSeenAt = time.Now()
 	z.HwOnline = true
+	if m.AcReal != nil {
+		// Log the transition only, not every 5 s telemetry cycle.
+		if !z.HwAcRealSeen || z.HwAcReal != *m.AcReal {
+			if *m.AcReal {
+				log.Printf("[actuate] zone=%s has REAL AC control (setpoints reach the unit)", z.BimAssetId)
+			} else {
+				log.Printf("[actuate] zone=%s reports NO AC control: setpoint commands are parsed but reach no machine, so any saving attributed to its setback is not real", z.BimAssetId)
+			}
+		}
+		z.HwAcReal, z.HwAcRealSeen = *m.AcReal, true
+	}
 	if m.Temp != nil && m.TempReal {
 		z.HwTemp = *m.Temp
 		z.HwTempAt = time.Now()
@@ -517,6 +538,14 @@ const (
 	// preCoolDelta is how far below the occupied setpoint zones run during a
 	// forecast-triggered pre-cool window.
 	preCoolDelta = 1.5 // °C
+	// fixedSetbackC is the conventional vacancy setback, used only until a room has been
+	// identified. It used to be applied unconditionally to every zone; the depth is now
+	// asked of each room's own thermal model (Dynamics.SetbackCeiling), because the right
+	// answer depends on how fast that specific room recovers.
+	fixedSetbackC = 4.0 // °C
+	// setbackRecoverySecs is the budget a setback room is given to return to setpoint once
+	// occupancy comes back — the constraint the learned depth is solved against.
+	setbackRecoverySecs = 1800.0 // 30 min
 	// afddThreshold flags a zone whose measured temperature has drifted this far
 	// (smoothed) from its sensor-free 2R1C shadow model.
 	afddThreshold = 2.0 // °C
@@ -553,6 +582,8 @@ func (e *Engine) actuate() {
 		return
 	}
 	preCool := time.Now().Before(e.PreCoolUntil)
+	// One ambient for the recovery calculation, hoisted out of the zone loop.
+	tOutForSetback, _ := e.outdoorNow()
 	setback := 0
 	for id, z := range e.Zones {
 		if time.Now().Before(z.OverrideUntil) {
@@ -571,7 +602,19 @@ func (e *Engine) actuate() {
 		desiredLights := !vacant
 		desiredSp := z.BaseSetpoint
 		if vacant {
-			desiredSp = z.BaseSetpoint + 4.0 // energy-saving setback
+			// Setback depth is asked of the room's own identified physics rather than
+			// being the same number everywhere: how far can THIS room drift and still be
+			// back at setpoint within the recovery budget once someone returns? A light,
+			// responsive room earns a deeper setback (more energy saved); a heavy one that
+			// cannot catch up gets a shallower one. Falls back to the conventional fixed
+			// figure until the room is identified.
+			delta := fixedSetbackC
+			if e.dynamics != nil {
+				if learned, ok := e.dynamics.SetbackCeiling(id, z.BaseSetpoint, tOutForSetback, setbackRecoverySecs); ok {
+					delta = learned
+				}
+			}
+			desiredSp = z.BaseSetpoint + delta
 			setback++
 		} else if preCool {
 			// Forecast says a demand peak is coming: run occupied zones slightly cold
@@ -967,6 +1010,10 @@ type HardwareNode struct {
 	// APLC: live clamp watts (0 = no meter reporting) and current sweep state.
 	PlugW    float64 `json:"plugW"`
 	PlugShed bool    `json:"plugShed"`
+	// Closed-loop AC control: whether this node's setpoint commands reach a real machine.
+	// AcControlKnown is false for firmware predating the acReal field.
+	AcReal         bool `json:"acReal"`
+	AcControlKnown bool `json:"acControlKnown"`
 }
 
 // HardwareStatus snapshots every zone currently bound to a physical edge node, for the
@@ -1012,6 +1059,9 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 			AfddAlert:  z.ShadowTemp != 0 && z.ResidualEma > afddThreshold,
 			PlugW:      plugW,
 			PlugShed:   z.PlugShed,
+			// Whether this node's setpoint commands actually reach an air conditioner.
+			AcReal:         z.HwAcReal,
+			AcControlKnown: z.HwAcRealSeen,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ZoneId < out[j].ZoneId })

@@ -6,6 +6,33 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-22 — The control loop now reaches real machines, and the setback depth is the room's own answer
+>
+> A scan for hardcoded and stubbed features found the control loop terminating in a no-op:
+> `applyHvacSetpoint()` pulsed a GPIO three times and logged the setpoint. It looked right on
+> a scope and in the serial monitor while **the air conditioner did nothing** — so every
+> setback the twin reported saving energy on was, at that node, fictional.
+> - **Real AC control** (`-DUSE_IR_AC=1`) — genuine per-brand IR frames via IRremoteESP8266.
+>   `COOLIX`, `DAIKIN`, `PANASONIC_AC`, `MITSUBISHI_AC`, `LG2`, `SAMSUNG_AC`, `TOSHIBA_AC` and
+>   `GREE` are all verified to build. The node now reports **`acReal`** in telemetry, the
+>   engine ingests it, and `/api/hardware` exposes it — so a zone whose commands reach no
+>   machine is visible instead of being quietly counted as a saving.
+> - **Per-board identity actually works** — `ZONE_TOPIC_OVERRIDE` / `ZONE_LABEL_OVERRIDE`
+>   were documented in the README *and* in `platformio.ini`, but nothing in the firmware read
+>   them: every board flashed by following the instructions came up as `zone_1` and collided
+>   with its neighbours on the bus.
+> - **Learned setback depth** — the vacancy setback was a flat `+4 °C` for every zone, which
+>   is simultaneously too timid for a light, responsive room and too aggressive for a heavy
+>   one that cannot recover before the floor fills up. It is now solved from the room's own
+>   identified thermal response: how far can *this* room drift and still be back at setpoint
+>   within the recovery budget? Falls back to the fixed figure until the room is identified,
+>   and refuses outright for a room that cannot reach setpoint even at full cooling.
+> - **[edge/SHOPPING_LIST.md](edge/SHOPPING_LIST.md)** and **[edge/WIRING.md](edge/WIRING.md)**
+>   — four build tiers from a zero-wiring demo to a full plug-metering node, with real
+>   Vietnam sourcing (SHT30 over DHT22, ASAIR ACD1200 over MH-Z19 — neither of the latter is
+>   stocked here), the IR driver circuit, the SCT-013 analog front end, the mandatory 5 V↔3.3 V
+>   level shifter, a power budget, a commissioning checklist and a troubleshooting table.
+
 > ### 2026-07-22 — Every room now has its own identified physics, and the forecaster no longer needs training
 >
 > The learned baselines answer *"is this reading abnormal?"*. They cannot answer *"what is

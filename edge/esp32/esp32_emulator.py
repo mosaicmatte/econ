@@ -92,6 +92,9 @@ def telemetry() -> str:
         "co2": 400 + occ * 120 + random.randint(0, 60),
         "source": "esp32",
         "tempReal": False,  # simulated placeholder — must never pin zone physics
+        # The emulator drives no IR emitter, so setpoint commands reach no machine. Saying
+        # so keeps the twin from booking energy savings against a setback that did nothing.
+        "acReal": False,
         "lights": lights,
         "setpoint": sp,
     })

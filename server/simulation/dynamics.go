@@ -801,6 +801,78 @@ func (d *Dynamics) co2OutlookLocked(c RoomCondition, limit, horizonSec float64) 
 	return out
 }
 
+// --- learned setback depth ---------------------------------------------------
+
+const (
+	// setbackMinC / setbackMaxC bound what the learned answer may recommend. The floor
+	// keeps a setback worth having; the ceiling stops an unrealistically fast-recovering
+	// fit from parking a room somewhere a returning occupant would notice on the way back.
+	setbackMinC = 1.5
+	setbackMaxC = 6.0
+	// setbackSafetyC is held back from the theoretical maximum. The recovery calculation
+	// assumes the room gets full flow the moment it is called for, which a shared AHU
+	// under morning load does not always deliver.
+	setbackSafetyC = 0.5
+)
+
+// SetbackCeiling answers, for one room: how far above its occupied setpoint can this room
+// be parked while vacant, and still be back at setpoint within recoverSec once someone
+// returns?
+//
+// This replaces a fixed "+4 °C for every zone", which is the same category of mistake the
+// baselines replaced — a number that is simultaneously too timid for a light, responsive
+// room and too aggressive for a heavy one that cannot recover before the floor fills up.
+// The room's own identified response answers it directly. Recovery at full cooling obeys
+// T(t) = T_eq + (T_sb − T_eq)·e^(−k·t) with k = θ₀ − θ₁ (full flow), so the deepest
+// recoverable start point is T_sb = T_eq + (setpoint − T_eq)·e^(k·t_recover).
+//
+// ok is false when the room has no trusted model or cannot reach setpoint at all, and the
+// caller keeps its conventional fixed setback — the same discipline as everywhere else
+// here: act on the learned value only when there genuinely is one.
+func (d *Dynamics) SetbackCeiling(zone string, setpoint, outdoorC float64, recoverSec float64) (deltaC float64, ok bool) {
+	if recoverSec <= 0 || setpoint <= 0 {
+		return 0, false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	zd := d.rooms[zone]
+	if !zd.thermalUsable() {
+		return 0, false
+	}
+	th := zd.Thermal.Theta
+	env, cool, occ, base := th[0], th[1], th[2], th[3]
+
+	// Recovery is evaluated at FULL flow and with the room empty — the conditions that
+	// actually apply while it is being brought back before occupants arrive.
+	k := env - cool*1.0
+	if k <= 1e-6 {
+		return 0, false
+	}
+	eqFull := (env*outdoorC - cool*1.0*supplyAirC + occ*0 + base) / k
+	// A room that cannot get below its own setpoint even at full cooling has no recovery
+	// margin to spend; setting it back at all risks never catching up.
+	if eqFull >= setpoint-0.1 {
+		return 0, false
+	}
+
+	hours := recoverSec / 3600.0
+	tSb := eqFull + (setpoint-eqFull)*math.Exp(k*hours)
+	delta := tSb - setpoint - setbackSafetyC
+	if math.IsNaN(delta) || math.IsInf(delta, 0) {
+		return 0, false
+	}
+	if delta < setbackMinC {
+		// The room is too sluggish to recover from a worthwhile setback in the budget.
+		// Reporting the floor is wrong here — say so and let the caller decide.
+		return setbackMinC, true
+	}
+	if delta > setbackMaxC {
+		delta = setbackMaxC
+	}
+	return delta, true
+}
+
 // --- persistence -------------------------------------------------------------
 
 // MarshalState / LoadState mirror the baseline model's byte-level persistence surface, so
