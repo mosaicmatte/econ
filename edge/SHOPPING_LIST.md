@@ -123,6 +123,56 @@ Any always-on Linux box works for a pilot; the Pi is the deployable form factor.
 | 24 | [**Raspberry Pi Pico W**](https://hshop.vn/mach-vi-dieu-khien-raspberry-pi-pico-w-rp2040-wifi-bluetooth) | 1 | The `edge/pico` firmware: RP2040 internal temperature, BOOTSEL/GP16 presence, onboard LED as the lighting actuator, 8 s watchdog. The **W** joins MQTT directly; a plain Pico speaks JSON over USB via `bridge.py` — but hshop no longer lists a non-W RP2040 Pico, and the Pico 2 is out of stock, so the W is the one to buy | ✓ **195.000₫** |
 | 24b | *(alt)* [Raspberry Pi Pico 2 W (RP2350)](https://hshop.vn/mach-raspberry-pi-pico-2-w-rp2350) | 1 | Newer silicon, 80k more. The firmware does not use anything the RP2350 adds | ✓ **275.000₫** |
 
+## 7. From bench to building — what an installed system adds
+
+Everything above builds a node that works on a desk. An installed one differs in a way no
+parts list survives unchanged: **it is not one box.** In a real room the sensor belongs on a
+wall in the breathing zone, the IR emitter needs line of sight to the indoor unit, the
+lighting switch belongs in the luminaire's junction box and the CT belongs at the
+distribution board. Those are metres to tens of metres apart, and **I²C does not span
+that** — it is a board-level bus with no differential pair, no shielding and no recovery
+beyond a NAK. Extend it down a 4 m cable and you get plausible numbers that are wrong.
+
+> **The engine already handles the split.** `IngestTelemetry` guards every field behind a
+> nil check and timestamps each one separately, so two boards publishing to the *same* zone —
+> one sending only temperature and CO₂, the other only `acReal` and `plugW` — **merge rather
+> than overwrite**. A wall sensor head plus a plant-side controller needs no engine change.
+> That is what the ESP32 and the Pico are for: controller and sensor head. It only works if
+> the Pico is a **W** — a plain Pico depends on `bridge.py` tailing a USB cable, which is a
+> bench arrangement, not an installation.
+
+| # | Part | Why an install needs it | ≈ VND |
+|---|---|---|---|
+| 30 | [**W5500 Ethernet SPI**](https://hshop.vn/mach-chuyen-giao-tiep-ethernet-spi-wiznet-w5500) `HS0654V` | Wired networking for the controller. Building WiFi is usually a guest SSID with NAT and rate limits; a controller that must accept setpoint commands should not depend on it. Also makes OTA updates reliable | ✓ **105.000₫** |
+| 31 | [**MKE-M20 RS-485/TTL** with GDT](https://hshop.vn/mach-chuyen-giao-tiep-mke-m20-rs485-ttl-gdt-module) `HS2253V` | The answer when a sensor head cannot use WiFi: a shielded pair carries Modbus a kilometre where I²C dies at 30 cm. The **GDT** is a gas discharge tube — surge protection on a long field run, which is what separates an industrial transceiver from a bare MAX485 | ✓ **125.000₫** |
+| 32 | [**2-ch solid state relay**, 2 A/240 V](https://hshop.vn/module-2-relay-ran-ssr-5vdc) `HS0996` | No contacts to weld or wear, silent, and no coil inrush. A mechanical relay switching a lighting circuit several times a day is a consumable; an SSR is not. Watch the 2 A ceiling — [4-ch](https://hshop.vn/module-4-relay-ran-ssr-5vdc) is 115.000₫, and a real luminaire bank needs a contactor the SSR pilots | ✓ **59.000₫** |
+| 33 | [DIN-rail ABS case (Pi 5)](https://hshop.vn/vo-bao-ve-bang-nhua-abs-din-rail-case-for-raspberry-pi-5) `HS2110V` | Gets the gateway onto a rail in a cabinet instead of sitting on a shelf | ✓ **135.000₫** |
+| 34 | [*(alt)* Waveshare 8-ch Ethernet/PoE Modbus relay](https://hshop.vn/bo-dieu-khien-waveshare-8-ch-modbus-poe-ethernet-relay-multi-protection) `HS1814V` | If you would rather not build the actuation side at all: eight channels, Modbus TCP/RTU, PoE powered, already industrial. One of these replaces the relay board, the enclosure and the node's power supply for a floor's lighting | ✓ **1.188.000₫** |
+
+**Wanted but out of stock on 22 Jul:** the [ADS1115 16-bit I²C ADC](https://hshop.vn/mach-chuyen-tin-hieu-adc-ads1115-16-bit-4-channel-i2c) (75.000₫) — worth revisiting, because the ESP32's own ADC is noticeably nonlinear and it is the weakest link in the CT measurement; a [DS3231 RTC](https://hshop.vn/mach-thoi-gian-thuc-rtc-ds3231) (44.000₫) for timestamps that survive an NTP outage; and both PC817 opto isolation boards.
+
+**hshop cannot supply the rest of an install at all**, and this is not an oversight — it is an
+electronics shop, not an electrical wholesaler. A DIN-rail SMPS (Mean Well HDR/DR series),
+an IP54 enclosure, DIN terminal blocks, fuse holders, cable glands and shielded twisted pair
+all come from an electrical supplier. Budget them separately.
+
+### The firmware gap is the larger half
+
+Parts are the easy part. Before this goes into a building the ESP32 firmware needs:
+
+- **OTA update.** You cannot USB-flash forty ceiling boxes. This is the single hardest
+  blocker, because without it every later fix requires a ladder.
+- **MQTT over TLS with per-node credentials.** Today it is anonymous on port 1883 — fine on
+  a bench, not on a tenant's network.
+- **Identity and calibration in NVS**, not `wifi_secrets.h` and `-D` build flags baked per
+  board. Every node currently needs its own build; that does not scale past a handful, and
+  per-unit CT calibration constants have nowhere to live.
+- **A local fail-safe policy** for what the relays do when the broker has been unreachable
+  longer than the watchdog. `gateway.py` covers the engine being down; it does not cover the
+  node being cut off from the gateway.
+
+The Pico firmware already has its 8 s watchdog. The ESP32 side has none of the above.
+
 ---
 
 ## Worked bundle — a 4-zone pilot

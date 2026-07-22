@@ -317,7 +317,63 @@ python3 -m platformio run -e esp32dev && strings .pio/build/esp32dev/firmware.el
 
 ---
 
-## 8. Commissioning checklist
+## 8. Field wiring — when the node stops being one box
+
+Everything above this line assumes a breadboard, and that is the assumption that breaks
+first in a real room. Installed, the node is **four locations**: the sensor belongs on a wall
+in the breathing zone, the IR emitter needs line of sight to the indoor unit, the lighting
+switch belongs in the luminaire's junction box, and the CT belongs at the distribution
+board. **I²C does not span that.** It is a board-level bus — no differential pair, no
+shielding, no recovery beyond a NAK. Run the SHT30 down a 4 m cable into a ceiling
+controller and it will return plausible numbers that are wrong, which is the failure mode
+the rest of this system exists to refuse.
+
+### Split the node, not the bus
+
+Put a sensor head on the wall and a controller at the plant, and let them publish
+separately. The engine already supports this and needs no change: `IngestTelemetry` guards
+**every** field behind a nil check and gives each its own arrival timestamp, so two boards
+on the same zone — one sending temperature and CO₂, the other `acReal` and `plugW` — merge
+rather than overwrite.
+
+```
+   WALL 1.1–1.5 m AFFL            ENCLOSURE (DIN, IP54)          PLANT
+   ┌──────────────────┐           ┌──────────────────┐           ┌──────────────────┐
+   │ SENSOR HEAD      │  WiFi or  │ ROOM CONTROLLER  │  ELV      │ AC indoor unit   │
+   │ Pico W           │  RS-485   │ ESP32            │  field    │ Lighting JB      │
+   │ SHT30 · ACD1200  │ ────────► │ + W5500 + PSU    │ ────────► │ Distribution bd. │
+   │ I²C stays inside │           │ numbered terms   │           │                  │
+   └──────────────────┘           └──────────────────┘           └──────────────────┘
+              publishes temp + CO₂        publishes acReal + plugW
+```
+
+This only works with a **Pico W**. A plain Pico depends on `bridge.py` tailing a USB cable —
+a bench arrangement, not an installation.
+
+### Cable schedule
+
+| Run | Cable | Max | The rule that bites if ignored |
+|---|---|---|---|
+| Sensor ↔ its own I²C parts | none — same enclosure | **0.3 m** | No differential pair, no retry. Extending this is the most common way to get numbers that look fine and are wrong |
+| Sensor head → switch | WiFi, or Cat6 | — | On a guest SSID the node is NAT'd and rate-limited. Ask for a dedicated SSID or VLAN before anything else |
+| Controller → switch | Cat6 U/UTP | **100 m** | An Ethernet limit, not a guideline. Beyond it, add a switch |
+| Controller → IR emitter | 2-core ELV, 0.5 mm² | **5 m** | The LED is current-driven; a long thin run drops the pulse and shortens range before it fails outright |
+| Controller → SSR input | 2-core ELV, 0.5 mm² | **30 m** | Must not share a conduit with the mains it switches — both a code requirement and what keeps the drive clean |
+| Controller → CT | **shielded twisted pair** | **10 m** | Earth the shield **at the controller end only**. Both ends makes a loop that injects the exact 50 Hz you are measuring |
+| Controller ← 230 V | fused, glanded, in-box | — | Mains terminates inside the enclosure on fused terminals and goes no further. Nothing at 230 V leaves the box on a plug |
+
+### What the firmware still lacks for an install
+
+Not a wiring problem, but it blocks deployment just as hard: no **OTA update** (you cannot
+USB-flash forty ceiling boxes), no **TLS or per-node MQTT credentials** (anonymous on 1883),
+**identity and calibration baked into the build** rather than stored in NVS, and no **local
+fail-safe** for what the relays do when the broker has been unreachable longer than the
+watchdog. `gateway.py` covers the engine being down; it does not cover the node being cut
+off from the gateway.
+
+---
+
+## 9. Commissioning checklist
 
 Work down this list; each step proves the one below it is worth attempting.
 
