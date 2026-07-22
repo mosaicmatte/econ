@@ -345,7 +345,7 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
                     {autoPilot ? 'AUTONOMOUS LOAD SHEDDING' : (tou === 'peak' ? 'PEAK TARIFF RUNNING' : `PEAK IN ${toPeak} MIN`)}
                   </div>
                   <div style={{ fontSize: fontBig, color: 'var(--text-primary)', marginTop: '4px', lineHeight: 1.4 }}>
-                    Building load {(simData.buildingLoadMw || 0).toFixed(2)} MW — the 17:30–22:30 cao điểm ({rateStr('peak')}/kWh) is the costly window.
+                    Building load {(simData.buildingLoadMw || 0).toFixed(2)} MW — the 17:30–22:30 peak band ({rateStr('peak')}/kWh) is the costly window.
                     <div style={{ marginTop: '4px', color: autoPilot ? 'var(--accent-green)' : 'var(--text-secondary)' }}>
                       {autoPilot
                         ? `Pre-cooling shifts ≈ ${shedKw.toFixed(0)} kW of cooling out of peak into normal-rate hours — saving ≈ ${money(peakShiftSavingPerDay(shedKw))}/day (${money(peakShiftSavingPerMonth(shedKw))}/month).`

@@ -115,7 +115,7 @@ export default function MobileAIScreen({
         title: tou === 'peak' ? 'Peak Tariff Running Now' : `Peak Tariff in ${toPeak} min`,
         message: windowOpen
           ? `A pre-cool window is open until ${untilLabel(precool.until)} — thermal mass is charging so chillers coast through the ${rateStr('peak')}/kWh window.`
-          : `${tou === 'peak' ? `Cao điểm is charging ${rateStr('peak')}/kWh right now.` : `Cao điểm (${rateStr('peak')}/kWh) begins at 17:30.`} Pre-cooling shifts ≈ ${shedKw.toFixed(0)} kW off peak ≈ ${money(peakShiftSavingPerMonth(shedKw))}/month.`,
+          : `${tou === 'peak' ? `Peak rate is charging ${rateStr('peak')}/kWh right now.` : `Peak rate (${rateStr('peak')}/kWh) begins at 17:30.`} Pre-cooling shifts ≈ ${shedKw.toFixed(0)} kW off peak ≈ ${money(peakShiftSavingPerMonth(shedKw))}/month.`,
         actionLabel: windowOpen ? `✓ OPEN UNTIL ${untilLabel(precool.until)}` : 'ACTIVATE PRE-COOLING',
         done: windowOpen,
         onAction: windowOpen ? undefined : () => { sendManualOverride && sendManualOverride('precool', 'GLOBAL'); },

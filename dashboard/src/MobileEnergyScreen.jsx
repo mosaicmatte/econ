@@ -58,7 +58,7 @@ export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory
           <span style={{ fontSize: '16px', color: '#3DDC84', fontWeight: '600' }}>{money(energyCostPerDay(loadMw * 1000))}/day</span>
         </div>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '8px' }}>
-          EVN business TOU (Decision 963/QĐ-BCT, 2026)
+          EVN business time-of-use tariff — Decision 963/QĐ-BCT (2026)
         </div>
       </div>
 

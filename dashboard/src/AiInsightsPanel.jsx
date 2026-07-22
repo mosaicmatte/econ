@@ -184,7 +184,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
         type: tou === 'peak' ? 'warning' : 'info',
         icon: <TrendingDown size={18} color={tou === 'peak' ? 'var(--accent-yellow)' : 'var(--accent-blue)'} />,
         title: tou === 'peak' ? 'Peak Tariff Running Now' : `Peak Tariff in ${toPeak} min`,
-        message: `${tou === 'peak' ? 'The 17:30–22:30 cao điểm window is charging ' + rateStr('peak') + '/kWh right now.' : `Cao điểm (${rateStr('peak')}/kWh vs ${rateStr('normal')} normal) begins at 17:30.`} ${windowOpen ? `A pre-cool window is OPEN until ${untilLabel(precool.until)} — thermal mass is charging so chillers can coast.` : `Pre-cooling now charges the thermal mass at the cheaper rate — shifting ≈ ${shedKw.toFixed(0)} kW off peak saves roughly ${money(peakShiftSavingPerMonth(shedKw))}/month.`}`,
+        message: `${tou === 'peak' ? 'The 17:30–22:30 peak window is charging ' + rateStr('peak') + '/kWh right now.' : `Peak rate (${rateStr('peak')}/kWh vs ${rateStr('normal')} normal) begins at 17:30.`} ${windowOpen ? `A pre-cool window is OPEN until ${untilLabel(precool.until)} — thermal mass is charging so chillers can coast.` : `Pre-cooling now charges the thermal mass at the cheaper rate — shifting ≈ ${shedKw.toFixed(0)} kW off peak saves roughly ${money(peakShiftSavingPerMonth(shedKw))}/month.`}`,
         action: windowOpen ? 'PRE-COOLING' : 'ACTIVATE PRE-COOLING',
         done: windowOpen,
         doneLabel: `✓ OPEN UNTIL ${untilLabel(precool?.until)}`,
@@ -594,7 +594,10 @@ function ModelExportCard() {
     ? [
         `${rec.profile.cores || '?'} cores`,
         rec.memoryBasis === 'reported' ? `${rec.effectiveMemoryGb} GB` : `~${rec.effectiveMemoryGb} GB est.`,
-        rec.gpu?.capable ? rec.gpu.label : (rec.gpu?.label || 'no GPU detected'),
+        // gpu.name is the product on its own ("Apple M4"); gpu.label is the raw WebGL
+        // renderer string, which browsers wrap in ANGLE boilerplate and which reads as
+        // noise in a summary line.
+        rec.gpu?.name || rec.gpu?.label || 'no GPU detected',
       ].join(' · ')
     : 'measuring…';
 
