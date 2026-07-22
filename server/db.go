@@ -201,6 +201,9 @@ var seriesAllowed = map[string]bool{
 	"temp": true, "occupancy": true, "humidity": true, "co2": true,
 	"afddResidual": true, "buildingLoadMw": true, "coolingOutputMw": true,
 	"systemHealth": true, "avgCo2": true, "plugKw": true,
+	// Feature series persisted for offline LSTM retraining (see engine.go); also
+	// chartable through this read path.
+	"avgTemp": true, "avgAirflow": true, "outdoorTemp": true, "outdoorHum": true,
 }
 
 // seriesHandler serves one metric's time series for one zone as [{t, v}], newest-last.

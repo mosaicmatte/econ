@@ -90,6 +90,19 @@ func main() {
 	loadPlugState(engine)
 	http.HandleFunc("/api/plugs", plugsHandler(engine))
 
+	// 9. Learned recommendations (recommendapi.go): the ranked, per-zone anomaly report
+	// scored against the online baseline model that replaced the hardcoded threshold
+	// cards. The model is restored at boot and checkpointed once a minute so its learned
+	// "normal" survives a redeploy.
+	loadBaselineState(engine)
+	http.HandleFunc("/api/recommendations", recommendationsHandler(engine))
+
+	// 10. Downloadable local models (modelexport.go): package the learned baseline model,
+	// the LSTM forecaster artifacts, and a dependency-free recommender into one zip so the
+	// operator can run recommendations/alerts offline from the twin's own processed state.
+	http.HandleFunc("/api/model", modelInfoHandler(engine))
+	http.HandleFunc("/api/model/export", modelExportHandler(engine))
+
 	// Connect to the MQTT broker: ingest real occupancy from the CV/edge layer and
 	// publish actuation commands to the ESP32. Non-blocking; the sim runs regardless.
 	startMQTT(engine)
@@ -98,6 +111,7 @@ func main() {
 	go precoolLoop(engine)
 	go weatherLoop(engine)
 	go plugPersistLoop(engine)
+	go baselinePersistLoop(engine)
 
 	// 2. WebSocket endpoint for telemetry streaming
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {

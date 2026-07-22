@@ -8,3 +8,7 @@ uvicorn[standard]>=0.27
 requests>=2.31
 python-dotenv>=1.0
 pydantic>=2.5
+# Offline real-data training path (train.py -> data_loader.load_training_sequences) reads
+# the twin's persisted history from TimescaleDB. Serving (main.py) never needs it, so the
+# import is lazy and the loader degrades to synthetic data when it is absent.
+psycopg2-binary>=2.9

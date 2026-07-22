@@ -1,3 +1,4 @@
+import base64
 import os
 
 import numpy as np
@@ -6,7 +7,7 @@ import joblib
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, field_validator
 
-from config import (INPUT_SIZE, HIDDEN_SIZE, NUM_LAYERS, OUTPUT_SIZE,
+from config import (INPUT_SIZE, HIDDEN_SIZE, NUM_LAYERS, OUTPUT_SIZE, SEQ_LEN,
                     SENSOR_FEATURES, WEIGHTS_PATH, SCALER_PATH)
 from data_loader import fetch_weather_features
 from model import PeakLoadLSTM
@@ -65,6 +66,33 @@ class ForecastResponse(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok", "model_ready": MODEL_READY}
+
+
+@app.get("/model/artifacts")
+def model_artifacts():
+    """Export the trained LSTM artifacts (base64) so the Go server can bundle them into the
+    downloadable local-model pack. Serving-side only — the weights and the fitted scaler,
+    no secrets. Returns null fields (not an error) when the model hasn't been trained yet,
+    so the bundle degrades to the baseline model + recommender."""
+    out = {
+        "model_ready": MODEL_READY,
+        "config": {
+            "input_size": INPUT_SIZE,
+            "hidden_size": HIDDEN_SIZE,
+            "num_layers": NUM_LAYERS,
+            "output_size": OUTPUT_SIZE,
+            "seq_len": SEQ_LEN,
+            "sensor_features": SENSOR_FEATURES,
+            "feature_order": ["room_temp", "airflow", "outdoor_temp", "outdoor_humidity"],
+        },
+    }
+    for field, path in (("weights_b64", WEIGHTS_PATH), ("scaler_b64", SCALER_PATH)):
+        try:
+            with open(path, "rb") as f:
+                out[field] = base64.b64encode(f.read()).decode("ascii")
+        except Exception:
+            out[field] = None
+    return out
 
 
 @app.post("/predict", response_model=ForecastResponse)

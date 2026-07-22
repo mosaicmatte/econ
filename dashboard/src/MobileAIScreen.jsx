@@ -1,8 +1,10 @@
-import React, { useMemo, useState } from 'react';
-import { Brain, Zap, AlertTriangle, TrendingDown, Activity, Radio, ThermometerSnowflake, Power, Plug, CloudOff, Wind, WifiOff } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Brain, Zap, AlertTriangle, TrendingDown, Activity, Radio, ThermometerSnowflake, Power, Plug, CloudOff, Wind, WifiOff, Download, Cpu } from 'lucide-react';
 import { money, energyCostPerDay, peakShiftSavingPerMonth, rateStr, touPeriod, minutesToPeak, TARIFF } from './tariff';
 import { useOpsStatus, untilLabel } from './useOpsStatus';
 import { usePlugs } from './usePlugs';
+import { useRecommendations } from './useRecommendations';
+import { API_BASE } from './api';
 
 // Mobile "AI & Automation" screen — the phone-sized twin of the desktop AI Insights panel.
 // Gives the operator the three things the app is meant to offer on the go:
@@ -32,6 +34,8 @@ export default function MobileAIScreen({
   // Live control-loop state from the engine (shared hooks with the desktop panel).
   const { precool, weather } = useOpsStatus();
   const { status: plugStatus } = usePlugs();
+  // Learned anomaly recommendations — the same σ-scored model the desktop panel shows.
+  const { recommendations, model: recModel } = useRecommendations();
 
   const recs = useMemo(() => {
     const out = [];
@@ -75,18 +79,27 @@ export default function MobileAIScreen({
       });
     }
 
-    // 3b. Measured CO₂ over the comfort line — only a real NDIR can raise this, and the
-    // action is a real purge override (lights off, max airflow flush, 15-min latch).
-    const staleAir = zones.filter((z) => (z.co2 || 0) > 1000).sort((a, b) => b.co2 - a.co2);
-    if (staleAir.length) {
-      const z = staleAir[0];
+    // 3b. LEARNED anomaly recommendations from the engine's baseline model — each scored
+    // in σ against the zone's own normal for the hour (ASHRAE 1000 ppm floor while a
+    // sensor is still learning). Replaces the old co2 > 1000 / temp > deadband rules; the
+    // action is the real remediation the model chose, dispatched over the same websocket.
+    const recLabels = { purge: 'PURGE ZONE', cool: 'FLOOD COOLING', precool: 'ACTIVATE PRE-COOLING' };
+    recommendations.forEach((rec) => {
+      const accent = rec.severity === 'critical' ? '#FF3B30' : rec.severity === 'warning' ? '#F5C242' : '#4A90E2';
+      const icon = rec.metric === 'co2' ? <Wind size={20} color={accent} />
+        : rec.metric === 'temp' ? <ThermometerSnowflake size={20} color={accent} />
+        : rec.metric === 'buildingLoadMw' ? <TrendingDown size={20} color={accent} />
+        : <Activity size={20} color={accent} />;
+      const label = recLabels[rec.action];
       out.push({
-        id: 'co2', accent: '#F5C242', icon: <Wind size={20} color="#F5C242" />,
-        title: 'Measured CO₂ High',
-        message: `${z.label} reads ${Math.round(z.co2)} ppm from its NDIR sensor (guideline ≤ 1000). Ventilation is not keeping up with occupancy.`,
-        actionLabel: 'PURGE ZONE', onAction: () => sendManualOverride && sendManualOverride('purge', z.id),
+        id: `rec-${rec.id}`, accent, icon,
+        title: rec.title,
+        message: rec.message,
+        badge: rec.basis === 'learned' ? 'LEARNED' : 'ASHRAE STD',
+        actionLabel: label,
+        onAction: label ? () => sendManualOverride && sendManualOverride(rec.action, rec.zone) : undefined,
       });
-    }
+    });
 
     // 4. High grid demand — the EVN TOU CLOCK decides, not a demo toggle: in cao điểm,
     // or within 90 minutes of it. Reflects the engine's real pre-cool window state.
@@ -175,15 +188,8 @@ export default function MobileAIScreen({
       });
     }
 
-    // 7. Thermal drift (informational).
-    const hot = zones.filter((z) => z.temp > z.setpoint + (z.deadband || 1));
-    if (hot.length && activeScenario !== 'fault') {
-      out.push({
-        id: 'drift', accent: '#FFD60A', icon: <ThermometerSnowflake size={20} color="#FFD60A" />,
-        title: 'Thermal Drift Detected',
-        message: `${hot.length} zone${hot.length > 1 ? 's have' : ' has'} drifted above the cooling deadband. Auto-Pilot is rebalancing supply.`,
-      });
-    }
+    // 7. (Thermal-drift hotspots now come from the learned-baseline recommendations above:
+    // a zone many σ hotter than its own hourly normal, not a fixed deadband rule.)
 
     // 8. Always-present autonomous-operations summary — real engine numbers.
     out.push({
@@ -195,7 +201,7 @@ export default function MobileAIScreen({
     });
 
     return out;
-  }, [simData, activeScenario, faultTarget, aiForecast, hwList, shedKw, savingsPct, savedMw, autoPilot, onFocusZone, sendManualOverride, setAutoPilot, precool, weather, plugStatus, onOpenEnergy]);
+  }, [simData, activeScenario, faultTarget, aiForecast, hwList, shedKw, savingsPct, savedMw, autoPilot, recommendations, onFocusZone, sendManualOverride, setAutoPilot, precool, weather, plugStatus, onOpenEnergy]);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', color: '#fff', background: '#000', fontFamily: 'system-ui, -apple-system, "SF Pro Display", sans-serif', padding: '20px', minHeight: '100dvh', overflowY: 'auto' }}>
@@ -232,9 +238,14 @@ export default function MobileAIScreen({
         </div>
       </div>
 
-      <div style={{ fontSize: '12px', fontWeight: 600, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', marginBottom: '12px' }}>
+      <div style={{ fontSize: '12px', fontWeight: 600, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', marginBottom: recModel ? '4px' : '12px' }}>
         Live Recommendations
       </div>
+      {recModel && (
+        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '12px', lineHeight: 1.4 }}>
+          Learned baseline: {recModel.established} signal{recModel.established === 1 ? '' : 's'} established, {recModel.learning} learning. Anomalies scored against each zone’s own normal for the hour.
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {recs.map((r) => (
@@ -242,11 +253,63 @@ export default function MobileAIScreen({
         ))}
       </div>
 
+      {/* Local models: take the intelligence offline. */}
+      <ModelDownloadMobile />
+
       {/* Manual-control hint */}
       <div style={{ marginTop: '22px', padding: '16px', borderRadius: '14px', background: 'rgba(255,255,255,0.04)', border: '1px dashed rgba(255,255,255,0.12)', fontSize: '13px', color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 }}>
         <b style={{ color: '#fff' }}>Manual control:</b> tap any room in the 3D view to open it and force lights off, max-cool, or reset that zone — your override latches for 15 minutes over the optimizer.
       </div>
       <div style={{ height: '40px' }} />
+    </div>
+  );
+}
+
+// ModelDownloadMobile is the phone-sized "take the intelligence with you" surface: it
+// downloads the learned baseline model, the LSTM forecaster, and a dependency-free
+// recommender as one zip (GET /api/model/export) so the operator can run the same σ-scored
+// recommendations and alerts offline. Reads /api/model for the model's live maturity.
+function ModelDownloadMobile() {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE}/api/model`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive) setInfo(d); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const est = info?.baseline?.established ?? 0;
+  const learning = info?.baseline?.learning ?? 0;
+  const fc = info?.forecaster;
+  const fcLabel = fc ? (fc.ready ? 'LSTM included' : fc.reachable ? 'LSTM not yet trained' : 'LSTM offline') : '';
+
+  return (
+    <div style={{ marginTop: '22px', padding: '18px', borderRadius: '16px', background: 'rgba(74,144,226,0.08)', border: '1px solid rgba(74,144,226,0.35)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+        <Cpu size={20} color="#4A90E2" />
+        <span style={{ fontSize: '15px', fontWeight: 700, color: '#4A90E2' }}>Local Models</span>
+      </div>
+      <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: 'rgba(255,255,255,0.72)', lineHeight: 1.45 }}>
+        Download the learned model + a dependency-free recommender and run the same recommendations and alerts offline, from the twin’s own processed state.
+        {info && (
+          <span style={{ display: 'block', marginTop: '6px', fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>
+            {est} signal{est === 1 ? '' : 's'} established · {learning} learning{fcLabel ? ` · ${fcLabel}` : ''}
+          </span>
+        )}
+      </p>
+      <a
+        href={`${API_BASE}/api/model/export`}
+        download
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+          width: '100%', boxSizing: 'border-box', padding: '13px', borderRadius: '10px', textDecoration: 'none',
+          background: '#4A90E2', color: '#000', fontSize: '14px', fontWeight: 700, letterSpacing: '0.02em',
+        }}
+      >
+        <Download size={16} /> DOWNLOAD MODEL BUNDLE
+      </a>
     </div>
   );
 }
@@ -258,7 +321,12 @@ function RecCard({ rec, done, onEngage }) {
       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '4px', background: rec.accent }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
         <div style={{ padding: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', display: 'flex' }}>{rec.icon}</div>
-        <span style={{ fontSize: '15px', fontWeight: 700, color: rec.accent }}>{rec.title}</span>
+        <span style={{ fontSize: '15px', fontWeight: 700, color: rec.accent, flex: 1 }}>{rec.title}</span>
+        {rec.badge && (
+          <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.05em', padding: '2px 6px', borderRadius: '4px', flexShrink: 0, color: rec.badge === 'LEARNED' ? '#4A90E2' : 'rgba(255,255,255,0.5)', border: `1px solid ${rec.badge === 'LEARNED' ? '#4A90E2' : 'rgba(255,255,255,0.3)'}` }}>
+            {rec.badge}
+          </span>
+        )}
       </div>
       <p style={{ margin: '0 0 6px 0', fontSize: '13px', color: 'rgba(255,255,255,0.72)', lineHeight: 1.45 }}>{rec.message}</p>
       {actionable && (

@@ -1,15 +1,21 @@
-"""Train PeakLoadLSTM on synthetic data grounded in the ECON load physics.
+"""Train PeakLoadLSTM on the building's real history, with a synthetic fallback.
 
-There is no historical telemetry yet (TimescaleDB is provisioned but unused), so we synthesize
-training data whose target mirrors how the Go engine actually forms building load:
+The engine now persists the LSTM's exact feature set to TimescaleDB every second (the
+building-average [temp, airflow], the live outdoor conditions, and buildingLoadMw as the
+target), so `load_training_sequences()` (data_loader.py) can assemble real (X, y) windows
+from the twin's OWN accumulated telemetry. main() trains on that whenever enough contiguous
+history exists.
+
+Until it does (a fresh deploy, or the DB is down) we fall back to synthesizing data whose
+target mirrors how the Go engine forms building load:
 
     buildingLoad = coolingOutput / plantCop + base
     coolingOutput rises with outdoor heat ingress, latent (humidity) load, airflow demand,
     and how far rooms sit above setpoint; plantCop degrades as the plant works harder.
 
-The point is a model that is (a) trained, not random, and (b) monotonic in the physically correct
-directions, so it returns sensible peak-load forecasts. Swap `synthesize()` for a real
-DB/feature pipeline once telemetry is being persisted — the serving path won't change.
+Either way the model is (a) trained, not random, and (b) monotonic in the physically correct
+directions, and the serving path is identical — the same scaler and weights, whichever
+source produced them.
 
 Run:  python train.py            # writes model_weights.pth + scaler.pkl
 """
@@ -21,6 +27,7 @@ from sklearn.preprocessing import StandardScaler
 
 from config import (FEATURES, INPUT_SIZE, HIDDEN_SIZE, NUM_LAYERS, OUTPUT_SIZE,
                     SEQ_LEN, WEIGHTS_PATH, SCALER_PATH)
+from data_loader import load_training_sequences
 from model import PeakLoadLSTM
 
 RNG = np.random.default_rng(42)
@@ -66,8 +73,20 @@ def synthesize(n=6000, seq_len=SEQ_LEN):
 
 
 def main():
-    print("[train] synthesizing data ...")
-    X, y = synthesize()
+    # Prefer the building's OWN accumulated history: the Go engine persists the same
+    # [avg temp, avg airflow, outdoor temp, outdoor humidity] the live forecaster uses,
+    # with buildingLoadMw as the target, so once enough has accrued the model trains on
+    # real data. Until then (fresh deploy, DB down), fall back to the physics-grounded
+    # synthetic generator — labelled honestly so nobody mistakes one for the other.
+    real = load_training_sequences()
+    if real is not None:
+        X, y = real
+        source = "real telemetry (TimescaleDB history)"
+    else:
+        print("[train] synthesizing data ...")
+        X, y = synthesize()
+        source = "synthetic (physics-grounded)"
+    print(f"[train] data source: {source}  ({len(X)} sequences)")
 
     # Fit scaler on flattened timesteps so each feature is standardized consistently.
     scaler = StandardScaler().fit(X.reshape(-1, INPUT_SIZE))

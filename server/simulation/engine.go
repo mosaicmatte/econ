@@ -53,28 +53,28 @@ type BuildingData struct {
 
 // Sim Structs
 type ZoneSim struct {
-	Temp              float64
-	WallTemp          float64
-	Type              string
-	BimAssetId        string
-	AreaM2            float64 // real floor area (digitized polygon); sizes plug + lighting models
-	Occupancy         int
-	BaseHeatGain      float64
-	SolarGainMult     float64
-	CAir              float64
-	CWall             float64
-	RIn               float64
-	ROut              float64
-	Setpoint          float64
-	BaseSetpoint      float64 // occupied setpoint; we set back from this when vacant
-	Deadband          float64
-	LastBroadcastTemp float64
+	Temp                float64
+	WallTemp            float64
+	Type                string
+	BimAssetId          string
+	AreaM2              float64 // real floor area (digitized polygon); sizes plug + lighting models
+	Occupancy           int
+	BaseHeatGain        float64
+	SolarGainMult       float64
+	CAir                float64
+	CWall               float64
+	RIn                 float64
+	ROut                float64
+	Setpoint            float64
+	BaseSetpoint        float64 // occupied setpoint; we set back from this when vacant
+	Deadband            float64
+	LastBroadcastTemp   float64
 	LastBroadcastLights bool // last lighting state sent to clients (change forces a re-send)
 	// Occupancy-driven control (real data arrives over MQTT from the CV/edge layer)
-	Live        bool   // true once real occupancy has been received for this zone
-	VacantTicks int    // consecutive ticks at 0 occupancy (safety delay before setback)
-	LightsOn    bool   // last actuated lighting state
-	MqttTopic   string // telemetry suffix this zone was seen on (commands route back here)
+	Live          bool      // true once real occupancy has been received for this zone
+	VacantTicks   int       // consecutive ticks at 0 occupancy (safety delay before setback)
+	LightsOn      bool      // last actuated lighting state
+	MqttTopic     string    // telemetry suffix this zone was seen on (commands route back here)
 	OverrideUntil time.Time // Latch manual overrides so optimizer doesn't overwrite
 	// Hardware-in-the-loop (physical ESP32 / Pico nodes). While the bound node's
 	// measured temperature is fresh, the zone's air temp is pulled to the measurement
@@ -168,6 +168,13 @@ type Engine struct {
 	// — instead of the current instant photocopied twelve times.
 	histBuf    []histSample
 	lastHistAt time.Time
+	// Learned operating baselines (baselines.go): the online per-(zone,metric,hour) model
+	// that turns the telemetry stream into "normal for this room at this hour", replacing
+	// hardcoded thresholds. Feeds both /api/recommendations and the data-driven pre-cool
+	// trigger. Self-locked, so it is folded into on the tick and read on the HTTP path
+	// without coupling to e.mu.
+	baselines      *Baselines
+	lastBaselineAt time.Time
 }
 
 // histSample is one forecaster timestep: building-average room temperature and
@@ -187,19 +194,20 @@ const (
 
 func NewEngine() *Engine {
 	e := &Engine{
-		Clients:  make(map[*websocket.Conn]bool),
-		Zones:    make(map[string]*ZoneSim),
-		Vavs:     make(map[string]*VavSim),
-		PMax:     600.0,
-		KFan:     0.01,
-		Scenario: "peak",
-		lastCmd:  make(map[string]string),
+		Clients:    make(map[*websocket.Conn]bool),
+		Zones:      make(map[string]*ZoneSim),
+		Vavs:       make(map[string]*VavSim),
+		PMax:       600.0,
+		KFan:       0.01,
+		Scenario:   "peak",
+		lastCmd:    make(map[string]string),
 		demoAssign: make(map[string]string),
 		Bess:       NewBattery(),
 		lastBessAt: time.Now(),
 		Plug:       defaultPlugConfig(),
 		lastPlugAt: time.Now(),
 		AutoPilot:  true,
+		baselines:  NewBaselines(),
 	}
 
 	data, err := os.ReadFile("./data/building-data.json")
@@ -254,29 +262,29 @@ func (e *Engine) buildFromJSON(data []byte) error {
 				areaM2 = plugDefaultAreaM2
 			}
 			e.Zones[z.ZoneId] = &ZoneSim{
-				Temp:         temp,
-				WallTemp:     temp,
-				Type:         z.ZoneType,
-				BimAssetId:   z.BimAssetId,
-				Occupancy:    rand.Intn(10),
-				BaseHeatGain: z.ThermalProperties.BaseHeatLoad,
+				Temp:          temp,
+				WallTemp:      temp,
+				Type:          z.ZoneType,
+				BimAssetId:    z.BimAssetId,
+				Occupancy:     rand.Intn(10),
+				BaseHeatGain:  z.ThermalProperties.BaseHeatLoad,
 				SolarGainMult: z.ThermalProperties.SolarGainMultiplier,
 				// Floor CAir: some digitized zones (e.g. tiny "server rooms") carry an
 				// unrealistically small air capacitance that makes the explicit-Euler thermal
 				// integration unstable (runaway temps). A modest floor keeps it stable; steady
 				// state is unaffected since it depends on the heat balance, not CAir.
-				CAir:         math.Max(z.ThermalProperties.CAir, 5e5),
-				CWall:        4000000.0,
-				RIn:          z.ThermalProperties.RWall / 2,
-				ROut:         z.ThermalProperties.RWall / 2 + 0.1,
-				Setpoint:     z.ThermalProperties.Setpoint,
-				BaseSetpoint: baseSp,
-				Deadband:     z.ThermalProperties.Deadband,
-				LastBroadcastTemp: 24.0,
-				LightsOn:     true,
+				CAir:                math.Max(z.ThermalProperties.CAir, 5e5),
+				CWall:               4000000.0,
+				RIn:                 z.ThermalProperties.RWall / 2,
+				ROut:                z.ThermalProperties.RWall/2 + 0.1,
+				Setpoint:            z.ThermalProperties.Setpoint,
+				BaseSetpoint:        baseSp,
+				Deadband:            z.ThermalProperties.Deadband,
+				LastBroadcastTemp:   24.0,
+				LightsOn:            true,
 				LastBroadcastLights: true,
-				AreaM2:       areaM2,
-				PlugStandbyW: areaM2 * plugStandbyWPerM2,
+				AreaM2:              areaM2,
+				PlugStandbyW:        areaM2 * plugStandbyWPerM2,
 			}
 		}
 	}
@@ -751,6 +759,75 @@ func (e *Engine) PreCoolStatus() (bool, time.Time) {
 	return time.Now().Before(e.PreCoolUntil), e.PreCoolUntil
 }
 
+// Recommendations scores the building's current state against the learned baseline model
+// (baselines.go / recommend.go) and returns the ranked report the dashboard renders. It
+// gathers each zone's live values under e.mu, then releases e.mu before scoring, so the
+// engine lock and the baseline lock are never held together (one-way order e.mu →
+// baselines.mu everywhere else; this path takes neither pair simultaneously).
+func (e *Engine) Recommendations(topN int) RecommendationReport {
+	e.mu.Lock()
+	readings := make([]ZoneReading, 0, len(e.Zones))
+	for id, z := range e.Zones {
+		label := strings.TrimPrefix(id, "zone-")
+		zr := ZoneReading{
+			Zone: id, Label: label, Type: z.Type,
+			Temp: z.Temp, Setpoint: z.Setpoint, Occupancy: z.Occupancy,
+		}
+		if z.HwCo2 > 0 && z.co2Fresh() {
+			zr.Co2 = z.HwCo2
+			zr.Co2Live = true
+		}
+		readings = append(readings, zr)
+	}
+	loadMw := e.lastLoadMw
+	e.mu.Unlock()
+
+	if e.baselines == nil {
+		return RecommendationReport{}
+	}
+	return e.baselines.Recommend(readings, loadMw, time.Now(), topN)
+}
+
+// LoadForecastThreshold returns the learned "high load" line the pre-cool automation
+// triggers against — mean + k·σ of the building-load baseline for the coming hour — and
+// whether the model has matured enough to trust it. When ok is false the caller keeps its
+// fixed fallback, so pre-cooling is data-driven once the twin knows the building and
+// safely conventional before that. lead looks slightly ahead so the trigger anticipates
+// the peak the forecast is warning about.
+func (e *Engine) LoadForecastThreshold(k float64, lead time.Duration) (threshold float64, ok bool) {
+	if e.baselines == nil {
+		return 0, false
+	}
+	return e.baselines.LoadThreshold(time.Now().Add(lead), k)
+}
+
+// MarshalBaselines / LoadBaselines let main.go persist the learned model across restarts
+// (recommendapi.go), exactly like the plug savings counter — a model that forgets
+// everything it learned on every redeploy would be re-learning "normal" forever. Bytes,
+// not the internal map type, so the persistence lives cleanly in package main.
+func (e *Engine) MarshalBaselines() ([]byte, error) {
+	if e.baselines == nil {
+		return []byte("{}"), nil
+	}
+	return e.baselines.MarshalState()
+}
+
+func (e *Engine) LoadBaselines(data []byte) error {
+	if e.baselines == nil {
+		return nil
+	}
+	return e.baselines.LoadState(data)
+}
+
+// BaselineCoverage reports the model's maturity (established vs still-learning buckets) —
+// the honest readout the recommendations panel shows.
+func (e *Engine) BaselineCoverage() (established, learning int) {
+	if e.baselines == nil {
+		return 0, 0
+	}
+	return e.baselines.Coverage()
+}
+
 // HardwareNode is one physical edge-node binding as reported by GET /api/hardware.
 type HardwareNode struct {
 	ZoneId     string  `json:"zoneId"`
@@ -856,9 +933,13 @@ func (e *Engine) SetScenario(s string) {
 		} else if e.Scenario == "remediating" && (v.TargetZone == e.FaultTarget || z.Type == "core") {
 			v.Resistance = 0.01 // Maximum flow to faulty zone and core
 		}
-		
-		if v.Resistance < 0.01 { v.Resistance = 0.01 }
-		if v.Resistance > 100.0 { v.Resistance = 100.0 }
+
+		if v.Resistance < 0.01 {
+			v.Resistance = 0.01
+		}
+		if v.Resistance > 100.0 {
+			v.Resistance = 100.0
+		}
 	}
 	e.doHardyCross()
 }
@@ -871,8 +952,12 @@ func (e *Engine) RemoveClient(conn *websocket.Conn) {
 
 func getNoise(std float64) float64 {
 	u, v := 0.0, 0.0
-	for u == 0 { u = rand.Float64() }
-	for v == 0 { v = rand.Float64() }
+	for u == 0 {
+		u = rand.Float64()
+	}
+	for v == 0 {
+		v = rand.Float64()
+	}
 	return math.Sqrt(-2.0*math.Log(u)) * math.Cos(2.0*math.Pi*v) * std
 }
 
@@ -896,7 +981,9 @@ func (e *Engine) Start() {
 					continue // pinned to a live sensor: deviation is reality, not "recovering"
 				}
 				sp := 24.0
-				if z.Type == "server-room" { sp = 22.0 }
+				if z.Type == "server-room" {
+					sp = 22.0
+				}
 				if dev := math.Abs(z.Temp - sp); dev > maxDev {
 					maxDev = dev
 				}
@@ -932,81 +1019,84 @@ func (e *Engine) Start() {
 		e.broadcast()
 	}
 }
+
 // tick integrates one thermal step. Called only from Start's loop with e.mu held.
 func (e *Engine) tick(dt float64) {
-		// One ambient for the whole building per step: live weather when the poller has a
-		// fresh reading, the HCMC climatological constant otherwise. Hoisted out of the
-		// VAV loop — 891 zones share one sky.
-		tOutside, _ := e.outdoorNow()
+	// One ambient for the whole building per step: live weather when the poller has a
+	// fresh reading, the HCMC climatological constant otherwise. Hoisted out of the
+	// VAV loop — 891 zones share one sky.
+	tOutside, _ := e.outdoorNow()
 
-		// Thermodynamics
-		for _, v := range e.Vavs {
-			z, ok := e.Zones[v.TargetZone]
-			if !ok {
-				continue
-			}
-
-			// Nominal (non-fault) internal load: base equipment + people + solar.
-			qSolar := z.SolarGainMult * 10000.0
-			qInternalNominal := z.BaseHeatGain + (float64(z.Occupancy) * 100.0) + qSolar
-
-			qInternal := qInternalNominal
-			if e.Scenario == "fault" && v.TargetZone == e.FaultTarget {
-				qInternal *= 5.0 // Thermal runaway strictly on selected fault target
-			}
-
-			sp := z.Setpoint
-			if sp == 0 {
-				sp = 24.0
-			}
-
-			// Size cooling so that at the VAV's NOMINAL flow the room holds setpoint:
-			// qCooling(Temp=sp, flow=nominal) must offset the full nominal internal
-			// load plus steady-state wall conduction. Normalizing by the VAV's own
-			// nominal flow (not a hard-coded 5.4 m3/s) keeps this correct no matter
-			// how many VAVs share the AHU.
-			qSteadyStateWall := (tOutside - sp) / (z.RIn + z.ROut)
-			qNominalTotal := qInternalNominal + qSteadyStateWall
-
-			nominalFlow := v.NominalFlow
-			if nominalFlow < 1e-6 {
-				nominalFlow = v.Flow
-			}
-			if nominalFlow < 1e-6 {
-				nominalFlow = 1.0
-			}
-			flowRatio := v.Flow / nominalFlow
-
-			qCooling := flowRatio * qNominalTotal * ((z.Temp - 12.0) / (sp - 12.0))
-			if qCooling < 0 { qCooling = 0 } // Cannot heat with cold air
-
-			dTAirDt := ((z.WallTemp-z.Temp)/(z.RIn*z.CAir) + (qInternal-qCooling)/z.CAir)
-			dTWallDt := ((tOutside-z.WallTemp)/(z.ROut*z.CWall) - (z.WallTemp-z.Temp)/(z.RIn*z.CWall))
-
-			z.Temp += dTAirDt * dt
-			z.WallTemp += dTWallDt * dt
-
-			// Clamp to physically plausible bounds. Guards against numerical runaway when a
-			// (possibly mis-digitized) zone pairs a tiny CAir with a large heat load — without
-			// this, such a zone integrates to absurd temperatures (e.g. 200+°C) instead of
-			// just reading "hot / cooling-starved" like a real failing room.
-			z.Temp = math.Max(5.0, math.Min(50.0, z.Temp))
-			z.WallTemp = math.Max(5.0, math.Min(50.0, z.WallTemp))
-
-			// Physics-grounded AFDD: integrate the sensor-free shadow twin with the
-			// same 2R1C dynamics and cooling law, but never pulled toward the hardware
-			// measurement (applyHardware skips it). Divergence between the measured
-			// room and this twin is the fault signal.
-			if z.ShadowTemp != 0 {
-				qCoolShadow := flowRatio * qNominalTotal * ((z.ShadowTemp - 12.0) / (sp - 12.0))
-				if qCoolShadow < 0 {
-					qCoolShadow = 0
-				}
-				dShadowDt := ((z.WallTemp-z.ShadowTemp)/(z.RIn*z.CAir) + (qInternal-qCoolShadow)/z.CAir)
-				z.ShadowTemp += dShadowDt * dt
-				z.ShadowTemp = math.Max(5.0, math.Min(50.0, z.ShadowTemp))
-			}
+	// Thermodynamics
+	for _, v := range e.Vavs {
+		z, ok := e.Zones[v.TargetZone]
+		if !ok {
+			continue
 		}
+
+		// Nominal (non-fault) internal load: base equipment + people + solar.
+		qSolar := z.SolarGainMult * 10000.0
+		qInternalNominal := z.BaseHeatGain + (float64(z.Occupancy) * 100.0) + qSolar
+
+		qInternal := qInternalNominal
+		if e.Scenario == "fault" && v.TargetZone == e.FaultTarget {
+			qInternal *= 5.0 // Thermal runaway strictly on selected fault target
+		}
+
+		sp := z.Setpoint
+		if sp == 0 {
+			sp = 24.0
+		}
+
+		// Size cooling so that at the VAV's NOMINAL flow the room holds setpoint:
+		// qCooling(Temp=sp, flow=nominal) must offset the full nominal internal
+		// load plus steady-state wall conduction. Normalizing by the VAV's own
+		// nominal flow (not a hard-coded 5.4 m3/s) keeps this correct no matter
+		// how many VAVs share the AHU.
+		qSteadyStateWall := (tOutside - sp) / (z.RIn + z.ROut)
+		qNominalTotal := qInternalNominal + qSteadyStateWall
+
+		nominalFlow := v.NominalFlow
+		if nominalFlow < 1e-6 {
+			nominalFlow = v.Flow
+		}
+		if nominalFlow < 1e-6 {
+			nominalFlow = 1.0
+		}
+		flowRatio := v.Flow / nominalFlow
+
+		qCooling := flowRatio * qNominalTotal * ((z.Temp - 12.0) / (sp - 12.0))
+		if qCooling < 0 {
+			qCooling = 0
+		} // Cannot heat with cold air
+
+		dTAirDt := ((z.WallTemp-z.Temp)/(z.RIn*z.CAir) + (qInternal-qCooling)/z.CAir)
+		dTWallDt := ((tOutside-z.WallTemp)/(z.ROut*z.CWall) - (z.WallTemp-z.Temp)/(z.RIn*z.CWall))
+
+		z.Temp += dTAirDt * dt
+		z.WallTemp += dTWallDt * dt
+
+		// Clamp to physically plausible bounds. Guards against numerical runaway when a
+		// (possibly mis-digitized) zone pairs a tiny CAir with a large heat load — without
+		// this, such a zone integrates to absurd temperatures (e.g. 200+°C) instead of
+		// just reading "hot / cooling-starved" like a real failing room.
+		z.Temp = math.Max(5.0, math.Min(50.0, z.Temp))
+		z.WallTemp = math.Max(5.0, math.Min(50.0, z.WallTemp))
+
+		// Physics-grounded AFDD: integrate the sensor-free shadow twin with the
+		// same 2R1C dynamics and cooling law, but never pulled toward the hardware
+		// measurement (applyHardware skips it). Divergence between the measured
+		// room and this twin is the fault signal.
+		if z.ShadowTemp != 0 {
+			qCoolShadow := flowRatio * qNominalTotal * ((z.ShadowTemp - 12.0) / (sp - 12.0))
+			if qCoolShadow < 0 {
+				qCoolShadow = 0
+			}
+			dShadowDt := ((z.WallTemp-z.ShadowTemp)/(z.RIn*z.CAir) + (qInternal-qCoolShadow)/z.CAir)
+			z.ShadowTemp += dShadowDt * dt
+			z.ShadowTemp = math.Max(5.0, math.Min(50.0, z.ShadowTemp))
+		}
+	}
 }
 
 // currentAvg computes the building-average room temperature and airflow fraction —
@@ -1083,256 +1173,289 @@ func (e *Engine) ForecastWindow(seqLen int) ([][]float64, int) {
 }
 
 func (e *Engine) broadcast() {
-		// Metrics + serialization read (and update LastBroadcast*) zone state, so they
-		// run under the lock; the websocket writes below happen outside it.
-		e.mu.Lock()
-		// ---- Live global metrics (all derived from current zone state) ----
-		totalHeatW := 0.0    // total thermal load the plant must remove (W)
-		totalOccupants := 0
-		comfortSum := 0.0      // Σ per-zone thermal-comfort score (report §4.5 discomfort model)
-		strainSum := 0.0       // sum of how far zones sit above setpoint (drives plant COP)
-		savedLightingW := 0.0  // lighting cut on vacant (set-back) zones
-		savedThermalW := 0.0   // cooling demand avoided on vacant (set-back) zones
-		alarmCount := 0        // zones far enough past the band to be a genuine alarm
-		plugTotalW := 0.0      // live plug draw (measured where clamped, modelled otherwise)
-		plugStandbyW := 0.0    // the always-on phantom portion of plugTotalW
-		plugShedW := 0.0       // switchable watts currently swept off by the APLC
-		// Half-comfort point: a zone this many °C *beyond* its deadband scores 0.5 comfort.
-		const sigmaComfort2 = 2.5 * 2.5
-		// °C past the deadband before a zone is "critical". Matches the dashboard's own
-		// CRITICAL_MARGIN so the health number and the red banner never disagree.
-		const criticalMargin = 5.0
-		for id, z := range e.Zones {
-			qSolar := z.SolarGainMult * 10000.0
-			qi := z.BaseHeatGain + float64(z.Occupancy)*100.0 + qSolar
-			if e.Scenario == "fault" && id == e.FaultTarget {
-				qi *= 5.0
-			}
-			totalHeatW += qi
-			totalOccupants += z.Occupancy
-			sp := z.Setpoint
-			if sp == 0 {
-				sp = 24.0
-			}
-			strainSum += math.Max(0, z.Temp-sp)
-			// Report §4.5 thermal-discomfort term — excess beyond the deadband penalized
-			// quadratically (max(0,|T-Tset|-δ))² — mapped to a bounded [0,1] comfort score.
-			// This grades health by *severity* (a 0.1°C overshoot ≈ healthy; a runaway ≈ 0)
-			// instead of the old binary in-band / out-of-band flag.
-			excess := math.Max(0, math.Abs(z.Temp-sp)-z.Deadband)
-			comfortSum += 1.0 / (1.0 + (excess*excess)/sigmaComfort2)
-			// A zone this far past its deadband is an alarm, not a drift — counted so health
-			// below can charge for it (see the averaging problem there).
-			if z.Temp > sp+z.Deadband+criticalMargin {
-				alarmCount++
-			}
-			// Occupancy-driven savings: a zone in setback (lights off) avoids its
-			// lighting load and a chunk of its internal-gain cooling. Lighting scales
-			// with the zone's REAL floor area at an LED office lighting power density —
-			// the previous flat 2 kW credited a 9 m² closet and a 650 m² floor plate
-			// identically, which is not a number anyone can report. Counted for every
-			// zone the optimizer set back, real sensor or simulated — the whole point of
-			// AutoPilot being a real control is that its savings are a real number.
-			const lightingWPerM2 = 9.0 // LED office LPD (W/m²), TCVN/ASHRAE 90.1 order
-			if z.Setpoint > z.BaseSetpoint+0.01 {
-				savedLightingW += z.AreaM2 * lightingWPerM2
-				savedThermalW += z.BaseHeatGain * 0.25
-			}
-			// Plug loads (APLC, plugs.go): the end use the case-study BMS could not see.
-			pTot, pStandby := z.plugNowW()
-			plugTotalW += pTot
-			plugStandbyW += pStandby
-			if z.PlugShed {
-				plugShedW += z.PlugStandbyW * plugSwitchableFrac
-			}
+	// Metrics + serialization read (and update LastBroadcast*) zone state, so they
+	// run under the lock; the websocket writes below happen outside it.
+	e.mu.Lock()
+	// ---- Live global metrics (all derived from current zone state) ----
+	totalHeatW := 0.0 // total thermal load the plant must remove (W)
+	totalOccupants := 0
+	comfortSum := 0.0     // Σ per-zone thermal-comfort score (report §4.5 discomfort model)
+	strainSum := 0.0      // sum of how far zones sit above setpoint (drives plant COP)
+	savedLightingW := 0.0 // lighting cut on vacant (set-back) zones
+	savedThermalW := 0.0  // cooling demand avoided on vacant (set-back) zones
+	alarmCount := 0       // zones far enough past the band to be a genuine alarm
+	plugTotalW := 0.0     // live plug draw (measured where clamped, modelled otherwise)
+	plugStandbyW := 0.0   // the always-on phantom portion of plugTotalW
+	plugShedW := 0.0      // switchable watts currently swept off by the APLC
+	// Half-comfort point: a zone this many °C *beyond* its deadband scores 0.5 comfort.
+	const sigmaComfort2 = 2.5 * 2.5
+	// °C past the deadband before a zone is "critical". Matches the dashboard's own
+	// CRITICAL_MARGIN so the health number and the red banner never disagree.
+	const criticalMargin = 5.0
+	for id, z := range e.Zones {
+		qSolar := z.SolarGainMult * 10000.0
+		qi := z.BaseHeatGain + float64(z.Occupancy)*100.0 + qSolar
+		if e.Scenario == "fault" && id == e.FaultTarget {
+			qi *= 5.0
 		}
-
-		// Plant coefficient of performance degrades as the building is strained (chillers
-		// run harder at higher lift), so efficiency, cooling, and load are all coupled.
-		avgStrain := 0.0
-		if len(e.Zones) > 0 {
-			avgStrain = strainSum / float64(len(e.Zones))
+		totalHeatW += qi
+		totalOccupants += z.Occupancy
+		sp := z.Setpoint
+		if sp == 0 {
+			sp = 24.0
 		}
-		plantCop := math.Max(2.2, math.Min(3.8, 3.6-0.35*avgStrain))
-
-		coolingOutputMW := totalHeatW / 1e6      // thermal cooling delivered (MW)
-		coolingElectricalMW := coolingOutputMW / plantCop
-		// Non-HVAC electrical: lighting + fans + elevators as a fixed baseline, plus the
-		// LIVE plug-load figure — no longer a constant, so the sweep's effect shows up in
-		// the building load the moment sockets shed. (Plug loads were 26.4% of the Hanoi
-		// case-study tower's energy; hiding them inside a constant is how that happens.)
-		const nonPlugBaseMW = 1.15 // lighting + fans + elevators baseline
-		baseElectricalMW := nonPlugBaseMW + plugTotalW/1e6
-		buildingLoadMW := coolingElectricalMW + baseElectricalMW
-		energySavedMW := (savedLightingW + savedThermalW/plantCop) / 1e6
-		// Feed the load to the BESS dispatcher (read next tick) and snapshot battery state.
-		e.lastLoadMw = buildingLoadMW
-		bessDischargeMW := e.Bess.DischargeMw
-		bessSocPct := e.Bess.Soc * 100.0
-
-		// System health = mean per-zone comfort (severity-weighted), per the report's discomfort
-		// model, minus a charge for zones actually in alarm. The mean alone is misleading at
-		// this scale: one server room cooking at 50 C across 1350 zones averages to 99.93%, so
-		// the dashboard cheerfully reported "HEALTH 100%" directly beside its own CRITICAL FAULT
-		// banner. Alarms are rare and serious, so each one moves the number an operator watches.
-		systemHealth := 100.0
-		if len(e.Zones) > 0 {
-			systemHealth = 100.0 * comfortSum / float64(len(e.Zones))
+		strainSum += math.Max(0, z.Temp-sp)
+		// Report §4.5 thermal-discomfort term — excess beyond the deadband penalized
+		// quadratically (max(0,|T-Tset|-δ))² — mapped to a bounded [0,1] comfort score.
+		// This grades health by *severity* (a 0.1°C overshoot ≈ healthy; a runaway ≈ 0)
+		// instead of the old binary in-band / out-of-band flag.
+		excess := math.Max(0, math.Abs(z.Temp-sp)-z.Deadband)
+		comfortSum += 1.0 / (1.0 + (excess*excess)/sigmaComfort2)
+		// A zone this far past its deadband is an alarm, not a drift — counted so health
+		// below can charge for it (see the averaging problem there).
+		if z.Temp > sp+z.Deadband+criticalMargin {
+			alarmCount++
 		}
-		if alarmCount > 0 {
-			systemHealth = math.Max(0, systemHealth-math.Min(45.0, 12.0*float64(alarmCount)))
+		// Occupancy-driven savings: a zone in setback (lights off) avoids its
+		// lighting load and a chunk of its internal-gain cooling. Lighting scales
+		// with the zone's REAL floor area at an LED office lighting power density —
+		// the previous flat 2 kW credited a 9 m² closet and a 650 m² floor plate
+		// identically, which is not a number anyone can report. Counted for every
+		// zone the optimizer set back, real sensor or simulated — the whole point of
+		// AutoPilot being a real control is that its savings are a real number.
+		const lightingWPerM2 = 9.0 // LED office LPD (W/m²), TCVN/ASHRAE 90.1 order
+		if z.Setpoint > z.BaseSetpoint+0.01 {
+			savedLightingW += z.AreaM2 * lightingWPerM2
+			savedThermalW += z.BaseHeatGain * 0.25
 		}
-
-		// [GEMINI IMPLEMENTATION START]
-		// Persist metrics to TimescaleDB at most once per second. persistReading
-		// (db.go) only enqueues, so this never blocks the broadcast goroutine.
-		now := time.Now()
-		if e.Persist != nil && now.Sub(e.lastDbSave) > time.Second {
-			e.lastDbSave = now
-			e.Persist("GLOBAL", "buildingLoadMw", buildingLoadMW)
-			e.Persist("GLOBAL", "coolingOutputMw", coolingOutputMW)
-			e.Persist("GLOBAL", "systemHealth", systemHealth)
-			e.Persist("GLOBAL", "avgCo2", e.avgCo2(totalOccupants))
-			e.Persist("GLOBAL", "plugKw", plugTotalW/1000)
-			for id, z := range e.Zones {
-				e.Persist(id, "temp", z.Temp)
-				e.Persist(id, "occupancy", float64(z.Occupancy))
-				// Environmentals from a live physical sensor (humidity %, CO2 ppm) get
-				// their own history series, each gated on its own sensor still reporting.
-				if z.HwHum > 0 && z.humFresh() {
-					e.Persist(id, "humidity", z.HwHum)
-				}
-				if z.HwCo2 > 0 && z.co2Fresh() {
-					e.Persist(id, "co2", z.HwCo2)
-				}
-				// AFDD residual history for sensor-bound zones: the maintenance
-				// evidence behind a "dispatch technician" card — how long the room
-				// has been drifting from its physics, queryable, not just a live LED.
-				if z.ShadowTemp != 0 && z.hwFresh() {
-					e.Persist(id, "afddResidual", z.ResidualEma)
-				}
-			}
-		}
-		// [GEMINI IMPLEMENTATION END]
-
-		// FlatBuffers Serialization
-		builder := flatbuffers.NewBuilder(1024)
-
-		// Create Zones
-		zoneOffsets := make([]flatbuffers.UOffsetT, 0)
-		for id, z := range e.Zones {
-			noiseTemp := z.Temp + getNoise(0.08)
-			// A lighting or plug-shed flip must stream even when the temperature hasn't
-			// moved past the dedupe threshold, or the UI would show it a frame too late.
-			if math.Abs(noiseTemp-z.LastBroadcastTemp) > 0.05 || z.LightsOn != z.LastBroadcastLights || z.PlugShed != z.LastBroadcastPlugShed {
-				z.LastBroadcastTemp = noiseTemp
-				z.LastBroadcastLights = z.LightsOn
-				z.LastBroadcastPlugShed = z.PlugShed
-				idStr := builder.CreateString(id)
-				Telemetry.ZoneDataStart(builder)
-				Telemetry.ZoneDataAddId(builder, idStr)
-				Telemetry.ZoneDataAddTemp(builder, float32(noiseTemp))
-				Telemetry.ZoneDataAddOccupants(builder, int32(z.Occupancy))
-				Telemetry.ZoneDataAddLoad(builder, float32(z.BaseHeatGain/1000.0))
-				Telemetry.ZoneDataAddLightsOn(builder, z.LightsOn)
-				// Measured air quality rides the main stream so the dashboard reads a bound
-				// sensor's real humidity/CO2 straight from the telemetry it already consumes,
-				// instead of a side poll. Gated on the node still being fresh: a board that
-				// dropped off must stop reporting rather than pin its last reading there
-				// forever, so zero always means "nothing is measuring this right now".
-				var hwHum, hwCo2 float32
-				if z.humFresh() {
-					hwHum = float32(z.HwHum)
-				}
-				if z.co2Fresh() {
-					hwCo2 = float32(z.HwCo2)
-				}
-				Telemetry.ZoneDataAddHumidity(builder, hwHum)
-				Telemetry.ZoneDataAddCo2(builder, hwCo2)
-				zPlugW, _ := z.plugNowW()
-				Telemetry.ZoneDataAddPlugW(builder, float32(zPlugW))
-				Telemetry.ZoneDataAddPlugShed(builder, z.PlugShed)
-				zoneOffsets = append(zoneOffsets, Telemetry.ZoneDataEnd(builder))
-			}
-		}
-		Telemetry.SimStateStartZonesVector(builder, len(zoneOffsets))
-		for i := len(zoneOffsets) - 1; i >= 0; i-- {
-			builder.PrependUOffsetT(zoneOffsets[i])
-		}
-		zonesVec := builder.EndVector(len(zoneOffsets))
-
-		// Create VAVs
-		vavOffsets := make([]flatbuffers.UOffsetT, 0)
-		for id, v := range e.Vavs {
-			noiseFlow := math.Max(0, v.Flow+getNoise(0.2))
-			if math.Abs(noiseFlow-v.LastBroadcastFlow) > 0.1 {
-				v.LastBroadcastFlow = noiseFlow
-				idStr := builder.CreateString(id)
-				Telemetry.VavDataStart(builder)
-				Telemetry.VavDataAddId(builder, idStr)
-				Telemetry.VavDataAddAirflow(builder, float32(noiseFlow))
-				vavOffsets = append(vavOffsets, Telemetry.VavDataEnd(builder))
-			}
-		}
-		Telemetry.SimStateStartVavsVector(builder, len(vavOffsets))
-		for i := len(vavOffsets) - 1; i >= 0; i-- {
-			builder.PrependUOffsetT(vavOffsets[i])
-		}
-		vavsVec := builder.EndVector(len(vavOffsets))
-
-		// Create Global
-		Telemetry.GlobalDataStart(builder)
-		Telemetry.GlobalDataAddBuildingLoadMw(builder, float32(buildingLoadMW))
-		Telemetry.GlobalDataAddSystemHealth(builder, float32(systemHealth))
-		Telemetry.GlobalDataAddTotalOccupants(builder, int32(totalOccupants))
-		Telemetry.GlobalDataAddCoolingOutputMw(builder, float32(coolingOutputMW))
-		Telemetry.GlobalDataAddPlantCop(builder, float32(plantCop))
-		Telemetry.GlobalDataAddEnergySavedMw(builder, float32(energySavedMW))
-		Telemetry.GlobalDataAddBessDischargeMw(builder, float32(bessDischargeMW))
-		Telemetry.GlobalDataAddBessSocPct(builder, float32(bessSocPct))
-		Telemetry.GlobalDataAddAvgCo2(builder, float32(e.avgCo2(totalOccupants)))
-		Telemetry.GlobalDataAddPlugKw(builder, float32(plugTotalW/1000))
-		Telemetry.GlobalDataAddPlugStandbyKw(builder, float32(plugStandbyW/1000))
-		Telemetry.GlobalDataAddPlugShedKw(builder, float32(plugShedW/1000))
-		Telemetry.GlobalDataAddPlugSavedKwh(builder, float32(e.plugSavedKwh))
-		Telemetry.GlobalDataAddAutoPilot(builder, e.AutoPilot)
-		Telemetry.GlobalDataAddZonesInSetback(builder, int32(e.zonesInSetback))
-		globalPos := Telemetry.GlobalDataEnd(builder)
-
-		// Build SimState
-		Telemetry.SimStateStart(builder)
-		Telemetry.SimStateAddTimestamp(builder, time.Now().UnixMilli())
-		Telemetry.SimStateAddZones(builder, zonesVec)
-		Telemetry.SimStateAddVavs(builder, vavsVec)
-		Telemetry.SimStateAddGlobal(builder, globalPos)
-		simStatePos := Telemetry.SimStateEnd(builder)
-
-		builder.Finish(simStatePos)
-		buf := builder.FinishedBytes()
-
-		conns := make([]*websocket.Conn, 0, len(e.Clients))
-		for c := range e.Clients {
-			conns = append(conns, c)
-		}
-		e.mu.Unlock()
-
-		// Network writes happen OUTSIDE the lock: a slow websocket client must never
-		// stall the simulation loop or MQTT ingestion.
-		var dead []*websocket.Conn
-		for _, client := range conns {
-			if err := client.WriteMessage(websocket.BinaryMessage, buf); err != nil {
-				client.Close()
-				dead = append(dead, client)
-			}
-		}
-		if len(dead) > 0 {
-			e.mu.Lock()
-			for _, c := range dead {
-				delete(e.Clients, c)
-			}
-			e.mu.Unlock()
+		// Plug loads (APLC, plugs.go): the end use the case-study BMS could not see.
+		pTot, pStandby := z.plugNowW()
+		plugTotalW += pTot
+		plugStandbyW += pStandby
+		if z.PlugShed {
+			plugShedW += z.PlugStandbyW * plugSwitchableFrac
 		}
 	}
+
+	// Plant coefficient of performance degrades as the building is strained (chillers
+	// run harder at higher lift), so efficiency, cooling, and load are all coupled.
+	avgStrain := 0.0
+	if len(e.Zones) > 0 {
+		avgStrain = strainSum / float64(len(e.Zones))
+	}
+	plantCop := math.Max(2.2, math.Min(3.8, 3.6-0.35*avgStrain))
+
+	coolingOutputMW := totalHeatW / 1e6 // thermal cooling delivered (MW)
+	coolingElectricalMW := coolingOutputMW / plantCop
+	// Non-HVAC electrical: lighting + fans + elevators as a fixed baseline, plus the
+	// LIVE plug-load figure — no longer a constant, so the sweep's effect shows up in
+	// the building load the moment sockets shed. (Plug loads were 26.4% of the Hanoi
+	// case-study tower's energy; hiding them inside a constant is how that happens.)
+	const nonPlugBaseMW = 1.15 // lighting + fans + elevators baseline
+	baseElectricalMW := nonPlugBaseMW + plugTotalW/1e6
+	buildingLoadMW := coolingElectricalMW + baseElectricalMW
+	energySavedMW := (savedLightingW + savedThermalW/plantCop) / 1e6
+	// Feed the load to the BESS dispatcher (read next tick) and snapshot battery state.
+	e.lastLoadMw = buildingLoadMW
+	bessDischargeMW := e.Bess.DischargeMw
+	bessSocPct := e.Bess.Soc * 100.0
+
+	// System health = mean per-zone comfort (severity-weighted), per the report's discomfort
+	// model, minus a charge for zones actually in alarm. The mean alone is misleading at
+	// this scale: one server room cooking at 50 C across 1350 zones averages to 99.93%, so
+	// the dashboard cheerfully reported "HEALTH 100%" directly beside its own CRITICAL FAULT
+	// banner. Alarms are rare and serious, so each one moves the number an operator watches.
+	systemHealth := 100.0
+	if len(e.Zones) > 0 {
+		systemHealth = 100.0 * comfortSum / float64(len(e.Zones))
+	}
+	if alarmCount > 0 {
+		systemHealth = math.Max(0, systemHealth-math.Min(45.0, 12.0*float64(alarmCount)))
+	}
+
+	// [GEMINI IMPLEMENTATION START]
+	// Persist metrics to TimescaleDB at most once per second. persistReading
+	// (db.go) only enqueues, so this never blocks the broadcast goroutine.
+	now := time.Now()
+	if e.Persist != nil && now.Sub(e.lastDbSave) > time.Second {
+		e.lastDbSave = now
+		e.Persist("GLOBAL", "buildingLoadMw", buildingLoadMW)
+		e.Persist("GLOBAL", "coolingOutputMw", coolingOutputMW)
+		e.Persist("GLOBAL", "systemHealth", systemHealth)
+		e.Persist("GLOBAL", "avgCo2", e.avgCo2(totalOccupants))
+		e.Persist("GLOBAL", "plugKw", plugTotalW/1000)
+		// Feature series for OFFLINE LSTM retraining (backend/forecasting/train.py):
+		// the SAME building-average [temp, airflow] the live forecaster consumes, plus
+		// the outdoor conditions the envelope integrates against. Persisting them is
+		// what lets the model be retrained on the building's OWN accumulated history
+		// instead of only synthetic data — the target (buildingLoadMw) is already here.
+		avg := e.currentAvg()
+		e.Persist("GLOBAL", "avgTemp", avg.temp)
+		e.Persist("GLOBAL", "avgAirflow", avg.flow)
+		if tOut, live := e.outdoorNow(); live {
+			e.Persist("GLOBAL", "outdoorTemp", tOut)
+			if e.outdoorHum > 0 {
+				e.Persist("GLOBAL", "outdoorHum", e.outdoorHum)
+			}
+		}
+		for id, z := range e.Zones {
+			e.Persist(id, "temp", z.Temp)
+			e.Persist(id, "occupancy", float64(z.Occupancy))
+			// Environmentals from a live physical sensor (humidity %, CO2 ppm) get
+			// their own history series, each gated on its own sensor still reporting.
+			if z.HwHum > 0 && z.humFresh() {
+				e.Persist(id, "humidity", z.HwHum)
+			}
+			if z.HwCo2 > 0 && z.co2Fresh() {
+				e.Persist(id, "co2", z.HwCo2)
+			}
+			// AFDD residual history for sensor-bound zones: the maintenance
+			// evidence behind a "dispatch technician" card — how long the room
+			// has been drifting from its physics, queryable, not just a live LED.
+			if z.ShadowTemp != 0 && z.hwFresh() {
+				e.Persist(id, "afddResidual", z.ResidualEma)
+			}
+		}
+	}
+	// [GEMINI IMPLEMENTATION END]
+
+	// Fold this tick into the learned operating baselines (baselines.go). Deliberately
+	// slower than the 1 Hz DB persist: at one sample per baselineSampleSecs, each
+	// hour-of-day bucket's EWMA memory spans days, so it learns a real diurnal normal
+	// instead of chasing the last few minutes. The model learns with or without a DB —
+	// it is the twin's own memory of what "normal" is, independent of history storage.
+	if e.baselines != nil && now.Sub(e.lastBaselineAt) >= baselineSampleSecs*time.Second {
+		e.lastBaselineAt = now
+		e.baselines.Observe("GLOBAL", "buildingLoadMw", buildingLoadMW, now)
+		e.baselines.Observe("GLOBAL", "plugKw", plugTotalW/1000, now)
+		for id, z := range e.Zones {
+			e.baselines.Observe(id, "temp", z.Temp, now)
+			// Only a live NDIR reading teaches the CO2 baseline — a modelled estimate
+			// would train the model on its own guess and then flag reality against it.
+			if z.HwCo2 > 0 && z.co2Fresh() {
+				e.baselines.Observe(id, "co2", z.HwCo2, now)
+			}
+		}
+	}
+
+	// FlatBuffers Serialization
+	builder := flatbuffers.NewBuilder(1024)
+
+	// Create Zones
+	zoneOffsets := make([]flatbuffers.UOffsetT, 0)
+	for id, z := range e.Zones {
+		noiseTemp := z.Temp + getNoise(0.08)
+		// A lighting or plug-shed flip must stream even when the temperature hasn't
+		// moved past the dedupe threshold, or the UI would show it a frame too late.
+		if math.Abs(noiseTemp-z.LastBroadcastTemp) > 0.05 || z.LightsOn != z.LastBroadcastLights || z.PlugShed != z.LastBroadcastPlugShed {
+			z.LastBroadcastTemp = noiseTemp
+			z.LastBroadcastLights = z.LightsOn
+			z.LastBroadcastPlugShed = z.PlugShed
+			idStr := builder.CreateString(id)
+			Telemetry.ZoneDataStart(builder)
+			Telemetry.ZoneDataAddId(builder, idStr)
+			Telemetry.ZoneDataAddTemp(builder, float32(noiseTemp))
+			Telemetry.ZoneDataAddOccupants(builder, int32(z.Occupancy))
+			Telemetry.ZoneDataAddLoad(builder, float32(z.BaseHeatGain/1000.0))
+			Telemetry.ZoneDataAddLightsOn(builder, z.LightsOn)
+			// Measured air quality rides the main stream so the dashboard reads a bound
+			// sensor's real humidity/CO2 straight from the telemetry it already consumes,
+			// instead of a side poll. Gated on the node still being fresh: a board that
+			// dropped off must stop reporting rather than pin its last reading there
+			// forever, so zero always means "nothing is measuring this right now".
+			var hwHum, hwCo2 float32
+			if z.humFresh() {
+				hwHum = float32(z.HwHum)
+			}
+			if z.co2Fresh() {
+				hwCo2 = float32(z.HwCo2)
+			}
+			Telemetry.ZoneDataAddHumidity(builder, hwHum)
+			Telemetry.ZoneDataAddCo2(builder, hwCo2)
+			zPlugW, _ := z.plugNowW()
+			Telemetry.ZoneDataAddPlugW(builder, float32(zPlugW))
+			Telemetry.ZoneDataAddPlugShed(builder, z.PlugShed)
+			zoneOffsets = append(zoneOffsets, Telemetry.ZoneDataEnd(builder))
+		}
+	}
+	Telemetry.SimStateStartZonesVector(builder, len(zoneOffsets))
+	for i := len(zoneOffsets) - 1; i >= 0; i-- {
+		builder.PrependUOffsetT(zoneOffsets[i])
+	}
+	zonesVec := builder.EndVector(len(zoneOffsets))
+
+	// Create VAVs
+	vavOffsets := make([]flatbuffers.UOffsetT, 0)
+	for id, v := range e.Vavs {
+		noiseFlow := math.Max(0, v.Flow+getNoise(0.2))
+		if math.Abs(noiseFlow-v.LastBroadcastFlow) > 0.1 {
+			v.LastBroadcastFlow = noiseFlow
+			idStr := builder.CreateString(id)
+			Telemetry.VavDataStart(builder)
+			Telemetry.VavDataAddId(builder, idStr)
+			Telemetry.VavDataAddAirflow(builder, float32(noiseFlow))
+			vavOffsets = append(vavOffsets, Telemetry.VavDataEnd(builder))
+		}
+	}
+	Telemetry.SimStateStartVavsVector(builder, len(vavOffsets))
+	for i := len(vavOffsets) - 1; i >= 0; i-- {
+		builder.PrependUOffsetT(vavOffsets[i])
+	}
+	vavsVec := builder.EndVector(len(vavOffsets))
+
+	// Create Global
+	Telemetry.GlobalDataStart(builder)
+	Telemetry.GlobalDataAddBuildingLoadMw(builder, float32(buildingLoadMW))
+	Telemetry.GlobalDataAddSystemHealth(builder, float32(systemHealth))
+	Telemetry.GlobalDataAddTotalOccupants(builder, int32(totalOccupants))
+	Telemetry.GlobalDataAddCoolingOutputMw(builder, float32(coolingOutputMW))
+	Telemetry.GlobalDataAddPlantCop(builder, float32(plantCop))
+	Telemetry.GlobalDataAddEnergySavedMw(builder, float32(energySavedMW))
+	Telemetry.GlobalDataAddBessDischargeMw(builder, float32(bessDischargeMW))
+	Telemetry.GlobalDataAddBessSocPct(builder, float32(bessSocPct))
+	Telemetry.GlobalDataAddAvgCo2(builder, float32(e.avgCo2(totalOccupants)))
+	Telemetry.GlobalDataAddPlugKw(builder, float32(plugTotalW/1000))
+	Telemetry.GlobalDataAddPlugStandbyKw(builder, float32(plugStandbyW/1000))
+	Telemetry.GlobalDataAddPlugShedKw(builder, float32(plugShedW/1000))
+	Telemetry.GlobalDataAddPlugSavedKwh(builder, float32(e.plugSavedKwh))
+	Telemetry.GlobalDataAddAutoPilot(builder, e.AutoPilot)
+	Telemetry.GlobalDataAddZonesInSetback(builder, int32(e.zonesInSetback))
+	globalPos := Telemetry.GlobalDataEnd(builder)
+
+	// Build SimState
+	Telemetry.SimStateStart(builder)
+	Telemetry.SimStateAddTimestamp(builder, time.Now().UnixMilli())
+	Telemetry.SimStateAddZones(builder, zonesVec)
+	Telemetry.SimStateAddVavs(builder, vavsVec)
+	Telemetry.SimStateAddGlobal(builder, globalPos)
+	simStatePos := Telemetry.SimStateEnd(builder)
+
+	builder.Finish(simStatePos)
+	buf := builder.FinishedBytes()
+
+	conns := make([]*websocket.Conn, 0, len(e.Clients))
+	for c := range e.Clients {
+		conns = append(conns, c)
+	}
+	e.mu.Unlock()
+
+	// Network writes happen OUTSIDE the lock: a slow websocket client must never
+	// stall the simulation loop or MQTT ingestion.
+	var dead []*websocket.Conn
+	for _, client := range conns {
+		if err := client.WriteMessage(websocket.BinaryMessage, buf); err != nil {
+			client.Close()
+			dead = append(dead, client)
+		}
+	}
+	if len(dead) > 0 {
+		e.mu.Lock()
+		for _, c := range dead {
+			delete(e.Clients, c)
+		}
+		e.mu.Unlock()
+	}
+}
 
 // [GEMINI IMPLEMENTATION START]
 // PublishCommand dispatches a manual override directly to the edge IoT device,
@@ -1416,4 +1539,5 @@ func normalizeOverride(action string, z *ZoneSim) string {
 		return a // unknown verb: forward verbatim; firmware ignores tokens it can't parse
 	}
 }
+
 // [GEMINI IMPLEMENTATION END]

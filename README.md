@@ -6,6 +6,43 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-22 — The recommendations, automations, and forecaster now learn from the building instead of firing on hardcoded thresholds
+>
+> **The "AI Operations" panel was honest that it was rule-based — `co2 > 1000`, `temp >
+> setpoint + deadband`, pre-cool at a fixed `2.0 MW` — and the LSTM only ever trained on
+> synthetic data.** A fixed threshold is wrong for every building but the one it was tuned
+> on, and it has no idea what is *normal* for a given room at a given hour. That whole layer
+> is now learned:
+> - **Learned-baseline model** (`server/simulation/baselines.go`) — an online, per-`(zone,
+>   metric, hour-of-day)` EWMA mean/variance built from the live telemetry stream. It needs
+>   no stored history, adapts as the building changes, survives restarts
+>   (`data/baseline-model.json`), and is honest about maturity: a bucket that hasn't seen
+>   enough samples is "still learning" and never raises an alarm.
+> - **`/api/recommendations`** — ranked anomalies scored in σ against each zone's *own*
+>   normal for the hour ("CO₂ 6.2σ above this room's 14:00 normal of 620±90 ppm"), each
+>   mapped to the real remediation the engine already actuates (purge, flood cooling,
+>   pre-cool). A recognized standard (the ASHRAE ≤ 1000 ppm CO₂ guideline) is the clearly
+>   labelled cold-start floor. The desktop panel and the mobile AI screen both render these,
+>   replacing the old threshold cards.
+> - **Data-driven pre-cooling** — the poller now triggers when the LSTM's forecast peak runs
+>   above what the building itself normally draws in the coming hour (learned mean + 1.5σ),
+>   not a magic constant. It stays on the fixed fallback only until the load baseline matures.
+> - **Real-data LSTM training** — the engine persists the forecaster's exact feature set
+>   (building-average temp/airflow, live outdoor conditions, target load) to TimescaleDB, and
+>   `train.py` now trains on that accumulated real history via
+>   `data_loader.load_training_sequences()`, falling back to the physics-grounded synthetic
+>   generator (labelled as such) only when there isn't enough. The serving path is unchanged.
+> - **Downloadable local models** (`/api/model/export`) — a new *Local Models* card (desktop
+>   + mobile) packages the learned baseline model, the LSTM artifacts, and a dependency-free
+>   `recommender.py` into one zip, so an operator can run the *same* σ-scored recommendations
+>   and alerts offline, on their own machine, from the twin's processed state. `recommender.py`
+>   is a faithful stdlib-only port of the engine's scoring; its exit code doubles as an alert
+>   signal (0 nominal / 1 warning / 2 critical) for cron and monitoring.
+>
+> New Go tests cover the learning, hour-bucket fallback, maturity gating, learned-vs-standard
+> basis, the load-threshold, and persistence round-trip; the export bundle + offline
+> recommender were verified end-to-end.
+>
 > ### 2026-07-21 — Auto-Pilot is now a real control, and the "autonomous action" cards tell the truth
 >
 > **The AI toggle was cosmetic and the "AUTONOMOUS ACTION — Setback engaged, saving

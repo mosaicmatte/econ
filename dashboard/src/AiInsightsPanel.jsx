@@ -1,9 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Brain, Zap, AlertTriangle, TrendingDown, ThermometerSnowflake, Activity, Radio, Plug, CloudOff, Wind, WifiOff } from 'lucide-react';
+import { Brain, Zap, AlertTriangle, TrendingDown, ThermometerSnowflake, Activity, Radio, Plug, CloudOff, Wind, WifiOff, Download, Cpu } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { money, energyCostPerDay, peakShiftSavingPerMonth, rateStr, touPeriod, minutesToPeak, TARIFF } from './tariff';
 import { useOpsStatus, untilLabel } from './useOpsStatus';
 import { usePlugs } from './usePlugs';
+import { useRecommendations } from './useRecommendations';
 import { API_BASE } from './api';
 
 export default function AiInsightsPanel({ simData, activeScenario, faultTarget, aiForecast, setAutoPilot, hardwareNodes = {}, setSelectedZone, sendManualOverride, onOpenPlugs }) {
@@ -18,6 +19,10 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
   // engine so this panel reasons over what the building is DOING, not over UI state.
   const { precool, weather } = useOpsStatus();
   const { status: plugStatus } = usePlugs();
+  // Learned anomaly recommendations from the engine's online baseline model
+  // (server/simulation/baselines.go): each scored in σ against this building's own normal
+  // for the hour. These replace the old hardcoded threshold cards below.
+  const { recommendations, model: recModel } = useRecommendations();
 
   const hwList = Object.values(hardwareNodes || {});
   const hwOnline = hwList.filter((n) => n.online).length;
@@ -109,23 +114,35 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       });
     }
 
-    // 2c. Measured air quality: an NDIR sensor reading over the 1000 ppm comfort line.
-    // Only real sensors can raise this (co2 > 0 in the stream = a live ACD1200), and
-    // the action is a real purge override — lights off, max airflow flush, 15-min latch.
-    const staleAir = zones.filter((z) => (z.co2 || 0) > 1000).sort((a, b) => b.co2 - a.co2);
-    if (staleAir.length > 0) {
-      const worst = staleAir[0];
+    // 2c. LEARNED anomaly recommendations from the engine's online baseline model
+    // (server/simulation/baselines.go). These REPLACE the old hardcoded threshold cards
+    // (co2 > 1000, temp > setpoint + deadband): each is scored in σ against what the zone
+    // actually does at THIS hour, with the ASHRAE 1000 ppm guideline as a clearly-labelled
+    // cold-start floor. The message is authored server-side (learned mean±σ, deviation,
+    // maturity), and every card's action is the real remediation the model chose — a purge
+    // override, a cooling flood, a pre-cool window — dispatched over the same websocket.
+    const recIcon = (metric, color) =>
+      metric === 'co2' ? <Wind size={18} color={color} />
+      : metric === 'temp' ? <ThermometerSnowflake size={18} color={color} />
+      : metric === 'buildingLoadMw' ? <TrendingDown size={18} color={color} />
+      : <Activity size={18} color={color} />;
+    const recActionLabel = { purge: 'PURGE ZONE', cool: 'FLOOD COOLING', precool: 'ACTIVATE PRE-COOLING' };
+    recommendations.forEach((rec) => {
+      const color = rec.severity === 'critical' ? 'var(--accent-red)' : rec.severity === 'warning' ? 'var(--accent-yellow)' : 'var(--accent-blue)';
+      const label = recActionLabel[rec.action];
       generated.push({
-        id: 'co2',
-        type: 'warning',
-        icon: <Wind size={18} color="var(--accent-yellow)" />,
-        title: 'Measured CO₂ Above Comfort Line',
-        message: `${worst.label} reads ${Math.round(worst.co2)} ppm from its NDIR sensor (comfort guideline ≤ 1000 ppm). Ventilation is not keeping up with occupancy — purge the zone or raise its outdoor-air fraction.`,
-        action: 'PURGE ZONE',
-        once: true,
-        onAction: () => sendManualOverride && sendManualOverride('purge', worst.id),
+        id: `rec-${rec.id}`,
+        type: rec.severity,
+        icon: recIcon(rec.metric, color),
+        title: rec.title,
+        message: rec.message,
+        badge: rec.basis === 'learned' ? 'LEARNED' : 'ASHRAE STD',
+        badgeColor: rec.basis === 'learned' ? 'var(--accent-blue)' : 'var(--text-muted)',
+        action: label,
+        once: !!label,
+        onAction: label ? () => sendManualOverride && sendManualOverride(rec.action, rec.zone) : undefined,
       });
-    }
+    });
 
     // 3. High grid demand — driven by the EVN TOU CLOCK, not a demo toggle: warn while
     // cao điểm is running, and ahead of it when it starts within 90 minutes. The card
@@ -230,17 +247,9 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       });
     }
 
-    // 5. Out of Band (Hot spots)
-    const hotZones = zones.filter((z) => z.temp > (z.setpoint + (z.deadband || 1)));
-    if (hotZones.length > 0 && activeScenario !== 'fault') {
-      generated.push({
-        id: 'hot',
-        type: 'warning',
-        icon: <ThermometerSnowflake size={18} color="var(--accent-yellow)" />,
-        title: 'Thermal Drift Detected',
-        message: `${hotZones.length} zones have drifted above their cooling deadband. Likely airflow starvation — check the Zone Performance scatter (Telemetry tab) for which zones are hot but barely drawing cooling, then raise AHU static pressure or release their VAV dampers.`,
-      });
-    }
+    // 5. (Thermal-drift hotspots are now handled by the learned-baseline recommendations
+    // above: a zone many σ hotter than its own hourly normal, scored server-side, instead
+    // of a fixed temp > setpoint + deadband rule that fires on every warm afternoon.)
 
     // 6. Autonomous operations status (always present) — real engine state.
     const apOn = simData.autoPilot !== false;
@@ -258,7 +267,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
     });
 
     return generated;
-  }, [simData, activeScenario, faultTarget, aiForecast, hwList, hwOnline, savingsPct, savedMw, loadMw, precool, weather, plugStatus, sendManualOverride, setSelectedZone, onOpenPlugs]);
+  }, [simData, activeScenario, faultTarget, aiForecast, hwList, hwOnline, savingsPct, savedMw, loadMw, precool, weather, plugStatus, recommendations, sendManualOverride, setSelectedZone, onOpenPlugs]);
 
   // ---- Inline detail sections for the expandable cards ----
   const renderDetail = (id) => {
@@ -372,7 +381,12 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
           <Brain size={18} color="var(--accent-blue)" /> AI Operations Engine
         </h3>
         <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          Rule-based diagnostics over the live telemetry stream, plus the LSTM load forecast. Total building load is currently at <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{simData.buildingLoadMw?.toFixed(2)} MW</span>.
+          Learned-baseline anomaly detection — each signal scored against this building’s own normal for the hour — plus the LSTM load forecast. Total building load is currently at <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{simData.buildingLoadMw?.toFixed(2)} MW</span>.
+          {recModel && (
+            <span style={{ display: 'block', marginTop: '4px', color: 'var(--text-muted)', fontSize: '10px' }}>
+              Baseline model: {recModel.established} signal{recModel.established === 1 ? '' : 's'} established, {recModel.learning} still learning (a bucket matures after {recModel.matureAfter} samples).
+            </span>
+          )}
         </p>
       </div>
 
@@ -432,6 +446,19 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
                 <span style={{ fontSize: '12px', fontWeight: 'bold', color: titleColor }}>
                   {insight.title}
                 </span>
+                {insight.badge && (
+                  <span
+                    title={insight.badge === 'LEARNED' ? "Scored against this zone's learned normal for the hour" : 'Recognized fixed standard (baseline still learning this zone)'}
+                    style={{
+                      marginLeft: 'auto', fontSize: '8px', fontWeight: 'bold', letterSpacing: '0.05em',
+                      padding: '1px 5px', borderRadius: '3px', flexShrink: 0,
+                      color: insight.badgeColor || 'var(--text-muted)',
+                      border: `1px solid ${insight.badgeColor || 'var(--text-muted)'}`,
+                    }}
+                  >
+                    {insight.badge}
+                  </span>
+                )}
               </div>
 
               <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
@@ -488,6 +515,9 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
         })}
       </div>
 
+      {/* Take the intelligence offline: download the learned models + recommender. */}
+      <ModelExportCard />
+
       {/* Embedded CSS for animations */}
       <style>{`
         @keyframes slideInRight {
@@ -499,6 +529,67 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
           to { opacity: 1; }
         }
       `}</style>
+    </div>
+  );
+}
+
+// ModelExportCard is the "take the intelligence with you" surface: it downloads the
+// learned baseline model, the LSTM forecaster artifacts, and a dependency-free recommender
+// as one zip (GET /api/model/export), so an operator can run the SAME σ-scored
+// recommendations and alerts offline from the twin's own processed state — no server
+// required. It reads /api/model for the model's live maturity so the card is honest about
+// what the download will actually be able to do.
+function ModelExportCard() {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE}/api/model`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive) setInfo(d); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const est = info?.baseline?.established ?? 0;
+  const learning = info?.baseline?.learning ?? 0;
+  const forecaster = info?.forecaster;
+  const rows = [
+    ['Learned baseline', `${est} signal${est === 1 ? '' : 's'} established · ${learning} learning`],
+    ['LSTM forecaster', forecaster ? (forecaster.ready ? 'trained · included' : forecaster.reachable ? 'reachable · not yet trained' : 'offline · omitted') : '—'],
+    ['Recommender', 'recommender.py · Python 3 stdlib only'],
+  ];
+
+  return (
+    <div style={{ marginTop: '4px', background: 'rgba(0,163,224,0.05)', border: '1px solid rgba(0,163,224,0.3)', borderRadius: '10px', padding: '14px', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '4px', background: 'var(--accent-blue)' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+        <div style={{ padding: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', display: 'flex' }}>
+          <Cpu size={18} color="var(--accent-blue)" />
+        </div>
+        <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--accent-blue)' }}>Local Models</span>
+      </div>
+      <p style={{ margin: '0 0 8px 0', fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+        Download the learned baseline model, the LSTM forecaster, and a dependency-free recommender as one package — run the same recommendations and alerts offline, on your own machine, from the twin’s own processed state.
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: '3px', columnGap: '10px', marginBottom: '10px' }}>
+        {rows.map(([k, v]) => (
+          <React.Fragment key={k}>
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{k}</span>
+            <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-primary)', textAlign: 'right' }}>{v}</span>
+          </React.Fragment>
+        ))}
+      </div>
+      <a
+        href={`${API_BASE}/api/model/export`}
+        download
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+          padding: '10px', borderRadius: '6px', textDecoration: 'none',
+          background: 'var(--accent-blue)', color: '#000', fontSize: '11px', fontWeight: 'bold', letterSpacing: '0.02em',
+        }}
+      >
+        <Download size={14} /> DOWNLOAD MODEL BUNDLE (.zip)
+      </a>
     </div>
   );
 }

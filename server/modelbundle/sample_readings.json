@@ -1,0 +1,6 @@
+[
+  {"zone": "zone-office-a", "metric": "co2", "value": 1180, "hour": 14},
+  {"zone": "zone-office-a", "metric": "temp", "value": 27.5, "hour": 14, "setpoint": 24},
+  {"zone": "zone-server-1", "metric": "temp", "value": 23.0, "hour": 14, "setpoint": 22},
+  {"zone": "GLOBAL", "metric": "buildingLoadMw", "value": 2.6, "hour": 18}
+]

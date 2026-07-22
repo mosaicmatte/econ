@@ -20,8 +20,9 @@ const (
 	precoolCooldown = 30 * time.Minute
 )
 
-// precoolTriggerMw is the LSTM-predicted peak load (MW) at which the poller opens a
-// pre-cool window automatically. Tunable per deployment via PRECOOL_TRIGGER_MW.
+// precoolTriggerMw is the FALLBACK LSTM-predicted peak load (MW) at which the poller opens
+// a pre-cool window. It is used only until the engine's learned load baseline has matured;
+// after that the trigger is data-driven (see precoolLoop). Tunable via PRECOOL_TRIGGER_MW.
 func precoolTriggerMw() float64 {
 	if s := os.Getenv("PRECOOL_TRIGGER_MW"); s != "" {
 		if v, err := strconv.ParseFloat(s, 64); err == nil && v > 0 {
@@ -30,6 +31,16 @@ func precoolTriggerMw() float64 {
 	}
 	return 2.0
 }
+
+// precoolSigmaK is how far above the learned mean load (in σ, for the coming hour) a
+// forecast peak must sit to be worth pre-cooling. 1.5σ ≈ the top ~7% of the building's own
+// load distribution — "unusually high FOR THIS BUILDING", which is exactly the judgment a
+// single hardcoded MW figure can't make across different buildings.
+const precoolSigmaK = 1.5
+
+// precoolLead looks slightly ahead of now when reading the learned baseline, so the
+// trigger anticipates the hour the forecast peak lands in rather than the current one.
+const precoolLead = 30 * time.Minute
 
 // precoolLoop closes the forecast→actuation loop: every 5 minutes it feeds the live
 // telemetry window to the Python LSTM (same contract as /api/forecast) and, when the
@@ -74,11 +85,19 @@ func precoolLoop(engine *simulation.Engine) {
 			continue // 503 = model not trained yet
 		}
 
-		if out.PredictedPeakLoad >= trigger {
+		// Data-driven trigger: prefer the learned load baseline — pre-cool when the
+		// forecast peak runs above what THIS building normally draws in the coming hour
+		// (mean + kσ). That line adapts per building and per time of day, unlike the fixed
+		// MW fallback used only until the model has matured.
+		threshold, basis := trigger, "fixed"
+		if learned, ok := engine.LoadForecastThreshold(precoolSigmaK, precoolLead); ok && learned > 0 {
+			threshold, basis = learned, "learned"
+		}
+		if out.PredictedPeakLoad >= threshold {
 			until := engine.StartPreCool(precoolWindow)
 			lastAuto = time.Now()
-			log.Printf("[precool] LSTM predicts %.2f MW peak (trigger %.2f): pre-cooling until %s",
-				out.PredictedPeakLoad, trigger, until.Format("15:04:05"))
+			log.Printf("[precool] LSTM predicts %.2f MW peak (%s trigger %.2f): pre-cooling until %s",
+				out.PredictedPeakLoad, basis, threshold, until.Format("15:04:05"))
 		}
 	}
 }

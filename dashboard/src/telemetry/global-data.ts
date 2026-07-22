@@ -87,8 +87,18 @@ plugSavedKwh():number {
   return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
 }
 
+autoPilot():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 30);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : true;
+}
+
+zonesInSetback():number {
+  const offset = this.bb!.__offset(this.bb_pos, 32);
+  return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
+}
+
 static startGlobalData(builder:flatbuffers.Builder) {
-  builder.startObject(13);
+  builder.startObject(15);
 }
 
 static addBuildingLoadMw(builder:flatbuffers.Builder, buildingLoadMw:number) {
@@ -143,12 +153,20 @@ static addPlugSavedKwh(builder:flatbuffers.Builder, plugSavedKwh:number) {
   builder.addFieldFloat32(12, plugSavedKwh, 0.0);
 }
 
+static addAutoPilot(builder:flatbuffers.Builder, autoPilot:boolean) {
+  builder.addFieldInt8(13, +autoPilot, +true);
+}
+
+static addZonesInSetback(builder:flatbuffers.Builder, zonesInSetback:number) {
+  builder.addFieldInt32(14, zonesInSetback, 0);
+}
+
 static endGlobalData(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, systemHealth:number, totalOccupants:number, coolingOutputMw:number, plantCop:number, energySavedMw:number, bessDischargeMw:number, bessSocPct:number, avgCo2:number, plugKw:number, plugStandbyKw:number, plugShedKw:number, plugSavedKwh:number):flatbuffers.Offset {
+static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, systemHealth:number, totalOccupants:number, coolingOutputMw:number, plantCop:number, energySavedMw:number, bessDischargeMw:number, bessSocPct:number, avgCo2:number, plugKw:number, plugStandbyKw:number, plugShedKw:number, plugSavedKwh:number, autoPilot:boolean, zonesInSetback:number):flatbuffers.Offset {
   GlobalData.startGlobalData(builder);
   GlobalData.addBuildingLoadMw(builder, buildingLoadMw);
   GlobalData.addSystemHealth(builder, systemHealth);
@@ -163,6 +181,8 @@ static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, syst
   GlobalData.addPlugStandbyKw(builder, plugStandbyKw);
   GlobalData.addPlugShedKw(builder, plugShedKw);
   GlobalData.addPlugSavedKwh(builder, plugSavedKwh);
+  GlobalData.addAutoPilot(builder, autoPilot);
+  GlobalData.addZonesInSetback(builder, zonesInSetback);
   return GlobalData.endGlobalData(builder);
 }
 }
