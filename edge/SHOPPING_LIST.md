@@ -4,14 +4,22 @@ What to actually buy to put ECON on real hardware, organised by how far you want
 Every part here is referenced by the firmware in `edge/esp32/src/main.cpp`; nothing is
 aspirational. Pin assignments and circuits are in [WIRING.md](WIRING.md).
 
-> **Prices marked ✓ were checked against hshop.vn on 21 Jul 2026 and were in stock.**
-> Unmarked figures are still estimates — treat them as planning numbers, not quotes.
-> Availability moves fast: the 85.000₫ SHT30 module and the **entire HLK-LD2410 radar
-> family** both went out of stock on 16 Jul, which is why the parts below are what they are.
+> **Every ✓ price below was re-checked against hshop.vn on 22 Jul 2026**, product page by
+> product page, reading each listing's own stock field — not the search results, which keep
+> showing a price for items that cannot be bought. SKUs are quoted so you can confirm you
+> are holding the same part. Figures without a ✓ are estimates for things hshop does not
+> sell at all; treat those as planning numbers, not quotes.
 
-> **Sourcing reality check.** DHT22, MH-Z19 and Sensirion SCD4x are generally *not* stocked
-> in Vietnam. The parts below are chosen because they are: SHT30 instead of DHT22, ASAIR
-> ACD1200 instead of MH-Z19, Ai-Thinker Rd-03 instead of the HLK-LD2410C.
+### What moved since the 21 Jul pass
+
+| | |
+|---|---|
+| **Nothing you already bought changed price.** | All ten linked parts are still in stock at the same figure — SHT30 135k, Rd-03 70k, ACD1200 243k, relay 35k, SCT-013 102k, shifter 10k, PIR 27k, breadboard 35k, jumpers 30k, capacitor kit 40k. |
+| **The LD2410 radars are listed again but still cannot be bought.** | LD2410B 98.000₫, LD2410C / LD2410S 105.000₫ — all three pages report out of stock, six days on. The Rd-03 remains both cheaper and available. |
+| **PZEM-004T is still out of stock** (225.000₫). | The reason it is not in this list is unchanged. |
+| **The gateway estimate was wrong, and in an odd direction.** | A Raspberry Pi 4 4 GB is **3.348.000₫** — *more* than a **Pi 5 2 GB at 2.430.000₫**. The old "1.500–2.500k for a Pi 4" line was well under the real price. Buy the Pi 5. |
+| **The microSD estimate was wrong.** | No 32 GB card is stocked. The cheapest usable card is a 64 GB SanDisk at **351.000₫**, not the 120–200k assumed. |
+| **The ESP32 line now names a SKU.** | It was a bare ~150k estimate. hshop's stocked boards are 125.000₫ and 190.000₫ — see item 1. |
 
 ---
 
@@ -19,10 +27,10 @@ aspirational. Pin assignments and circuits are in [WIRING.md](WIRING.md).
 
 | Build | What it demonstrates | Parts | ≈ VND / node |
 |---|---|---|---|
-| **A. Bare demo** | The full software loop with zero wiring — capacitive touch presence on GPIO32, simulated temperature (honestly flagged `tempReal:false`) | ESP32 + cable | ~180k |
-| **B. Standard office node** | Real temperature, real presence including people sitting still, real AC control | A + SHT30 + Rd-03 + IR emitter + relay board + breadboard/jumpers | ~500k |
-| **C. Fully instrumented** | Everything in B plus measured CO₂ and ventilation identification | B + ACD1200 + level shifter | ~755k |
-| **D. Plug-load node (APLC)** | Adds the load a conventional BMS neither meters nor controls | C + SCT-013 clamp + analog front end (2nd relay channel already on the board) | ~900k |
+| **A. Bare demo** | The full software loop with zero wiring — capacitive touch presence on GPIO32, simulated temperature (honestly flagged `tempReal:false`) | ESP32 + cable | ~220k |
+| **B. Standard office node** | Real temperature, real presence including people sitting still, real AC control | A + SHT30 + Rd-03 + IR emitter + relay board + breadboard/jumpers | ~590k |
+| **C. Fully instrumented** | Everything in B plus measured CO₂ and ventilation identification | B + ACD1200 + level shifter | ~845k |
+| **D. Plug-load node (APLC)** | Adds the load a conventional BMS neither meters nor controls | C + SCT-013 clamp + analog front end (2nd relay channel already on the board) | ~990k |
 
 Build **B** is the recommended starting point for a real pilot: it is the cheapest
 configuration where every number on the dashboard is measured and every command reaches a
@@ -34,11 +42,13 @@ machine. Build **D** is what the plug-load case study (26.4% of office energy) n
 
 | # | Part | Qty | Why | ≈ VND |
 |---|---|---|---|---|
-| 1 | **ESP32 DevKit v1** (30-pin, CP2102 or CH340) | 1 | The node. WiFi + enough GPIO + two ADCs. ESP32-WROOM-32 NodeMCU is the same pinout | ~150k |
-| 2 | Micro-USB cable (**data**, not charge-only) | 1 | Flashing + power | 20–40k |
-| 3 | 5 V / 2 A USB power supply | 1 | Relays + radar draw more than a laptop port likes | 50–80k |
-| 4 | [Breadboard, 830 point](https://hshop.vn/test-board-cammb-102) | 1 | Power rails down both sides — how the 3.3 V / 5 V split is meant to be laid out | ✓ **35.000₫** |
-| 5 | [Jumper wires, M–M ×40 ribbon](https://hshop.vn/day-cam-breadboard-duc-duc-20cm-cap-det-40-soi-m-m-jumper-wire) | 1 | Splits into single strands, so you can colour-code by rail and match the schematic | ✓ **30.000₫** |
+| 1 | [**ESP32 NodeMCU-32S**, CH340, Ai-Thinker](https://hshop.vn/kit-rf-thu-phat-wifi-ble-esp32-nodemcu-32s-ch340-ai-thinker) `HS1524` | 1 | The node. ESP32-WROOM-32, WiFi, enough GPIO, two ADCs. Every pin in WIRING.md is a GPIO **number**, so the 38-pin NodeMCU and the 30-pin DevKit v1 are interchangeable — only the physical position of the pin differs | ✓ **190.000₫** |
+| 1b | *(cheaper alt)* [Mtiny ESP32 WROOM-32E](https://hshop.vn/mach-mtiny-esp32-wroom-32e-arduino-compatible) `HS1760` | 1 | Same WROOM-32E module, 65k less. Fine for a pilot; check its pin header matches your breadboard span before buying four | ✓ **125.000₫** |
+| 2 | [Micro-USB cable, 1 m Ugreen](https://hshop.vn/cap-micro-usb-to-usb-2-0-dai-1m-cao-cap-60136-chinh-hang-ugreen) `HS2196V` | 1 | Flashing + power. Must be a **data** cable, not charge-only | ✓ **54.000₫** |
+| 2b | *(cheaper alt)* [Micro-USB 30 cm](https://hshop.vn/cap-micro-usb-to-usb-a-2-0-cable-30cm) `HS2188V` | 1 | Half the price, but 30 cm does not reach from a wall socket to a ceiling-height node | ✓ **27.000₫** |
+| 3 | [5 V / 2 A USB power supply](https://hshop.vn/nguon-power-adaptor-ac-dc-5v-2a) | 1 | Relays + radar draw more than a laptop port likes | ✓ **45.000₫** |
+| 4 | [Breadboard, 830 point](https://hshop.vn/test-board-cammb-102) `HS1113C` | 1 | Power rails down both sides — how the 3.3 V / 5 V split is meant to be laid out | ✓ **35.000₫** |
+| 5 | [Jumper wires, M–M ×40 ribbon](https://hshop.vn/day-cam-breadboard-duc-duc-20cm-cap-det-40-soi-m-m-jumper-wire) `HS0381C` | 1 | Splits into single strands, so you can colour-code by rail and match the schematic | ✓ **30.000₫** |
 
 > The ESP32's 3.3 V regulator is good for roughly 500 mA. That covers the board, the
 > sensors and the *coils* of two opto-isolated relay boards — but feed relay boards and the
@@ -48,25 +58,27 @@ machine. Build **D** is what the plug-load case study (26.4% of office energy) n
 
 | # | Part | Qty | Firmware flag | Notes | ≈ VND |
 |---|---|---|---|---|---|
-| 6 | [**SHT30-IIC** temp + humidity](https://hshop.vn/cam-bien-do-am-nhiet-do-sht30-sht30-iic-temperature-humidity-sensor) (0x44) | 1 | `-DUSE_SHT30=1` | ±0.2 °C. **Buy this, not a DHT11** — ±2 °C is meaningless against a 2 °C deadband, and the AFDD residual would be measuring the sensor. *(The 85.000₫ breakout sold out 16 Jul; this is the same SHT30 chip on a different board — same address, same protocol, firmware unchanged.)* | ✓ **135.000₫** |
-| 7 | [**Ai-Thinker Rd-03** 24 GHz mmWave presence](https://hshop.vn/cam-bien-hien-dien-mmwave-24ghz-human-presence-sensing-rd-03-ai-thinker) | 1 | `-DUSE_MMWAVE=1` | Detects a **stationary** person — the single biggest accuracy upgrade for an office, and the fix for the PIR problem below. 3.3 V supply, **OT2 (pin 5) → GPIO18**, no level shifter | ✓ **70.000₫** |
-| 7b | *(was the default)* HLK-LD2410C | — | same | **The whole LD2410 family — 2410B/C/S, 2420, 2450 — went out of stock at hshop on 16 Jul.** Same "output high when sensing" contract, so the firmware treats it identically if you source one elsewhere. The Rd-03 is cheaper anyway | — |
-| 8 | [**ASAIR ACD1200** NDIR CO₂](https://hshop.vn/cam-bien-khi-co2-acd1200-ndir-carbon-dioxide-sensor-chinh-hang-asair) (0x2A) | 1 | `-DUSE_CO2=1` | True NDIR, 400–5000 ppm, ±(50 ppm + 5%). What makes demand-controlled ventilation defensible to a tenant, and what the air-change identification needs | ✓ **243.000₫** |
-| 9 | [**I²C level shifter** (BSS138)](https://hshop.vn/mach-chuyen-muc-ton-hieu-i2c) | 1–2 | with #8 | **Mandatory, not optional.** Two BSS138 MOSFETs with 10 kΩ pull-ups — the correct I²C topology. At 10.000₫, buy a spare | ✓ **10.000₫** |
-| 10 | [*(optional)* PIR HC-SR501](https://hshop.vn/cam-bien-chuyen-dong-pir-5v-2) | 1 | `-DUSE_PIR=1` | 5 V supply, 3.3 V logic out, no shifter. Cheap motion presence; OR-ed with the radar if both fitted | ✓ **27.000₫** |
+| 6 | [**SHT30-IIC** temp + humidity](https://hshop.vn/cam-bien-do-am-nhiet-do-sht30-sht30-iic-temperature-humidity-sensor) (0x44) `HS2214V` | 1 | `-DUSE_SHT30=1` | ±0.2 °C. **Buy this, not a DHT11** — ±2 °C is meaningless against a 2 °C deadband, and it is also what makes a 300-second temperature *slope* readable at all (see the fitness table below) | ✓ **135.000₫** |
+| 7 | [**Ai-Thinker Rd-03** 24 GHz mmWave presence](https://hshop.vn/cam-bien-hien-dien-mmwave-24ghz-human-presence-sensing-rd-03-ai-thinker) `HS1779` | 1 | `-DUSE_MMWAVE=1` | Detects a **stationary** person — the single biggest accuracy upgrade for an office, and the fix for the PIR problem below. 3.3 V supply, **OT2 (pin 5) → GPIO18**, no level shifter | ✓ **70.000₫** |
+| 7b | *(alt, unbuyable)* HLK-LD2410B / C / S | — | same | Back on the site with prices (98k / 105k / 105k) but **all three still out of stock on 22 Jul**, a week after they went. Same "output high when sensing" contract, so the firmware treats them identically if you source one elsewhere. The Rd-03 is cheaper anyway | — |
+| 8 | [**ASAIR ACD1200** NDIR CO₂](https://hshop.vn/cam-bien-khi-co2-acd1200-ndir-carbon-dioxide-sensor-chinh-hang-asair) (0x2A) `HS2167V` | 1 | `-DUSE_CO2=1` | True NDIR, 400–5000 ppm, ±(50 ppm + 5%). What makes demand-controlled ventilation defensible to a tenant, and the **only** input the engine will accept for the air-change model — `roomConditions()` refuses to train the CO₂ balance on a modelled value | ✓ **243.000₫** |
+| 9 | [**I²C level shifter** (BSS138)](https://hshop.vn/mach-chuyen-muc-ton-hieu-i2c) `HS0667` | 1–2 | with #8 | **Mandatory, not optional.** Two BSS138 MOSFETs with 10 kΩ pull-ups — the correct I²C topology. At 10.000₫, buy a spare | ✓ **10.000₫** |
+| 10 | [*(optional)* PIR HC-SR501](https://hshop.vn/cam-bien-chuyen-dong-pir-5v-2) `HS0158C` | 1 | `-DUSE_PIR=1` | 5 V supply, 3.3 V logic out, no shifter. Cheap motion presence; OR-ed with the radar if both fitted | ✓ **27.000₫** |
 
 ## 3. Actuation
 
 | # | Part | Qty | Firmware flag | Notes | ≈ VND |
 |---|---|---|---|---|---|
-| 11 | [**2-channel opto relay, 5 V**](https://hshop.vn/module-2-relay-voi-opto-coch-ly-koch-h-l-5vdc) | 1 | default + `-DUSE_PLUG=1` | **One board covers both actuators.** `IN1 → GPIO23` switches the zone lights, `IN2 → GPIO25` switches the non-critical socket circuit for the after-hours sweep. Set the board's jumper to **high-level trigger** to match the firmware, and power the coils from 5 V | ✓ **35.000₫** |
+| 11 | [**2-channel opto relay, 5 V**](https://hshop.vn/module-2-relay-voi-opto-coch-ly-koch-h-l-5vdc) `HS0998C` | 1 | default + `-DUSE_PLUG=1` | **One board covers both actuators.** `IN1 → GPIO23` switches the zone lights, `IN2 → GPIO25` switches the non-critical socket circuit for the after-hours sweep. Set the board's jumper to **high-level trigger** to match the firmware, and power the coils from 5 V | ✓ **35.000₫** |
 | 12 | **IR LED 940 nm, 5 mm** | 1–2 | `-DUSE_IR_AC=1` | Drives the split unit. Two in series widens coverage in a large room | 5–10k |
 | 13 | **NPN transistor** 2N2222 / S8050 / PN2222 | 1 | with #12 | **Required.** A GPIO sources ~12 mA; an IR LED wants ~100 mA of pulse current for useful range. Straight off the pin you get about a metre | 3–5k |
 | 14 | Resistors: **1 kΩ** (transistor base), **10 Ω** ¼ W (LED current) | 1 ea | with #12 | See the driver circuit in WIRING.md | ~1k ea |
 
-> The IR items are the one part of this list the 21 Jul sourcing pass predates — real AC
-> control (`USE_IR_AC`) landed after it. They are cheap and generic; any 940 nm LED and any
-> small-signal NPN will do.
+> ⚠️ **hshop does not stock items 12–14, and this pass confirmed it.** Searches for a 940 nm
+> emitter, a discrete NPN and a ¼ W resistor assortment all come back with nothing usable —
+> the hits are reflective *sensor* modules, not emitters. Buy these three at a general
+> component shop (Nhật Tảo) or online. They are the cheapest items on the whole list and
+> the only ones that will cost you a second trip, so put them in the same order.
 
 > **Which IR protocol?** Build with `-DUSE_IR_AC=1 -DIR_AC_PROTOCOL=COOLIX` first — it
 > covers many budget/OEM splits. For Daikin / Panasonic / Mitsubishi / LG / Samsung /
@@ -78,10 +90,10 @@ machine. Build **D** is what the plug-load case study (26.4% of office energy) n
 
 | # | Part | Qty | Notes | ≈ VND |
 |---|---|---|---|---|
-| 15 | [**SCT-013** split-core CT, 100 A](https://hshop.vn/cam-bien-dong-dien-hall-100a-yhdc) | 1 | **The credibility item.** Clips over insulation — no mains contact, no electrician, no permit. Reads true-RMS on GPIO34 and publishes `plugW`, replacing the modelled plug draw. Current-output, so it needs the burden below | ✓ **102.000₫** |
+| 15 | [**SCT-013** split-core CT, 100 A](https://hshop.vn/cam-bien-dong-dien-hall-100a-yhdc) `HS0186` | 1 | **The credibility item.** Clips over insulation — no mains contact, no electrician, no permit. Reads true-RMS on GPIO34 and publishes `plugW`, replacing the modelled plug draw. Current-output, so it needs the burden below | ✓ **102.000₫** |
 | 15b | *(alt)* **SCT-013-030** (30 A : 1 V) | 1 | Voltage-output — **skip the burden** and build `-DPLUG_CAL_A_PER_V=30.0` | — |
-| 16 | [Ceramic capacitor assortment](https://hshop.vn/bo-23-loai-tu-gom-thong-dung-6pf-0-1uf-23-kind-ceramic-capacitor) | 1 | A **0.1 µF** from this kit ties the bias node to ground. (OpenEnergyMonitor specifies 10 µF; 0.1 µF is fine at the ESP32's sampling rate, and the kit is what hshop actually stocks) | ✓ **40.000₫** |
-| 17 | **33 Ω** burden + 2× **10 kΩ** bias resistors, ¼ W | 1 set | The burden sets the scale (`-DPLUG_CAL_A_PER_V=60.6`); the 10 kΩ pair forms the 1.65 V mid-rail. hshop sells modules, not loose resistors — pull these from any starter assortment | ~5k |
+| 16 | [Ceramic capacitor assortment](https://hshop.vn/bo-23-loai-tu-gom-thong-dung-6pf-0-1uf-23-kind-ceramic-capacitor) `HS0093` | 1 | A **0.1 µF** from this kit ties the bias node to ground. (OpenEnergyMonitor specifies 10 µF; 0.1 µF is fine at the ESP32's sampling rate, and the kit is what hshop actually stocks. The listing now reads "22 loại" where it used to read 23 — same kit, same range, same price) | ✓ **40.000₫** |
+| 17 | **33 Ω** burden + 2× **10 kΩ** bias resistors, ¼ W | 1 set | The burden sets the scale (`-DPLUG_CAL_A_PER_V=60.6`); the 10 kΩ pair forms the 1.65 V mid-rail. Not stocked at hshop — same trip as items 12–14 | ~5k |
 
 > **No 3.5 mm jack needed.** Snip the SCT-013's plug and land its two bare leads directly on
 > the breadboard. One less part to source.
@@ -95,9 +107,12 @@ machine. Build **D** is what the plug-load case study (26.4% of office energy) n
 
 | # | Part | Qty | Why | ≈ VND |
 |---|---|---|---|---|
-| 21 | **Raspberry Pi 4** (2 GB+) or Pi 5 | 1 | Hosts the Mosquitto broker and `gateway.py`, the failsafe rules engine that keeps a vacant zone from being left lit and cooled when the Go engine is unreachable | 1,500–2,500k |
-| 22 | microSD 32 GB (A1/A2) | 1 | — | 120–200k |
-| 23 | Official Pi PSU | 1 | Under-powering a Pi 4 causes exactly the kind of intermittent fault you will waste a day on | 250–350k |
+| 21 | [**Raspberry Pi 5, 2 GB**](https://hshop.vn/may-tinh-raspberry-pi-5-made-in-uk) `HS2256V` | 1 | Hosts the Mosquitto broker and `gateway.py`, the failsafe rules engine that keeps a vacant zone from being left lit and cooled when the Go engine is unreachable. 2 GB is ample for that job — 4 GB is 3.726k, 8 GB 5.724k, 16 GB 10.044k, and none of it buys anything the gateway uses | ✓ **2.430.000₫** |
+| 21b | *(budget)* [Raspberry Pi Zero 2 W](https://hshop.vn/may-tinh-raspberry-pi-zero-2-w) | 1 | A broker and a rules loop are not demanding. Saves 1.7M and drops the PSU to the same 5 V 2 A brick the nodes use | ✓ **729.000₫** |
+| 21c | *(do not buy)* Raspberry Pi 4 Model B 4 GB | — | **3.348.000₫** — nearly a million dong *more* than a Pi 5 and a generation behind. The Pi 3B+ is out of stock | ✓ 3.348.000₫ |
+| 22 | [microSD 64 GB SanDisk (A1, Class 10)](https://hshop.vn/the-nho-sandisk-microsdxc-class-10-uhs-i-100mb-s-64gb) `HS1122V` | 1 | No 32 GB card is stocked; the 8 GB low-speed one is out of stock and too slow anyway | ✓ **351.000₫** |
+| 23 | [Official Pi PSU 5.1 V 3 A USB-C](https://hshop.vn/nguon-chinh-hang-official-raspberry-pi-power-supply-5-1vdc-3a-usb-c) | 1 | Under-powering a Pi causes exactly the kind of intermittent fault you will waste a day on | ✓ **297.000₫** |
+| 23b | [Waveshare 27 W USB-C PD](https://hshop.vn/waveshare-27w-usb-type-c-power-supply-type-c-pd-power-supply-suitable-for-raspberry-pi-5) `HS2377V` | 1 | Cheaper *and* the correct supply for a Pi 5, which asks for 5 A/27 W before it will grant the full USB peripheral budget. Pick this one if you bought item 21 | ✓ **243.000₫** |
 
 Any always-on Linux box works for a pilot; the Pi is the deployable form factor.
 
@@ -105,7 +120,8 @@ Any always-on Linux box works for a pilot; the Pi is the deployable form factor.
 
 | # | Part | Qty | Why | ≈ VND |
 |---|---|---|---|---|
-| 24 | **Raspberry Pi Pico** (or Pico W) | 1 | The `edge/pico` firmware: RP2040 internal temperature, BOOTSEL/GP16 presence, onboard LED as the lighting actuator, 8 s watchdog. A plain Pico speaks JSON over USB via `bridge.py`; a **Pico W** joins MQTT directly | 120–250k |
+| 24 | [**Raspberry Pi Pico W**](https://hshop.vn/mach-vi-dieu-khien-raspberry-pi-pico-w-rp2040-wifi-bluetooth) | 1 | The `edge/pico` firmware: RP2040 internal temperature, BOOTSEL/GP16 presence, onboard LED as the lighting actuator, 8 s watchdog. The **W** joins MQTT directly; a plain Pico speaks JSON over USB via `bridge.py` — but hshop no longer lists a non-W RP2040 Pico, and the Pico 2 is out of stock, so the W is the one to buy | ✓ **195.000₫** |
+| 24b | *(alt)* [Raspberry Pi Pico 2 W (RP2350)](https://hshop.vn/mach-raspberry-pi-pico-2-w-rp2350) | 1 | Newer silicon, 80k more. The firmware does not use anything the RP2350 adds | ✓ **275.000₫** |
 
 ---
 
@@ -115,25 +131,85 @@ One instrumented floor: three standard office nodes plus one plug-load node, on 
 
 | Item | Qty | ≈ VND |
 |---|---|---|
-| ESP32 DevKit v1 + cable + PSU | 4 | ~980k |
-| SHT30-IIC | 4 | 540k |
-| Rd-03 mmWave radar | 4 | 280k |
-| 2-channel opto relay | 4 | 140k |
-| IR LED + transistor + resistors | 4 | ~60k |
-| Breadboard + jumper ribbon | 4 | 260k |
-| ACD1200 + level shifter | 2 | 506k |
+| ESP32 NodeMCU-32S @190k | 4 | 760k |
+| Micro-USB 1 m + 5 V 2 A PSU @99k | 4 | 396k |
+| SHT30-IIC @135k | 4 | 540k |
+| Rd-03 mmWave radar @70k | 4 | 280k |
+| 2-channel opto relay @35k | 4 | 140k |
+| IR LED + transistor + resistors (off-site) | 4 | ~60k |
+| Breadboard + jumper ribbon @65k | 4 | 260k |
+| ACD1200 + level shifter @253k | 2 | 506k |
 | SCT-013 + capacitor kit + passives | 1 | ~147k |
-| Raspberry Pi 4 + SD + PSU | 1 | ~2,300k |
-| **Total** | | **≈ 5.2M VND** |
+| Pi 5 2 GB + 64 GB SD + 27 W PSU | 1 | 3.024k |
+| **Total** | | **≈ 6.1M VND** |
 
-That is **~1.5M below** the first draft of this list, almost entirely because the ACD1200
-is 243.000₫ rather than the ~650.000₫ estimated before the parts were actually looked up —
-and because the Rd-03 replaced a radar that costs more and is out of stock.
+**Value variant, ≈ 3.85M.** Swap the node board for the Mtiny ESP32 (125k), the cable for
+the 30 cm one (27k), and the gateway for a Pi Zero 2 W + 64 GB SD + 5 V 2 A brick (1.125k).
+Nothing measured changes — every sensor, actuator and firmware flag is identical, and the
+twin cannot tell the difference. The saving is entirely in the two parts that only host
+software.
 
-CO₂ is the expensive line. Fit the ACD1200 in the rooms where ventilation is actually in
-question — meeting rooms and dense open-plan — and leave it out of corridors and server
-rooms. The twin reports which rooms have a live NDIR and which are being modelled, so a
-partial rollout stays honest rather than becoming invisible.
+The earlier ≈5.2M figure was optimistic by about 900k, and **all of the gap is in the two
+lines that were estimates rather than looked-up prices**: the gateway (3.02M against a
+2.30M guess) and the node board + cable + PSU (1.16M against 980k). Every part that was
+actually priced on 21 Jul came in at exactly the same figure today.
+
+CO₂ is still the expensive sensing line. Fit the ACD1200 in the rooms where ventilation is
+actually in question — meeting rooms and dense open-plan — and leave it out of corridors
+and server rooms. The twin reports which rooms have a live NDIR and which are being
+modelled, so a partial rollout stays honest rather than becoming invisible.
+
+---
+
+## Does this hardware still fit the software?
+
+The twin no longer just scores rooms against learned baselines — `simulation/dynamics.go`
+now *identifies* each room, fitting two first-order balances by recursive least squares:
+
+```
+thermal:  dT/dt = θ₀·(T_out − T_in) + θ₁·flow·(T_in − T_supply) + θ₂·occupancy + θ₃
+co2:      dC/dt = φ₀·occupancy + φ₁·(C_out − C) + φ₂
+```
+
+Those coefficients are physical — 1/θ₀ is the room's thermal time constant, θ₁ its cooling
+authority, φ₁ its measured air-change rate — and they are what the learned setback ceiling,
+the ETA predictions and the "ventilation will not keep up" warnings are computed from. So
+the honest question for a parts list is no longer "does the firmware read this sensor" but
+**"is every term in those two equations measured?"**
+
+| Term | Where it comes from today | Verdict |
+|---|---|---|
+| `T_in` | **SHT30**, ±0.2 °C, published every 5 s | **Fits.** The regressor works on a temperature *slope* over a 300 s window; a ±2 °C DHT11 would put more noise in the slope than there is signal. This is the part of the list that justifies its price twice over |
+| `C` | **ACD1200** NDIR. `roomConditions()` sets `Co2Live` only for a fresh hardware reading, so a room without one is never used to teach the CO₂ balance | **Fits, and is enforced in code** |
+| `occupancy` | **Rd-03** — but it reports *presence*, 0 or 1 | **Partly.** θ₂ is °C/hr **per occupant** and φ₀ is ppm/hr **per occupant**. Fed a 0/1, both are identified per *occupied room* instead, and a meeting room with twelve people looks like a broom cupboard with one. The head count exists — `ai_modules/branch_a_occupancy` runs YOLO + ByteTrack and publishes an integer on the same MQTT contract — it simply is not on this list, because a laptop webcam covers it for a pilot and hshop stocks no USB camera |
+| `T_out` | The weather poller, one reading for the whole building | **Acceptable.** One sky over 891 zones is a fair approximation, and `outdoorStaleAfter` stops a dead poller from driving the envelope forever |
+| `flow` | `v.Flow / v.NominalFlow` — the **simulated** VAV serving that zone (`engine.go:917`) | **Does not fit.** No part on this list measures it, and a real room on a split AC has no VAV at all |
+| `T_supply` | `supplyAirC = 12.0`, a **constant** (`dynamics.go:96`) | **Does not fit.** A split unit's discharge is nowhere near 12 °C, and it moves with compressor state |
+
+**The bottom line:** everything the list is *already* spent on is correctly chosen — the
+SHT30's precision, the Rd-03's stationary-person detection and the ACD1200's true NDIR are
+each load-bearing for a specific coefficient. But θ₁, the cooling-authority term that
+`SetbackCeiling()` and the capability-shortfall recommendations both lean on, is being fit
+against two inputs that no sensor in this BOM observes. For a simulated zone that is fine —
+the twin knows its own VAV. For the physical rooms this list is meant to instrument, it
+means the most operationally consequential coefficient is regressed partly on the twin's own
+assumption.
+
+### Two parts that would close it
+
+Both are stocked, both are cheap, and both land on ESP32 pins that are currently free.
+**Neither is in the firmware yet** — they are listed here as the next build, not as
+something to buy today, and they are deliberately kept out of the bundle totals above.
+
+| Part | ≈ VND | What it turns from assumed into measured |
+|---|---|---|
+| [DS18B20 waterproof probe (MKE-S15)](https://hshop.vn/cam-bien-nhiet-do-chong-nuoc-mke-s15-ds18b20-waterproof-temperature-sensor) `HS2243V` | ✓ **75.000₫** | Cable-tied inside the indoor unit's discharge louvre it measures `T_supply` directly, replacing the 12.0 constant. Its gap to room temperature is also a far better answer to "is the compressor actually running" than `acReal`, which today only reports that the firmware *sent* an IR frame. 1-Wire, one free GPIO, no shifter |
+| A second [SCT-013](https://hshop.vn/cam-bien-dong-dien-hall-100a-yhdc) `HS0186` on the AC's own supply | ✓ **102.000₫** | The split unit's compressor power **is** the cooling drive term. Clamping it makes `flow` a measured regressor instead of a simulation artifact. GPIO35 is free on ADC1, and the analog front end is the one already documented for the plug clamp |
+
+A third, cheaper option needs no purchase at all: point `ai_modules/branch_a_occupancy` at a
+webcam in the same room and let it publish the head count. **Do not run it and a radar on
+the same zone** — `IngestTelemetry` takes whichever occupancy arrives last, so a radar's 0/1
+will overwrite a camera's count every 5 seconds.
 
 ---
 
@@ -146,14 +222,15 @@ partial rollout stays honest rather than becoming invisible.
 - **DHT11 / DHT22** — ±2 °C against a 2 °C control deadband, and hshop does not stock the
   DHT22 anyway. The firmware still supports DHT as a fallback (`-DUSE_DHT=1
   -DDHT_TYPE=DHT11`), but do not plan around it.
-- **DFRobot 0–50000 ppm CO₂ (~2.241.000₫)** — nine times the ACD1200 to measure a range no
-  office ever reaches. Indoor air lives between 400 and 2000 ppm.
-- **PZEM-004T energy meter (~225.000₫)** — true V/A/W/kWh/PF over UART, and genuinely
-  better metering than a clamp. Two reasons it is not here: it was **out of stock** at hshop
-  on 16 Jul, and **its voltage sense leads land on live 220 V**. That is licensed-electrician
-  work and, in a commercial building, a landlord-permission and liability question. There is
-  also no driver for it in the firmware yet. **The SCT-013 gets you metered watts this month
-  with no mains contact** — buy that instead.
+- **Sensirion SCD4x** — the obvious CO₂ upgrade, and hshop simply does not carry it.
+- **DFRobot 0–50000 ppm CO₂ (2.241.000₫, in stock)** — nine times the ACD1200 to measure a
+  range no office ever reaches. Indoor air lives between 400 and 2000 ppm.
+- **PZEM-004T energy meter (225.000₫)** — true V/A/W/kWh/PF over UART, and genuinely better
+  metering than a clamp. Three reasons it is not here: it is **still out of stock** as of
+  22 Jul, **its voltage sense leads land on live 220 V** — licensed-electrician work, and in
+  a commercial building a landlord-permission and liability question — and there is no
+  driver for it in the firmware. **The SCT-013 gets you metered watts this month with no
+  mains contact** — buy that instead.
 
 ---
 
@@ -164,7 +241,7 @@ Buying is only worth it if the twin does something with it:
 | Part | Unlocks |
 |---|---|
 | SHT30 | Real zone temperature pins the physics (`tempReal:true`), the AFDD residual becomes meaningful, and the room's **thermal time constant and cooling authority** can be identified (`simulation/dynamics.go`) |
-| LD2410C / Rd-03 | Occupancy that survives people sitting still — which is what the setback, the lighting and the learned per-occupant heat gain all depend on |
+| Rd-03 (or an LD2410, if you find one) | Occupancy that survives people sitting still — which is what the setback, the lighting and the learned per-occupant heat gain all depend on |
 | ACD1200 | The CO₂ mass balance, and with it each room's **measured air-change rate** and the "ventilation will not keep up with occupancy" prediction |
 | IR LED + driver | The control loop actually closing. Without it the twin computes setpoints that reach nothing (`acReal:false` in telemetry says so) |
 | SCT-013 | Measured plug load, the APLC after-hours sweep, and the avoided-energy counter |

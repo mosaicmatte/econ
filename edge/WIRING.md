@@ -8,7 +8,11 @@ three constraints marked ⚠️ will damage hardware or produce silently wrong d
 
 ---
 
-## Master pin map — ESP32 DevKit v1
+## Master pin map — ESP32 (WROOM-32)
+
+Every row below is a GPIO **number**, not a header position, so this map is the same on the
+30-pin DevKit v1 and on the 38-pin NodeMCU-32S that hshop actually stocks. Only where the
+pin physically sits on the board changes.
 
 | GPIO | Direction | Connects to | Build flag | Notes |
 |---|---|---|---|---|
@@ -23,6 +27,18 @@ three constraints marked ⚠️ will damage hardware or produce silently wrong d
 | **34** | in (ADC1_CH6) | SCT-013 analog front end | `USE_PLUG` | **Input-only pin.** ADC1 — ADC2 is dead while WiFi is up |
 | **32** | in (touch T9) | bare pin or a jumper wire | *(demo default)* | Zero-wiring presence demo |
 | **2** | out | Onboard LED | *(always)* | MQTT link status |
+
+### Kept free on purpose
+
+Two pins are deliberately unassigned, because they are where the parts that would close the
+model's last two unmeasured terms have to land (see the fitness table in
+[SHOPPING_LIST.md](SHOPPING_LIST.md)). Neither is in the firmware yet — do not wire them
+expecting a reading.
+
+| GPIO | Reserved for | Why it has to be this pin |
+|---|---|---|
+| **35** | A second SCT-013, clamped on the split unit's own supply | Input-only, and on **ADC1** — ADC2 is unusable while WiFi is up, which rules out most of the other analog-capable pins. GPIO34 is already the plug clamp |
+| **26** | DS18B20 probe in the AC's discharge louvre (`T_supply`) | 1-Wire needs nothing but a free bidirectional GPIO and a 4.7 kΩ pull-up; 26 is clear of the I²C bus, the IR pin and both relay lines |
 
 ### ⚠️ Three constraints that are not style preferences
 
@@ -43,7 +59,7 @@ three constraints marked ⚠️ will damage hardware or produce silently wrong d
 ```mermaid
 flowchart LR
   subgraph N["ESP32 Edge Node"]
-    E["ESP32 DevKit v1"]
+    E["ESP32 WROOM-32<br/>NodeMCU-32S / DevKit v1"]
   end
   SHT["SHT30<br/>temp + RH<br/>0x44"] -- "I²C 3.3V" --> E
   LS["Level shifter<br/>BSS138 ×4"] -- "I²C 3.3V" --> E
@@ -249,9 +265,18 @@ readings below 0.10 A to zero — that is the clamp's noise floor, not a real lo
 ```
 
 The **Ai-Thinker Rd-03** is the one to wire: the entire HLK-LD2410 family (2410B/C/S, 2420,
-2450) went out of stock at hshop on 16 Jul 2026. Both assert "output high when sensing", so
-the firmware treats them identically — the Rd-03 is simply a 3.3 V part throughout, which
-makes it the easier of the two to wire as well.
+2450) went out of stock at hshop on 16 Jul 2026 and was still unbuyable when the list was
+re-checked on 22 Jul. Both assert "output high when sensing", so the firmware treats them
+identically — the Rd-03 is simply a 3.3 V part throughout, which makes it the easier of the
+two to wire as well.
+
+> ⚠️ **One occupancy source per zone.** A radar reports presence — 0 or 1. The CV node in
+> `ai_modules/branch_a_occupancy` reports a head *count* on the same `econ/telemetry/<topic>`
+> contract. `IngestTelemetry` takes whichever arrives last and does not arbitrate by source,
+> so pointing a camera and a radar at the same zone means the radar's 0/1 overwrites the
+> count every 5 seconds — and the per-occupant coefficients the twin identifies (θ₂ in °C/hr
+> per person, φ₀ in ppm/hr per person) quietly become per-*room* instead. Pick one per zone:
+> the camera where the head count matters, the radar everywhere else.
 
 Neither radar needs a level shifter. Their UART pins are only for tuning gates and
 thresholds and are unused here.
