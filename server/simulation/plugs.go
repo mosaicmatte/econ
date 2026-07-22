@@ -7,8 +7,11 @@ package simulation
 // lighting, pumps, fans and elevators, and stops at the wall socket. In the Hanoi
 // office-tower case study this project benchmarks against (Luong et al. 2025, JOMC
 // 15(2), doi:10.54772/jomc.v15i02.1190) that blind spot made plug loads the single
-// LARGEST end use — 26.4% of energy and 35.3% of operational CO2 — in a 117,000 m²
-// building that already ran a full BMS. The 57-building Vietnam survey (Hoang et al.
+// LARGEST end use — 26.4% of energy — in a 117,000 m² building that already ran a
+// full BMS. (The same paper reports 35.3% of operational CO2 for plug loads, but its
+// energy and carbon shares disagree while it applies a single grid emission factor,
+// under which they must be equal; only the energy share is used here. See EVIDENCE.md.)
+// The 57-building Vietnam survey (Hoang et al.
 // 2022, doi:10.55066/proc-icec.2021.19) puts appliance intensity at 17.7–20 kWh/m²·yr,
 // second only to air conditioning.
 //
