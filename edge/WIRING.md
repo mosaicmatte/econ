@@ -17,7 +17,7 @@ three constraints marked ⚠️ will damage hardware or produce silently wrong d
 | **23** | out | Lighting relay IN | *(default)* | Active HIGH |
 | **25** | out | Plug relay IN | `USE_PLUG` | Active HIGH, **boots energized** |
 | **19** | out | IR emitter driver (transistor base) | `USE_IR_AC` | ⚠️ **must not** move to GPIO22 |
-| **18** | in | LD2410C `OUT` / Rd-03 `OT2` | `USE_MMWAVE` | 3.3 V logic — direct, no shifter |
+| **18** | in | Rd-03 `OT2` (pin 5) / LD2410C `OUT` | `USE_MMWAVE` | 3.3 V logic — direct, no shifter |
 | **5** | in | PIR HC-SR501 OUT | `USE_PIR` | 3.3 V logic |
 | **4** | in/out | DHT11/22 data | `USE_DHT` | Fallback only; 10 kΩ pull-up to 3V3 |
 | **34** | in (ADC1_CH6) | SCT-013 analog front end | `USE_PLUG` | **Input-only pin.** ADC1 — ADC2 is dead while WiFi is up |
@@ -48,10 +48,10 @@ flowchart LR
   SHT["SHT30<br/>temp + RH<br/>0x44"] -- "I²C 3.3V" --> E
   LS["Level shifter<br/>BSS138 ×4"] -- "I²C 3.3V" --> E
   CO2["ACD1200 NDIR<br/>CO₂ 0x2A<br/>5V pull-ups"] -- "I²C 5V" --> LS
-  RAD["LD2410C radar<br/>presence"] -- "GPIO18" --> E
+  RAD["Rd-03 radar<br/>presence 3.3V"] -- "GPIO18" --> E
   CT["SCT-013 clamp<br/>+ burden + bias"] -- "GPIO34 ADC1" --> E
-  E -- "GPIO23" --> RL1["Relay 1<br/>lighting"]
-  E -- "GPIO25" --> RL2["Relay 2<br/>sockets"]
+  E -- "GPIO23 → IN1" --> RL["2-ch opto relay<br/>lighting + sockets"]
+  E -- "GPIO25 → IN2" --> RL
   E -- "GPIO19" --> IR["IR driver<br/>→ split AC"]
   E -- "WiFi / MQTT" --> BR["Mosquitto on the Pi<br/>→ Go engine"]
 ```
@@ -62,23 +62,24 @@ flowchart LR
 
 ```
 5 V USB PSU ──┬── ESP32 VIN ──► onboard regulator ──► 3V3 rail
-              ├── Relay board 1  VCC (5 V)
-              ├── Relay board 2  VCC (5 V)
-              └── LD2410C        VCC (5 V)     [Rd-03 instead: 3.3 V]
+              ├── 2-ch relay board  VCC (5 V)
+              └── PIR HC-SR501      VCC (5 V)   [if fitted]
 
 3V3 rail ─────┬── SHT30 VCC
+              ├── Rd-03 VCC          (3.0–3.6 V part)
               └── Level shifter LV
 5 V   ────────── Level shifter HV + ACD1200 VCC
 
-ALL grounds common — ESP32 GND, both relay boards, radar, sensors, PSU.
+ALL grounds common — ESP32 GND, relay board, radar, sensors, PSU.
 ```
 
 **Budget.** The ESP32's onboard regulator supplies roughly 500 mA at 3.3 V. The board itself
-peaks near 250 mA on WiFi transmit, so run the 5 V loads (relay coils, LD2410C) from **VIN,
-not 3V3**. A node that reboots whenever a relay clicks is almost always this.
+peaks near 250 mA on WiFi transmit, so run the 5 V loads (relay coils, PIR) from **VIN, not
+3V3**. A node that reboots whenever a relay clicks is almost always this.
 
-> The LD2410C wants 5 V but its `OUT` is 3.3 V logic, so it feeds GPIO18 directly. The
-> Ai-Thinker Rd-03 runs on 3.0–3.6 V and is a 3V3 part throughout.
+> The **Rd-03** is a 3.3 V part throughout, which is one fewer rail to think about. An
+> LD2410C, if you have one, wants 5 V but its `OUT` is 3.3 V logic and still feeds GPIO18
+> directly.
 
 ---
 
@@ -160,20 +161,19 @@ GPIO sources ~12 mA, and an IR LED needs ~100 mA of pulse current to reach acros
 
 ## 4. Relays — lighting and sockets
 
-```
-   ESP32 GPIO23 ──────► IN   ┌──────────────────┐
-   5 V (VIN)    ──────► VCC  │  Relay board 1   │   COM ── mains live in
-   GND          ──────► GND  │  opto-isolated   │   NO  ── to luminaire
-                             └──────────────────┘
+A single **2-channel** opto-isolated board covers both actuators:
 
-   ESP32 GPIO25 ──────► IN   ┌──────────────────┐
-   5 V (VIN)    ──────► VCC  │  Relay board 2   │   COM ── mains live in
-   GND          ──────► GND  │  opto-isolated   │   NO  ── to socket circuit
-                             └──────────────────┘
+```
+   ESP32 GPIO23 ──────► IN1  ┌──────────────────┐  CH1 COM ── mains live in
+   ESP32 GPIO25 ──────► IN2  │  2-channel relay │  CH1 NO  ── to luminaire
+   5 V (VIN)    ──────► VCC  │  opto-isolated   │
+   GND          ──────► GND  │  jumper: HIGH    │  CH2 COM ── mains live in
+                             └──────────────────┘  CH2 NO  ── to socket circuit
 ```
 
-- Both are **active HIGH** in firmware. Many cheap boards are active LOW — if your lights
-  invert, that is the reason; either buy an active-HIGH board or invert `setLights()`.
+- Both channels are **active HIGH** in firmware. Most of these boards carry a
+  **high/low trigger jumper — set it to HIGH.** If your lights come on inverted, that jumper
+  is the first thing to check; failing that, invert `setLights()`.
 - Wire to **NO** (normally open) so a dead node leaves the circuit in its unpowered state.
 - The plug relay is driven HIGH in `setup()` before anything else: **fail-energized**. A
   rebooting node must never dark-kill a live socket, which is how a BMS behaves and how the
@@ -195,7 +195,7 @@ signal, so it has to be biased to mid-rail first.
 ```
                          3V3 ──┬──[10 kΩ]──┬── 1.65 V bias node
                                │            │
-                               │           ═╪═ 10 µF
+                               │           ═╪═ 0.1 µF
                                │            │
                         GND ───┴──[10 kΩ]──┴──┐
                                               │
@@ -207,6 +207,12 @@ signal, so it has to be biased to mid-rail first.
 ```
 
 Build with `-DUSE_PLUG=1 -DPLUG_CAL_A_PER_V=60.6 -DPLUG_MAINS_V=230`.
+
+> **On the bias capacitor:** OpenEnergyMonitor's reference design specifies 10 µF. A 0.1 µF
+> from a stocked ceramic assortment is fine at the ESP32's sampling rate and is what hshop
+> actually sells — the firmware's comment still says 10 µF, and either works.
+>
+> **No 3.5 mm jack needed:** snip the CT's plug and land the two bare leads directly.
 
 ### SCT-013-**030** (30 A : 1 V, voltage output) — no burden
 
@@ -237,10 +243,15 @@ readings below 0.10 A to zero — that is the clamp's noise floor, not a real lo
 ## 6. Presence
 
 ```
-   LD2410C:   VCC → 5 V     GND → GND     OUT → GPIO18      (3.3 V logic out)
-   Rd-03:     VCC → 3V3     GND → GND     OT2 (pin 5) → GPIO18
+   Rd-03:     VCC → 3V3     GND → GND     OT2 (pin 5) → GPIO18   ← the stocked part
+   LD2410C:   VCC → 5 V     GND → GND     OUT → GPIO18           (3.3 V logic out)
    HC-SR501:  VCC → 5 V     GND → GND     OUT → GPIO5
 ```
+
+The **Ai-Thinker Rd-03** is the one to wire: the entire HLK-LD2410 family (2410B/C/S, 2420,
+2450) went out of stock at hshop on 16 Jul 2026. Both assert "output high when sensing", so
+the firmware treats them identically — the Rd-03 is simply a 3.3 V part throughout, which
+makes it the easier of the two to wire as well.
 
 Neither radar needs a level shifter. Their UART pins are only for tuning gates and
 thresholds and are unused here.

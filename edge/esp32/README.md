@@ -8,7 +8,7 @@ demos with zero wiring and a real deployment enables exactly the sensors it has:
 |---|---|---|---|
 | senses | presence | capacitive **touch pin GPIO32** on a bare board (zero wiring) | *(default)* |
 | senses | presence (motion) | PIR on **GPIO5** | `-DUSE_PIR=1` |
-| senses | presence (incl. stationary) | HLK-LD2410C 24 GHz radar on **GPIO18** — holds occupancy for still people at a desk | `-DUSE_MMWAVE=1` |
+| senses | presence (incl. stationary) | Ai-Thinker Rd-03 (or HLK-LD2410C) 24 GHz radar on **GPIO18** — holds occupancy for still people at a desk | `-DUSE_MMWAVE=1` |
 | senses | temperature / humidity | SHT30 on I²C (**SDA 21 / SCL 22**, addr 0x44) | `-DUSE_SHT30=1` |
 | senses | temperature / humidity | DHT22 on **GPIO4** (fallback if no SHT30) | `-DUSE_DHT=1` |
 | senses | CO₂ | ASAIR ACD1200 NDIR on the same I²C bus (addr 0x2A) | `-DUSE_CO2=1` |
@@ -120,7 +120,10 @@ Notes per sensor:
   **The LED needs a driver transistor** — a bare GPIO gives about a metre of range; see
   [../WIRING.md](../WIRING.md).
 - **mmWave (`USE_MMWAVE`)** is worth it in offices: PIR drops people who sit still, radar
-  holds them, so the optimizer doesn't set back an occupied-but-quiet room.
+  holds them, so the optimizer doesn't set back an occupied-but-quiet room. Buy the
+  **Ai-Thinker Rd-03** — the HLK-LD2410 family went out of stock at hshop on 16 Jul 2026,
+  and the Rd-03 is cheaper and runs at 3.3 V throughout. Both assert "output high when
+  sensing", so the firmware is identical either way.
 
 No hardware at all? Run `python esp32_emulator.py` to watch the command side of the contract.
 `USE_REAL_SENSORS=1` remains supported as shorthand for "DHT + PIR" on older build configs.
