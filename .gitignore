@@ -33,3 +33,5 @@ edge/esp32/.pio/
 # be committed): the plug-sweep savings counter and the learned-baseline model snapshot.
 server/data/plug-state.json
 server/data/baseline-model.json
+server/data/room-dynamics.json
+server/data/load-history.json

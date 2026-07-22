@@ -6,6 +6,47 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-07-22 — Every room now has its own identified physics, and the forecaster no longer needs training
+>
+> The learned baselines answer *"is this reading abnormal?"*. They cannot answer *"what is
+> this room about to do?"* — so the twin now identifies each room's actual physical
+> response, online, from its own telemetry.
+> - **Per-room system identification** (`server/simulation/dynamics.go`) — recursive least
+>   squares fits two first-order balances per zone:
+>   `dT/dt = θ₀(T_out−T) + θ₁·flow·(T−T_supply) + θ₂·occupancy + θ₃` and
+>   `dC/dt = φ₀·occupancy + φ₁(C_out−C) + φ₂`. These are the real lumped physics, so the
+>   fitted coefficients *are* physical properties of that specific room: θ₀ gives its thermal
+>   time constant, θ₁ the cooling its VAV actually delivers, φ₁ its **measured air-change
+>   rate**. Two rooms at the same temperature produce different predictions, because they are
+>   different rooms and the model knows it.
+> - **Predictive recommendations** — because the balances are first-order and linear they
+>   integrate in closed form, so `/api/recommendations` now also reports *"this zone crosses
+>   25 °C in about 14 minutes at its current 15% airflow and 18 occupants"*, and the strongest
+>   finding a threshold can never produce: **a room that cannot hold its setpoint even with
+>   its VAV wide open** is a capacity fault, not a control problem. Cards are badged
+>   `LEARNED` / `PREDICTED` / `CAPABILITY` so a forecast never reads as a measurement.
+> - **`/api/rooms/models`** — every identified constant, exposed, so the dashboard can show
+>   the reasoning rather than only the conclusion. Persisted to `data/room-dynamics.json`.
+> - **Google TimesFM, zero-shot** (`backend/forecasting/timesfm_forecaster.py`,
+>   `GET /api/forecast/load`) — a pretrained time-series foundation model that forecasts the
+>   building's load with **no training and no fitted scaler**, which is exactly the gap the
+>   supervised LSTM cannot cover on day one. Selects MPS/CUDA/CPU automatically, returns
+>   quantile bands so a pre-cool decision can be made on peak *risk* rather than a bare mean,
+>   and degrades cleanly to the LSTM when it is not installed. `/api/forecast/engines` reports
+>   which engine actually served a forecast.
+> - **Local models matched to your machine** (`server/modelcatalog.go`,
+>   `POST /api/model/recommend`) — the dashboard measures the client (cores, memory, GPU) and
+>   the server picks the tier that machine can actually run, explains why, and lists what
+>   blocks the others. The export is then tailored: `/api/model/export?tier=…&workers=N`
+>   ships the identified room models plus `econ_local.py`, a stdlib-only runtime that
+>   reproduces the server's predictions offline — multi-horizon sweeps across every room,
+>   whole-history batch replay, parallelised across the cores that were measured.
+>
+> _Identification is honest about what it costs: it samples every 5 minutes (differencing a
+> noisy sensor over 30 s measures the sensor, not the room) and needs 36 samples, so a room
+> takes ~3 hours of building time before the twin will predict from it. Until then it reports
+> "still learning" rather than predicting from a fit it has not earned._
+
 > ### 2026-07-22 — The recommendations, automations, and forecaster now learn from the building instead of firing on hardcoded thresholds
 >
 > **The "AI Operations" panel was honest that it was rule-based — `co2 > 1000`, `temp >

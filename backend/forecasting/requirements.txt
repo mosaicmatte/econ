@@ -12,3 +12,12 @@ pydantic>=2.5
 # the twin's persisted history from TimescaleDB. Serving (main.py) never needs it, so the
 # import is lazy and the loader degrades to synthetic data when it is absent.
 psycopg2-binary>=2.9
+
+# Google TimesFM (OPTIONAL): a pretrained decoder-only foundation model for time series.
+# It forecasts the building's load zero-shot — no training, no fitted scaler — which is
+# what covers the LSTM's cold start before train.py has real history to learn from.
+# timesfm_forecaster.py degrades cleanly when this is absent, so the service starts and
+# serves the LSTM path without it.
+#   TimesFM 2.5 (231M, preferred) needs a transformers build shipping
+#   TimesFm2_5ModelForPrediction; older builds still run TimesFM 2.0 (500M).
+transformers>=4.45

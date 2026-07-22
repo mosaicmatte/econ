@@ -97,11 +97,30 @@ func main() {
 	loadBaselineState(engine)
 	http.HandleFunc("/api/recommendations", recommendationsHandler(engine))
 
+	// 9b. Learned room dynamics (simulation/dynamics.go): the online system identification
+	// that gives every room its own physical model — thermal time constant, the cooling its
+	// VAV actually delivers, its measured air-change rate. It is what makes the report
+	// predictive ("this room breaches in 14 min") instead of only reactive, and it is
+	// restored and checkpointed alongside the baselines.
+	loadDynamicsState(engine)
+	loadLoadHistoryState(engine)
+	http.HandleFunc("/api/rooms/models", roomModelsHandler(engine))
+
 	// 10. Downloadable local models (modelexport.go): package the learned baseline model,
-	// the LSTM forecaster artifacts, and a dependency-free recommender into one zip so the
-	// operator can run recommendations/alerts offline from the twin's own processed state.
+	// the identified room models, the LSTM forecaster artifacts, and dependency-free
+	// runtimes into one zip so the operator can run recommendations, alerts and room
+	// predictions offline from the twin's own processed state. /api/model/recommend sizes
+	// that bundle to the machine that will actually run it (modelcatalog.go).
 	http.HandleFunc("/api/model", modelInfoHandler(engine))
 	http.HandleFunc("/api/model/export", modelExportHandler(engine))
+	http.HandleFunc("/api/model/recommend", modelRecommendHandler())
+
+	// 11. Zero-shot load forecasting (forecast.go -> backend/forecasting): Google TimesFM
+	// is a pretrained time-series foundation model, so it forecasts this building's load
+	// with no training and no fitted scaler. That covers the supervised LSTM's cold start,
+	// where it has nothing to offer until train.py has real accumulated history.
+	http.HandleFunc("/api/forecast/load", loadForecastHandler(engine))
+	http.HandleFunc("/api/forecast/engines", forecastEnginesHandler())
 
 	// Connect to the MQTT broker: ingest real occupancy from the CV/edge layer and
 	// publish actuation commands to the ESP32. Non-blocking; the sim runs regardless.

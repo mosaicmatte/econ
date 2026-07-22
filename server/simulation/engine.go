@@ -168,6 +168,13 @@ type Engine struct {
 	// — instead of the current instant photocopied twelve times.
 	histBuf    []histSample
 	lastHistAt time.Time
+	// Rolling building-load history (MW) at the same histInterval cadence. The LSTM is fed
+	// a short [temp, airflow] window because that is what it was trained on; a time-series
+	// FOUNDATION model (Google TimesFM, backend/forecasting/timesfm_forecaster.py) instead
+	// forecasts the load series directly and zero-shot, so it wants as much of the real
+	// series as we can give it. loadHistKeep spans ~42 h, which covers the daily cycle the
+	// forecast is really about.
+	loadHist []float64
 	// Learned operating baselines (baselines.go): the online per-(zone,metric,hour) model
 	// that turns the telemetry stream into "normal for this room at this hour", replacing
 	// hardcoded thresholds. Feeds both /api/recommendations and the data-driven pre-cool
@@ -175,6 +182,17 @@ type Engine struct {
 	// without coupling to e.mu.
 	baselines      *Baselines
 	lastBaselineAt time.Time
+	// Learned per-room dynamics (dynamics.go): the online system identification that gives
+	// each room a physical identity — its own thermal time constant, the cooling authority
+	// its VAV actually delivers, and its measured air-change rate. This is what lets the
+	// twin predict where a room is heading instead of only reporting where it is. Self-
+	// locked like the baselines (e.mu → dynamics.mu).
+	dynamics *Dynamics
+	// simClock is the accumulated SIMULATION time in seconds. The tick's dt is deliberately
+	// accelerated during faults and recovery, so wall-clock is the wrong time base for
+	// anything learning the physics: identifying on this clock keeps every learned time
+	// constant in one consistent timescale.
+	simClock float64
 }
 
 // histSample is one forecaster timestep: building-average room temperature and
@@ -190,6 +208,9 @@ const (
 	// sequence at a timescale it has never seen.
 	histInterval = 5 * time.Minute
 	histKeep     = 12
+	// loadHistKeep is how many load samples to retain for the foundation-model forecaster:
+	// 512 × 5 min ≈ 42 hours, enough context for it to see the building's daily shape.
+	loadHistKeep = 512
 )
 
 func NewEngine() *Engine {
@@ -208,6 +229,7 @@ func NewEngine() *Engine {
 		lastPlugAt: time.Now(),
 		AutoPilot:  true,
 		baselines:  NewBaselines(),
+		dynamics:   NewDynamics(),
 	}
 
 	data, err := os.ReadFile("./data/building-data.json")
@@ -779,13 +801,25 @@ func (e *Engine) Recommendations(topN int) RecommendationReport {
 		}
 		readings = append(readings, zr)
 	}
+	conds := e.roomConditions()
 	loadMw := e.lastLoadMw
 	e.mu.Unlock()
 
 	if e.baselines == nil {
 		return RecommendationReport{}
 	}
-	return e.baselines.Recommend(readings, loadMw, time.Now(), topN)
+	now := time.Now()
+	// Two passes over two different models, merged and ranked together: the baselines say
+	// what is abnormal RIGHT NOW, the identified room dynamics say what is about to go
+	// wrong and how long there is to act. topN is applied after the merge so a genuinely
+	// urgent prediction can outrank a mild present anomaly.
+	report := e.baselines.Recommend(readings, loadMw, now, 0)
+	var predictive []Recommendation
+	if e.dynamics != nil {
+		predictive = e.dynamics.PredictiveRecommendations(conds, now)
+		report.Model.RoomsIdentified, report.Model.RoomsLearning = e.dynamics.Coverage()
+	}
+	return mergeRecommendations(report, predictive, topN)
 }
 
 // LoadForecastThreshold returns the learned "high load" line the pre-cool automation
@@ -826,6 +860,89 @@ func (e *Engine) BaselineCoverage() (established, learning int) {
 		return 0, 0
 	}
 	return e.baselines.Coverage()
+}
+
+// roomConditions gathers every room's current physical drivers for the learned dynamics
+// model: the terms that actually appear in its energy and mass balances. Lock held.
+func (e *Engine) roomConditions() []RoomCondition {
+	// Cooling reaches a zone through the VAV that targets it. Normalizing to that VAV's
+	// own nominal flow keeps the regressor the physical flow fraction, matching the
+	// cooling law the engine integrates (tick).
+	flow := make(map[string]float64, len(e.Vavs))
+	for _, v := range e.Vavs {
+		f := 0.0
+		if v.NominalFlow > 1e-6 {
+			f = v.Flow / v.NominalFlow
+		}
+		flow[v.TargetZone] = f
+	}
+	tOut, _ := e.outdoorNow()
+
+	out := make([]RoomCondition, 0, len(e.Zones))
+	for id, z := range e.Zones {
+		c := RoomCondition{
+			Zone: id, Label: strings.TrimPrefix(id, "zone-"),
+			Temp: z.Temp, Setpoint: z.Setpoint, OutdoorC: tOut,
+			FlowRatio: flow[id], Occupancy: z.Occupancy,
+		}
+		// Only a live NDIR reading may teach or be scored by the CO2 balance — a modelled
+		// estimate would train the model on the twin's own guess.
+		if z.HwCo2 > 0 && z.co2Fresh() {
+			c.Co2, c.Co2Live = z.HwCo2, true
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// RoomConditions is the exported snapshot of every room's drivers, used by the model API
+// and the export bundle. Takes and releases e.mu.
+func (e *Engine) RoomConditions() []RoomCondition {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.roomConditions()
+}
+
+// RoomModels returns each room's learned physical identity (time constant, cooling
+// authority, air-change rate). Gathers labels under e.mu, then reads the dynamics model
+// after releasing it — preserving the one-way lock order.
+func (e *Engine) RoomModels() []RoomModel {
+	if e.dynamics == nil {
+		return nil
+	}
+	e.mu.Lock()
+	labels := make(map[string]string, len(e.Zones))
+	for id := range e.Zones {
+		labels[id] = strings.TrimPrefix(id, "zone-")
+	}
+	e.mu.Unlock()
+	return e.dynamics.RoomModels(labels)
+}
+
+// DynamicsCoverage reports how many rooms the twin has actually identified vs. how many
+// are still being learned.
+func (e *Engine) DynamicsCoverage() (identified, learning int) {
+	if e.dynamics == nil {
+		return 0, 0
+	}
+	return e.dynamics.Coverage()
+}
+
+// MarshalDynamics / LoadDynamics persist the identified room models across restarts, the
+// same way the baselines are persisted — re-identifying every room from scratch on each
+// redeploy would throw away days of learning.
+func (e *Engine) MarshalDynamics() ([]byte, error) {
+	if e.dynamics == nil {
+		return []byte("{}"), nil
+	}
+	return e.dynamics.MarshalState()
+}
+
+func (e *Engine) LoadDynamics(data []byte) error {
+	if e.dynamics == nil {
+		return nil
+	}
+	return e.dynamics.LoadState(data)
 }
 
 // HardwareNode is one physical edge-node binding as reported by GET /api/hardware.
@@ -996,6 +1113,9 @@ func (e *Engine) Start() {
 		// ingestion and HTTP snapshot goroutines mutate/read the same zone state under
 		// e.mu, so integrating outside the lock (as before) was a data race.
 		e.tick(dt)
+		// Advance the simulation clock in step with the physics — the time base the
+		// learned room dynamics are identified on (dynamics.go).
+		e.simClock += dt
 
 		// Occupancy-driven optimizer + edge actuation (publishes only on state change).
 		e.actuate()
@@ -1139,6 +1259,58 @@ func (e *Engine) sampleHistory(now time.Time) {
 	if len(e.histBuf) > histKeep {
 		e.histBuf = e.histBuf[len(e.histBuf)-histKeep:]
 	}
+	// The same timestep for the load series the foundation-model forecaster consumes. Only
+	// a real computed load is recorded — a zero here would teach the forecaster that the
+	// building went dark, so pre-boot ticks are skipped rather than logged as 0 MW.
+	if e.lastLoadMw > 0 {
+		e.loadHist = append(e.loadHist, e.lastLoadMw)
+		if len(e.loadHist) > loadHistKeep {
+			e.loadHist = e.loadHist[len(e.loadHist)-loadHistKeep:]
+		}
+	}
+}
+
+// MarshalLoadHistory / LoadLoadHistory persist the load series across restarts.
+//
+// This matters more than it looks: a foundation model's forecast quality is a function of
+// how much real context it gets, and the series only accumulates at one sample per five
+// minutes. Discarding it on every redeploy would permanently cap the forecaster at however
+// long the process happened to have been up.
+func (e *Engine) MarshalLoadHistory() ([]byte, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return json.Marshal(e.loadHist)
+}
+
+func (e *Engine) LoadLoadHistory(data []byte) error {
+	var hist []float64
+	if err := json.Unmarshal(data, &hist); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// Only finite, positive samples: a corrupt file must not be able to teach the
+	// forecaster that the building drew NaN megawatts.
+	e.loadHist = e.loadHist[:0]
+	for _, v := range hist {
+		if v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) {
+			e.loadHist = append(e.loadHist, v)
+		}
+	}
+	if len(e.loadHist) > loadHistKeep {
+		e.loadHist = e.loadHist[len(e.loadHist)-loadHistKeep:]
+	}
+	return nil
+}
+
+// LoadHistory returns the retained building-load series (MW, oldest first) for the
+// zero-shot forecaster. Unlike the LSTM window it is NEVER padded: a foundation model
+// handles a short series natively, so the honest thing is to hand over exactly what has
+// really been measured and let the caller report how much that is.
+func (e *Engine) LoadHistory() []float64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]float64(nil), e.loadHist...)
 }
 
 // ForecastWindow returns the [room_temp(°C), airflow_fraction(0..1)] sequence the
@@ -1335,7 +1507,17 @@ func (e *Engine) broadcast() {
 			if z.HwCo2 > 0 && z.co2Fresh() {
 				e.baselines.Observe(id, "co2", z.HwCo2, now)
 			}
+			// How busy a room is, is itself a learned normal — it is what makes an
+			// "unusually crowded for this hour" judgement possible without a rule.
+			e.baselines.Observe(id, "occupancy", float64(z.Occupancy), now)
 		}
+	}
+
+	// Fold this tick into the learned per-room dynamics (dynamics.go). Sampled on the
+	// SIMULATION clock, because that is the clock the physics advances on; the model
+	// enforces its own spacing, so calling it every broadcast is safe and cheap.
+	if e.dynamics != nil {
+		e.dynamics.Observe(e.roomConditions(), e.simClock)
 	}
 
 	// FlatBuffers Serialization

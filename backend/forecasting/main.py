@@ -11,6 +11,7 @@ from config import (INPUT_SIZE, HIDDEN_SIZE, NUM_LAYERS, OUTPUT_SIZE, SEQ_LEN,
                     SENSOR_FEATURES, WEIGHTS_PATH, SCALER_PATH)
 from data_loader import fetch_weather_features
 from model import PeakLoadLSTM
+from timesfm_forecaster import TIMESFM
 
 app = FastAPI(title="EcoSync Forecasting API", version="1.0.0")
 
@@ -66,6 +67,65 @@ class ForecastResponse(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok", "model_ready": MODEL_READY}
+
+
+@app.get("/model/info")
+def model_info():
+    """Which forecasting engines this service can actually serve, and why not when it
+    cannot. The two are complementary rather than redundant: the LSTM is supervised and
+    specialises on THIS building once train.py has real history to learn from; TimesFM is a
+    pretrained foundation model that forecasts a series it has never seen, so it covers the
+    cold start where the LSTM has nothing to offer."""
+    return {
+        "lstm": {
+            "available": MODEL_READY,
+            "trained_on": "this building's own history (supervised)",
+            "reason": None if MODEL_READY else "not trained yet — run train.py",
+        },
+        "timesfm": TIMESFM.info(),
+    }
+
+
+class LoadForecastRequest(BaseModel):
+    # The building's own recent load in MW, oldest first. TimesFM is univariate and
+    # zero-shot: no scaler, no training, no feature engineering — just the series.
+    history: list[float]
+    horizon: int = 12
+    context_len: int | None = None
+
+    @field_validator("history")
+    @classmethod
+    def _check_history(cls, v):
+        if len(v) < 8:
+            raise ValueError("history needs at least 8 points to forecast from")
+        for x in v:
+            if x != x or x in (float("inf"), float("-inf")):
+                raise ValueError("history contains a non-finite value")
+        return v
+
+    @field_validator("horizon")
+    @classmethod
+    def _check_horizon(cls, v):
+        if not 1 <= v <= 256:
+            raise ValueError("horizon must be between 1 and 256 steps")
+        return v
+
+
+@app.post("/forecast/load")
+def forecast_load(request: LoadForecastRequest):
+    """Zero-shot building-load forecast via Google TimesFM.
+
+    Unlike /predict this needs no trained artifacts at all, which is the entire point: it
+    works on a twin's first day, from nothing but the load history the engine has already
+    persisted. 503 (not a fabricated number) when TimesFM is unavailable."""
+    try:
+        return TIMESFM.forecast(request.history, request.horizon, request.context_len)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TimesFM inference error: {e}")
 
 
 @app.get("/model/artifacts")

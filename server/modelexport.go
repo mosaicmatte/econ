@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -28,7 +29,7 @@ import (
 //	GET /api/model         — metadata: model maturity, forecaster readiness, bundle contents
 //	GET /api/model/export  — the zip bundle (attachment)
 
-//go:embed modelbundle/recommender.py modelbundle/README.md modelbundle/sample_readings.json
+//go:embed modelbundle/recommender.py modelbundle/econ_local.py modelbundle/README.md modelbundle/sample_readings.json modelbundle/sample_rooms.json
 var modelBundleFS embed.FS
 
 // modelInfo is the /api/model metadata the dashboard's download card reads.
@@ -39,13 +40,22 @@ type modelInfo struct {
 		MatureAfter int      `json:"matureAfter"`
 		Metrics     []string `json:"metrics"`
 	} `json:"baseline"`
+	// Rooms reports the second model: how many rooms the twin has actually identified a
+	// physical model for. It matures on different evidence than the baselines (a room has
+	// to move to reveal its dynamics), so it is reported separately rather than folded in.
+	Rooms struct {
+		Identified  int `json:"identified"`
+		Learning    int `json:"learning"`
+		MatureAfter int `json:"matureAfter"`
+	} `json:"rooms"`
 	Forecaster struct {
 		Reachable bool   `json:"reachable"`
 		Ready     bool   `json:"ready"`
 		URL       string `json:"url"`
 	} `json:"forecaster"`
-	Bundle     []string `json:"bundle"`
-	ExportPath string   `json:"exportPath"`
+	Bundle     []string    `json:"bundle"`
+	ExportPath string      `json:"exportPath"`
+	Tiers      []ModelTier `json:"tiers"`
 }
 
 func forecastBaseURL() string {
@@ -91,20 +101,41 @@ func modelInfoHandler(engine *simulation.Engine) http.HandlerFunc {
 		for k := range simulation.BaselineModelSpec().Metrics {
 			info.Baseline.Metrics = append(info.Baseline.Metrics, k)
 		}
+		ident, roomsLearning := engine.DynamicsCoverage()
+		info.Rooms.Identified = ident
+		info.Rooms.Learning = roomsLearning
+		info.Rooms.MatureAfter = simulation.DynamicsMatureAfter()
+
 		info.Forecaster.Reachable = reachable
 		info.Forecaster.Ready = ready
 		info.Forecaster.URL = forecastBaseURL()
-		info.Bundle = []string{
-			"baselines.json", "model-spec.json", "recommender.py",
-			"sample_readings.json", "README.md", "MANIFEST.json",
-		}
-		if ready {
-			info.Bundle = append(info.Bundle,
-				"forecaster/model_weights.pth", "forecaster/scaler.pkl", "forecaster/config.json")
-		}
+		info.Bundle = bundleContents(defaultTier(), ready)
 		info.ExportPath = "/api/model/export"
+		info.Tiers = modelTiers
 		json.NewEncoder(w).Encode(info)
 	}
+}
+
+// defaultTier is what the bundle contains when the caller does not name a tier — the
+// room-analyst set, since the room models are the part worth having and they still need
+// nothing but Python 3.
+func defaultTier() string { return "room-analyst" }
+
+// bundleContents lists what a given tier's zip actually holds, so the download card can
+// show it before the user commits to the download.
+func bundleContents(tier string, forecasterReady bool) []string {
+	files := []string{
+		"baselines.json", "model-spec.json", "recommender.py",
+		"sample_readings.json", "README.md", "MANIFEST.json",
+	}
+	if tierRank(tier) >= tierRank("room-analyst") {
+		files = append(files, "dynamics.json", "econ_local.py", "sample_rooms.json")
+	}
+	if forecasterReady && tierRank(tier) >= tierRank("forecast-cpu") {
+		files = append(files,
+			"forecaster/model_weights.pth", "forecaster/scaler.pkl", "forecaster/config.json")
+	}
+	return files
 }
 
 // forecasterArtifacts fetches the trained LSTM weights/scaler/config from the Python
@@ -132,6 +163,29 @@ func modelExportHandler(engine *simulation.Engine) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if corsPreflight(w, r) {
 			return
+		}
+
+		// The tier decides what goes in the zip and how much work the local runtime is
+		// configured to do. An unrecognized tier falls back to the default rather than
+		// failing the download — and never silently upgrades past what was asked for.
+		tier := defaultTier()
+		if q := r.URL.Query().Get("tier"); q != "" {
+			if _, ok := tierByID(q); ok {
+				tier = q
+			} else {
+				log.Printf("[model] ignoring unknown tier %q, using %q", q, tier)
+			}
+		}
+		// Worker count is the client's measured parallelism (modelcatalog.go). Clamped
+		// here too: the query string is user input, not a trusted value.
+		workers := 0
+		if q := r.URL.Query().Get("workers"); q != "" {
+			if n, err := strconv.Atoi(q); err == nil && n > 0 {
+				workers = n
+				if workers > 64 {
+					workers = 64
+				}
+			}
 		}
 
 		// Assemble the bundle in memory (it is small — the learned model is compact and
@@ -164,10 +218,26 @@ func modelExportHandler(engine *simulation.Engine) http.HandlerFunc {
 		addEmbedded("README.md", "modelbundle/README.md")
 		addEmbedded("sample_readings.json", "modelbundle/sample_readings.json")
 
-		// Best-effort LSTM forecaster artifacts.
+		// From the room-analyst tier up, ship the identified room models and the runtime
+		// that actually uses them — the prediction half of the intelligence, which is the
+		// part that turns a downloaded copy from a scorer into an analyst.
+		roomsIncluded := false
+		if tierRank(tier) >= tierRank("room-analyst") {
+			dyn, err := engine.MarshalDynamics()
+			if err != nil || len(dyn) == 0 {
+				dyn = []byte("{}")
+			}
+			add("dynamics.json", dyn)
+			addEmbedded("econ_local.py", "modelbundle/econ_local.py")
+			addEmbedded("sample_rooms.json", "modelbundle/sample_rooms.json")
+			roomsIncluded = true
+		}
+
+		// Best-effort LSTM forecaster artifacts — only for the tiers that can run torch.
 		est, learning := engine.BaselineCoverage()
+		identified, roomsLearning := engine.DynamicsCoverage()
 		forecasterIncluded := false
-		if art := forecasterArtifacts(); art != nil {
+		if art := forecasterArtifacts(); art != nil && tierRank(tier) >= tierRank("forecast-cpu") {
 			if cfg, ok := art["config"]; ok {
 				if cfgJSON, err := json.MarshalIndent(cfg, "", "  "); err == nil {
 					add("forecaster/config.json", cfgJSON)
@@ -186,19 +256,35 @@ func modelExportHandler(engine *simulation.Engine) http.HandlerFunc {
 			}
 		}
 
+		usage := "python3 recommender.py sample_readings.json"
+		if roomsIncluded {
+			usage = "python3 econ_local.py analyze sample_rooms.json"
+		}
 		manifest := map[string]interface{}{
 			"generatedAt": time.Now().UTC().Format(time.RFC3339),
 			"source":      "ECON digital twin",
+			"tier":        tier,
+			// The parallelism the local runtime should use, measured from the machine that
+			// asked for the bundle (modelcatalog.go). econ_local.py reads this.
+			"workers": workers,
 			"baseline": map[string]interface{}{
 				"established": est,
 				"learning":    learning,
 				"matureAfter": simulation.BaselineModelSpec().MatureAfter,
 			},
+			"rooms": map[string]interface{}{
+				"identified":  identified,
+				"learning":    roomsLearning,
+				"matureAfter": simulation.DynamicsMatureAfter(),
+				"included":    roomsIncluded,
+			},
 			"forecasterIncluded": forecasterIncluded,
-			"usage":              "python3 recommender.py sample_readings.json",
+			"usage":              usage,
 			"notes": "baselines.json holds the learned per-(zone,metric,hour) distributions; " +
-				"model-spec.json holds the scoring parameters; recommender.py reproduces the " +
-				"engine's scoring with only the Python 3 standard library.",
+				"dynamics.json holds each room's identified thermal and CO2 balance; " +
+				"model-spec.json holds the scoring parameters. recommender.py reproduces the " +
+				"engine's anomaly scoring and econ_local.py reproduces its room predictions, " +
+				"both with only the Python 3 standard library.",
 		}
 		manifestJSON, _ := json.MarshalIndent(manifest, "", "  ")
 		add("MANIFEST.json", manifestJSON)
@@ -208,11 +294,11 @@ func modelExportHandler(engine *simulation.Engine) http.HandlerFunc {
 			return
 		}
 
-		fname := fmt.Sprintf("econ-local-models-%s.zip", time.Now().Format("2006-01-02"))
+		fname := fmt.Sprintf("econ-local-models-%s-%s.zip", tier, time.Now().Format("2006-01-02"))
 		w.Header().Set("Content-Type", "application/zip")
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+fname+"\"")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Write(buf.Bytes())
-		log.Printf("[model] exported local-model bundle (%d bytes, forecaster=%v)", buf.Len(), forecasterIncluded)
+		log.Printf("[model] exported %q bundle (%d bytes, rooms=%v forecaster=%v workers=%d)", tier, buf.Len(), roomsIncluded, forecasterIncluded, workers)
 	}
 }

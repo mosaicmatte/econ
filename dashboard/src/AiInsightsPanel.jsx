@@ -1,11 +1,18 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Brain, Zap, AlertTriangle, TrendingDown, ThermometerSnowflake, Activity, Radio, Plug, CloudOff, Wind, WifiOff, Download, Cpu } from 'lucide-react';
+import { Brain, Zap, AlertTriangle, TrendingDown, ThermometerSnowflake, Activity, Radio, Plug, CloudOff, Wind, WifiOff, Download, Cpu, Clock } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { money, energyCostPerDay, peakShiftSavingPerMonth, rateStr, touPeriod, minutesToPeak, TARIFF } from './tariff';
 import { useOpsStatus, untilLabel } from './useOpsStatus';
 import { usePlugs } from './usePlugs';
 import { useRecommendations } from './useRecommendations';
+import { useLocalModel } from './useLocalModel';
 import { API_BASE } from './api';
+
+// fmtEta renders a predicted time-to-breach the way an operator reads it.
+function fmtEta(sec) {
+  if (!sec || sec <= 0) return '';
+  return sec >= 5400 ? `${(sec / 3600).toFixed(1)}h` : `${Math.round(sec / 60)}min`;
+}
 
 export default function AiInsightsPanel({ simData, activeScenario, faultTarget, aiForecast, setAutoPilot, hardwareNodes = {}, setSelectedZone, sendManualOverride, onOpenPlugs }) {
   // Every card's action is a real one: an actuation over the websocket (pre-cool window,
@@ -127,17 +134,36 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       : metric === 'buildingLoadMw' ? <TrendingDown size={18} color={color} />
       : <Activity size={18} color={color} />;
     const recActionLabel = { purge: 'PURGE ZONE', cool: 'FLOOD COOLING', precool: 'ACTIVATE PRE-COOLING' };
+    // Three kinds of judgement, badged distinctly so a forecast never reads as a
+    // present-tense fact. "anomaly" = the baselines say this is far from normal right now.
+    // "prediction" = this room's own identified physics says it breaches in N minutes.
+    // "capability" = its learned cooling authority cannot hold setpoint at all.
+    const recBadge = (rec) => {
+      if (rec.kind === 'prediction') {
+        return { text: rec.etaSec > 0 ? `PREDICTED · ${fmtEta(rec.etaSec)}` : 'PREDICTED', color: 'var(--accent-yellow)',
+          title: "Forward prediction from this room's identified thermal/CO₂ response, not a threshold" };
+      }
+      if (rec.kind === 'capability') {
+        return { text: 'CAPABILITY', color: 'var(--accent-red)',
+          title: "Learned cooling authority cannot hold this room's setpoint even at full flow" };
+      }
+      return rec.basis === 'learned'
+        ? { text: 'LEARNED', color: 'var(--accent-blue)', title: "Scored against this zone's learned normal for the hour" }
+        : { text: 'ASHRAE STD', color: 'var(--text-muted)', title: 'Recognized fixed standard (baseline still learning this zone)' };
+    };
     recommendations.forEach((rec) => {
       const color = rec.severity === 'critical' ? 'var(--accent-red)' : rec.severity === 'warning' ? 'var(--accent-yellow)' : 'var(--accent-blue)';
       const label = recActionLabel[rec.action];
+      const badge = recBadge(rec);
       generated.push({
         id: `rec-${rec.id}`,
         type: rec.severity,
-        icon: recIcon(rec.metric, color),
+        icon: rec.kind === 'prediction' ? <Clock size={18} color={color} /> : recIcon(rec.metric, color),
         title: rec.title,
         message: rec.message,
-        badge: rec.basis === 'learned' ? 'LEARNED' : 'ASHRAE STD',
-        badgeColor: rec.basis === 'learned' ? 'var(--accent-blue)' : 'var(--text-muted)',
+        badge: badge.text,
+        badgeColor: badge.color,
+        badgeTitle: badge.title,
         action: label,
         once: !!label,
         onAction: label ? () => sendManualOverride && sendManualOverride(rec.action, rec.zone) : undefined,
@@ -381,10 +407,13 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
           <Brain size={18} color="var(--accent-blue)" /> AI Operations Engine
         </h3>
         <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          Learned-baseline anomaly detection — each signal scored against this building’s own normal for the hour — plus the LSTM load forecast. Total building load is currently at <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{simData.buildingLoadMw?.toFixed(2)} MW</span>.
+          Two learned models: baselines score each signal against this building’s own normal for the hour, and every room’s identified physics predicts where it is heading. Total building load is currently at <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{simData.buildingLoadMw?.toFixed(2)} MW</span>.
           {recModel && (
             <span style={{ display: 'block', marginTop: '4px', color: 'var(--text-muted)', fontSize: '10px' }}>
-              Baseline model: {recModel.established} signal{recModel.established === 1 ? '' : 's'} established, {recModel.learning} still learning (a bucket matures after {recModel.matureAfter} samples).
+              Baselines: {recModel.established} signal{recModel.established === 1 ? '' : 's'} established, {recModel.learning} learning (matures after {recModel.matureAfter} samples).
+              {typeof recModel.roomsIdentified === 'number' && (
+                <> · Room models: {recModel.roomsIdentified} identified, {recModel.roomsLearning} learning — predicting {recModel.horizonMin} min ahead.</>
+              )}
             </span>
           )}
         </p>
@@ -448,7 +477,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
                 </span>
                 {insight.badge && (
                   <span
-                    title={insight.badge === 'LEARNED' ? "Scored against this zone's learned normal for the hour" : 'Recognized fixed standard (baseline still learning this zone)'}
+                    title={insight.badgeTitle || (insight.badge === 'LEARNED' ? "Scored against this zone's learned normal for the hour" : 'Recognized fixed standard (baseline still learning this zone)')}
                     style={{
                       marginLeft: 'auto', fontSize: '8px', fontWeight: 'bold', letterSpacing: '0.05em',
                       padding: '1px 5px', borderRadius: '3px', flexShrink: 0,
@@ -541,6 +570,9 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
 // what the download will actually be able to do.
 function ModelExportCard() {
   const [info, setInfo] = useState(null);
+  const { profile, rec, tier, selected, setOverride, exportUrl, error } = useLocalModel();
+  const [showTiers, setShowTiers] = useState(false);
+
   useEffect(() => {
     let alive = true;
     fetch(`${API_BASE}/api/model`)
@@ -552,11 +584,25 @@ function ModelExportCard() {
 
   const est = info?.baseline?.established ?? 0;
   const learning = info?.baseline?.learning ?? 0;
+  const roomsId = info?.rooms?.identified ?? 0;
+  const roomsLearning = info?.rooms?.learning ?? 0;
   const forecaster = info?.forecaster;
+
+  // What this machine looks like, in the browser's own (limited) terms. Reported exactly
+  // as measured — an unavailable value says so rather than showing a plausible guess.
+  const machine = rec
+    ? [
+        `${rec.profile.cores || '?'} cores`,
+        rec.memoryBasis === 'reported' ? `${rec.effectiveMemoryGb} GB` : `~${rec.effectiveMemoryGb} GB est.`,
+        rec.gpu?.capable ? rec.gpu.label : (rec.gpu?.label || 'no GPU detected'),
+      ].join(' · ')
+    : 'measuring…';
+
   const rows = [
-    ['Learned baseline', `${est} signal${est === 1 ? '' : 's'} established · ${learning} learning`],
+    ['Learned baselines', `${est} signal${est === 1 ? '' : 's'} established · ${learning} learning`],
+    ['Room models', `${roomsId} identified · ${roomsLearning} learning`],
     ['LSTM forecaster', forecaster ? (forecaster.ready ? 'trained · included' : forecaster.reachable ? 'reachable · not yet trained' : 'offline · omitted') : '—'],
-    ['Recommender', 'recommender.py · Python 3 stdlib only'],
+    ['This machine', machine],
   ];
 
   return (
@@ -567,10 +613,17 @@ function ModelExportCard() {
           <Cpu size={18} color="var(--accent-blue)" />
         </div>
         <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--accent-blue)' }}>Local Models</span>
+        {tier && (
+          <span style={{ marginLeft: 'auto', fontSize: '8px', fontWeight: 'bold', letterSpacing: '0.05em', padding: '1px 5px', borderRadius: '3px', color: 'var(--accent-green)', border: '1px solid var(--accent-green)' }}>
+            MATCHED TO THIS MACHINE
+          </span>
+        )}
       </div>
+
       <p style={{ margin: '0 0 8px 0', fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-        Download the learned baseline model, the LSTM forecaster, and a dependency-free recommender as one package — run the same recommendations and alerts offline, on your own machine, from the twin’s own processed state.
+        Take the intelligence offline: the learned baselines, every room’s identified physical model, and a runtime that reproduces the same predictions on your own machine — no server, no network.
       </p>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: '3px', columnGap: '10px', marginBottom: '10px' }}>
         {rows.map(([k, v]) => (
           <React.Fragment key={k}>
@@ -579,8 +632,79 @@ function ModelExportCard() {
           </React.Fragment>
         ))}
       </div>
+
+      {/* The recommendation, with its reasoning — a pick the operator can overrule. */}
+      {tier && (
+        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-glass)', borderRadius: '6px', padding: '10px', marginBottom: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', marginBottom: '4px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-primary)' }}>{tier.name}</span>
+            <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+              {tier.approxSizeMb >= 1024 ? `${(tier.approxSizeMb / 1024).toFixed(1)} GB` : `${tier.approxSizeMb} MB`} · {tier.runtime}
+            </span>
+          </div>
+          <p style={{ margin: '0 0 6px 0', fontSize: '10px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{tier.summary}</p>
+          {rec?.rationale && selected === rec.recommended && (
+            <p style={{ margin: '0 0 6px 0', fontSize: '10px', color: 'var(--accent-green)', lineHeight: 1.45 }}>
+              ✓ {rec.rationale}
+            </p>
+          )}
+          {!tier.fits && (tier.blockers || []).map((b) => (
+            <p key={b} style={{ margin: '0 0 3px 0', fontSize: '10px', color: 'var(--accent-yellow)', lineHeight: 1.45 }}>⚠ {b}</p>
+          ))}
+          <ul style={{ margin: '4px 0 0 0', paddingLeft: '14px' }}>
+            {(tier.capabilities || []).map((c) => (
+              <li key={c} style={{ fontSize: '10px', color: 'var(--text-muted)', lineHeight: 1.5 }}>{c}</li>
+            ))}
+          </ul>
+          {(rec?.notes || []).map((n) => (
+            <p key={n} style={{ margin: '6px 0 0 0', fontSize: '9px', color: 'var(--text-muted)', lineHeight: 1.45, fontStyle: 'italic' }}>{n}</p>
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <p style={{ margin: '0 0 8px 0', fontSize: '10px', color: 'var(--accent-yellow)' }}>
+          Could not size the bundle to this machine ({error}) — the default package is still available.
+        </p>
+      )}
+
+      {/* Overrule the pick: the server reasons from what the browser admits to, and a
+          machine that reports nothing is exactly the one whose owner knows better. */}
+      {rec?.tiers?.length > 0 && (
+        <div style={{ marginBottom: '10px' }}>
+          <button
+            onClick={() => setShowTiers((v) => !v)}
+            style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '10px', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+          >
+            {showTiers ? '▴ hide other tiers' : '▾ choose a different tier'}
+          </button>
+          {showTiers && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
+              {rec.tiers.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setOverride(t.id)}
+                  style={{
+                    textAlign: 'left', cursor: 'pointer', borderRadius: '4px', padding: '6px 8px',
+                    background: t.id === selected ? 'rgba(0,163,224,0.15)' : 'transparent',
+                    border: `1px solid ${t.id === selected ? 'var(--accent-blue)' : 'var(--border-glass)'}`,
+                    color: t.fits ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: '10px',
+                  }}
+                >
+                  {t.recommended ? '★ ' : ''}{t.name}
+                  <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                    {' '}· {t.approxSizeMb >= 1024 ? `${(t.approxSizeMb / 1024).toFixed(1)} GB` : `${t.approxSizeMb} MB`}
+                    {!t.fits ? ' · exceeds this machine' : ''}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <a
-        href={`${API_BASE}/api/model/export`}
+        href={exportUrl}
         download
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
@@ -588,8 +712,13 @@ function ModelExportCard() {
           background: 'var(--accent-blue)', color: '#000', fontSize: '11px', fontWeight: 'bold', letterSpacing: '0.02em',
         }}
       >
-        <Download size={14} /> DOWNLOAD MODEL BUNDLE (.zip)
+        <Download size={14} /> DOWNLOAD {tier ? tier.name.toUpperCase() : 'MODEL BUNDLE'} (.zip)
       </a>
+      {rec?.workers > 1 && (
+        <p style={{ margin: '6px 0 0 0', fontSize: '9px', color: 'var(--text-muted)', textAlign: 'center' }}>
+          Bundle is configured for {rec.workers} parallel workers on this machine.
+        </p>
+      )}
     </div>
   );
 }

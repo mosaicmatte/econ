@@ -1,0 +1,46 @@
+[
+  {
+    "zone": "zone-office-a",
+    "label": "office-a",
+    "temp": 24.6,
+    "setpoint": 24.0,
+    "outdoorC": 33.5,
+    "flowRatio": 0.35,
+    "occupancy": 14,
+    "co2": 880,
+    "co2Live": true
+  },
+  {
+    "zone": "zone-office-b",
+    "label": "office-b",
+    "temp": 23.4,
+    "setpoint": 24.0,
+    "outdoorC": 33.5,
+    "flowRatio": 0.7,
+    "occupancy": 4,
+    "co2": 520,
+    "co2Live": true
+  },
+  {
+    "zone": "zone-meeting-1",
+    "label": "meeting-1",
+    "temp": 25.1,
+    "setpoint": 24.0,
+    "outdoorC": 33.5,
+    "flowRatio": 0.25,
+    "occupancy": 22,
+    "co2": 1040,
+    "co2Live": true
+  },
+  {
+    "zone": "zone-server",
+    "label": "server",
+    "temp": 22.8,
+    "setpoint": 22.0,
+    "outdoorC": 33.5,
+    "flowRatio": 0.95,
+    "occupancy": 0,
+    "co2": 0,
+    "co2Live": false
+  }
+]
