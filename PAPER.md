@@ -44,7 +44,7 @@ outlet. The paper's own recommendation — *"automated plug load controls, aware
 and shutdown protocols"* — describes a capability a plant-level BMS does not have.
 
 > **A correction to the source.** Luong et al. report one set of end-use shares for energy
-> (§3.2) and a different set for CO₂ (§3.3): indoor lighting 9.1% of energy but 16% of
+> (their §3.2) and a different set for CO₂ (their §3.3): indoor lighting 9.1% of energy but 16% of
 > emissions, outdoor lighting 16.1% of energy but 0.4% of emissions. Applying a *single*
 > grid emission factor, as the paper does, carbon share must equal energy share. The two
 > cannot both be correct, and the pattern suggests indoor/outdoor labels were transposed in
@@ -429,7 +429,7 @@ $$
 This couples the thermodynamic state to the electrical state, so a thermal fault both degrades overall system health and spikes the `buildingLoadMw` metric broadcast to the dashboard.
 
 ### 7.5 Bounded Thermal-Comfort & System-Health Score
-The dashboard's single "system health" figure is not an ad-hoc heuristic but a direct, bounded mapping of the same discomfort kernel that the RL reward of §4.5 penalizes. For each zone we measure the excess excursion *beyond* its comfort deadband $\delta$,
+The dashboard's single "system health" figure is not an ad-hoc heuristic but a direct, bounded mapping of the same discomfort kernel that the RL reward of §5.5 penalizes. For each zone we measure the excess excursion *beyond* its comfort deadband $\delta$,
 
 $$
 e_z = \max\!\left(0,\; |T_z - T_{\text{sp},z}| - \delta\right),
