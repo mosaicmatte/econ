@@ -2,15 +2,21 @@ import React, { useMemo } from 'react';
 import { X } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { money, energyCostPerDay } from './tariff';
+import useMeanLoad from './useMeanLoad';
 import {
   FLOOR_AREA_M2, EUI_BENCHMARK, IS_IT_DOMINATED, ZONE_MIX,
-  euiFromLoadMw, carbonTonnesPerYear, carbonAvoidedTonnesPerYear, tonnesStr,
+  euiRunRateFromLoadMw, euiFromMeanLoadMw, EUI_MIN_WINDOW_H,
+  carbonTonnesPerYear, carbonAvoidedTonnesPerYear, tonnesStr,
 } from './sustainability';
 
 // Mobile "Impact" screen — the phone-sized face of the twin. Served automatically on
 // small viewports instead of the WebGL-heavy desktop stack, and fed entirely by the
 // same live stream: engine savings, LSTM forecast, per-level occupancy, edge nodes.
 export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareNodes = {}, onClose }) {
+  // Same basis as the desktop panel: annual intensity comes from the mean load observed,
+  // never from the instantaneous one. See useMeanLoad.
+  const { meanMw, hours: observedH } = useMeanLoad(simData?.buildingLoadMw);
+  const settled = observedH >= EUI_MIN_WINDOW_H;
   const loadMw = simData.buildingLoadMw || 0;
   const savedMw = simData.energySavedMw || 0;
   const savingsPct = savedMw + loadMw > 0 ? (100 * savedMw) / (savedMw + loadMw) : 0;
@@ -118,13 +124,15 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>Energy intensity</span>
             <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#4FC3F7', fontFamily: 'ui-monospace, monospace' }}>
-              {euiFromLoadMw(loadMw).toFixed(0)}<span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}> kWh/m²·yr</span>
+              {(settled ? euiFromMeanLoadMw(meanMw) : euiRunRateFromLoadMw(loadMw)).toFixed(0)}<span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}> kWh/m²·yr</span>
             </span>
           </div>
           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', marginTop: '10px', lineHeight: 1.4 }}>
             {IS_IT_DOMINATED
               ? `Over ${FLOOR_AREA_M2.toLocaleString('en-US', { maximumFractionDigits: 0 })} m². Not comparable to the ${EUI_BENCHMARK.hcmc} kWh/m²·yr office cohort — ${(ZONE_MIX.dominant.loadShare * 100).toFixed(0)}% of connected load is ${ZONE_MIX.dominant.type}.`
-              : `Over ${FLOOR_AREA_M2.toLocaleString('en-US', { maximumFractionDigits: 0 })} m² — ${(euiFromLoadMw(loadMw) / EUI_BENCHMARK.hcmc).toFixed(2)}× the ${EUI_BENCHMARK.hcmc} kWh/m²·yr HCMC office cohort.`}
+              : settled
+                ? `Annualised from ${observedH.toFixed(0)} h over ${FLOOR_AREA_M2.toLocaleString('en-US', { maximumFractionDigits: 0 })} m² — ${(euiFromMeanLoadMw(meanMw) / EUI_BENCHMARK.hcmc).toFixed(2)}× the ${EUI_BENCHMARK.hcmc} kWh/m²·yr HCMC office cohort.`
+                : `Run-rate at this instant, over ${FLOOR_AREA_M2.toLocaleString('en-US', { maximumFractionDigits: 0 })} m². The cohort comparison is held back until a full day is observed (${observedH.toFixed(1)} of ${EUI_MIN_WINDOW_H} h).`}
           </div>
         </div>
 

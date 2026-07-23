@@ -2,12 +2,14 @@ import React from 'react';
 import { Activity, Users, Thermometer, Zap, BarChart2 } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { getBuilding } from './buildingStore';
+import useMeanLoad from './useMeanLoad';
 const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 import { API_BASE } from './api';
 import { money, energyCostPerDay, touPeriod, touPeriodLabel } from './tariff';
 import {
   FLOOR_AREA_M2, EUI_BENCHMARK, IS_IT_DOMINATED, ZONE_MIX,
-  euiFromLoadMw, carbonTonnesPerYear, carbonAvoidedTonnesPerYear, tonnesStr,
+  euiRunRateFromLoadMw, euiFromMeanLoadMw, EUI_MIN_WINDOW_H,
+  carbonTonnesPerYear, carbonAvoidedTonnesPerYear, tonnesStr,
 } from './sustainability';
 
 // Building design peak (MW electrical), derived once from the loaded building nameplate so the
@@ -76,6 +78,9 @@ function DeltaCard({ title, icon: Icon, value, unit, delta, isGood, historyData,
 
 export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory, activeFloor, selectedNode, width = 320, setWidth, sendManualOverride, hardwareNodes = {} }) {
   const [zoneHistory, setZoneHistory] = React.useState([]);
+  // Annual intensity has to be built on the load actually observed over time, not on
+  // whatever the load happens to be this second. See useMeanLoad.
+  const { meanMw, hours: observedH } = useMeanLoad(simData?.buildingLoadMw);
 
   React.useEffect(() => {
     if (selectedNode?.type === 'zone') {
@@ -172,14 +177,19 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
             );
           })()}
 
-          {/* EUI — run-rate energy use intensity over the building's real digitized floor area,
-              against the Vietnamese office cohort. The benchmark is only shown when it actually
-              applies: this building's load is dominated by server rooms, and holding a data
-              centre up against an office survey would be a meaningless comparison. */}
+          {/* Energy intensity. Two different numbers that were previously conflated: the live
+              run-rate (what a year at this instant's load would come to) and the annualised
+              EUI built on the mean load actually observed. Only the second may sit beside a
+              cohort benchmark — comparing a 09:00 peak to an annual survey figure reads
+              roughly 3x high and says nothing about the building. The benchmark is withheld
+              entirely until a representative window has been seen, and when the load is
+              dominated by a non-office programme. */}
           {(() => {
-            const eui = euiFromLoadMw(simData.buildingLoadMw || 0);
+            const runRate = euiRunRateFromLoadMw(simData.buildingLoadMw || 0);
+            const eui = euiFromMeanLoadMw(meanMw);
             const ratio = eui / EUI_BENCHMARK.hcmc;
-            const comparable = !IS_IT_DOMINATED;
+            const settled = observedH >= EUI_MIN_WINDOW_H;
+            const comparable = !IS_IT_DOMINATED && settled;
             return (
               <div style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -188,17 +198,21 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--accent-blue)', fontSize: '16px' }}>
-                      {eui.toFixed(0)} <span style={{ fontSize: '9px' }}>kWh/m²·yr</span>
+                      {(settled ? eui : runRate).toFixed(0)} <span style={{ fontSize: '9px' }}>kWh/m²·yr</span>
                     </div>
                     <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      run-rate over {FLOOR_AREA_M2.toLocaleString('en-US', { maximumFractionDigits: 0 })} m²
+                      {settled
+                        ? `annualised from ${observedH.toFixed(0)} h observed`
+                        : 'run-rate at this instant'} · {FLOOR_AREA_M2.toLocaleString('en-US', { maximumFractionDigits: 0 })} m²
                     </div>
                   </div>
                 </div>
                 <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '6px', lineHeight: 1.4 }}>
-                  {comparable
-                    ? `${ratio.toFixed(2)}× the HCMC office cohort (${EUI_BENCHMARK.hcmc} kWh/m²·yr, 57-building survey).`
-                    : `Not comparable to the ${EUI_BENCHMARK.hcmc} kWh/m²·yr office cohort — ${(ZONE_MIX.dominant.loadShare * 100).toFixed(0)}% of connected load is ${ZONE_MIX.dominant.type}.`}
+                  {IS_IT_DOMINATED
+                    ? `Not comparable to the ${EUI_BENCHMARK.hcmc} kWh/m²·yr office cohort — ${(ZONE_MIX.dominant.loadShare * 100).toFixed(0)}% of connected load is ${ZONE_MIX.dominant.type}.`
+                    : comparable
+                      ? `${ratio.toFixed(2)}× the HCMC office cohort (${EUI_BENCHMARK.hcmc} kWh/m²·yr, 57-building survey).`
+                      : `Benchmark held back until a full day is observed (${observedH.toFixed(1)} of ${EUI_MIN_WINDOW_H} h). A run-rate taken at one moment is not an annual intensity and would not be a fair comparison.`}
                 </div>
               </div>
             );

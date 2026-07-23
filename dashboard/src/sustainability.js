@@ -67,16 +67,36 @@ export const EUI_BENCHMARK = {
 // reporting year with VITE_GRID_EF_KG_KWH as MONRE republishes it.
 export const GRID_EF_KG_PER_KWH = num(import.meta.env.VITE_GRID_EF_KG_KWH, 0.6766);
 
-// Run-rate EUI: the current electrical load projected across a year over the real floor area.
-// A projection, not a meter reading — label it as such wherever it is shown.
-export function euiFromLoadMw(loadMw) {
+// Instantaneous run-rate: what the annual intensity WOULD be if the building held its
+// current load every hour of the year. Useful as a live rate; it is not an EUI, and it must
+// never be compared to the cohort — an office at 09:00 with 3,000 people in it is nowhere
+// near its own annual average, so the comparison reads ~3x high and means nothing. Sampled
+// at a quiet hour the same formula reads far too low. Use euiFromMeanLoadMw for anything
+// that sits next to a benchmark.
+export function euiRunRateFromLoadMw(loadMw) {
   if (!(FLOOR_AREA_M2 > 0)) return 0;
   return (Math.max(0, loadMw) * 1000 * 8760) / FLOOR_AREA_M2; // kWh/m²·year
 }
 
+// Annualised EUI from the MEAN load actually observed. Mean load x 8760 is the building's
+// energy over a year by definition, so this is the correct estimator rather than a fudge —
+// it simply needs enough of the daily cycle to be representative, which is what
+// EUI_MIN_WINDOW_H guards. Short of that window the comparison is withheld instead of
+// being shown with a caveat nobody reads.
+export function euiFromMeanLoadMw(meanLoadMw) {
+  if (!(FLOOR_AREA_M2 > 0)) return 0;
+  return (Math.max(0, meanLoadMw) * 1000 * 8760) / FLOOR_AREA_M2; // kWh/m²·year
+}
+
+// Hours of observation before a mean is worth comparing to an annual figure. A full day
+// covers the occupied peak, the overnight base and both shoulders; less than that and the
+// mean is a statement about which hours happened to be sampled.
+export const EUI_MIN_WINDOW_H = 24;
+
 // How this building sits against the office cohort, as a ratio (1.0 = on the benchmark).
-export function euiVsBenchmark(loadMw, benchmark = EUI_BENCHMARK.hcmc) {
-  return benchmark > 0 ? euiFromLoadMw(loadMw) / benchmark : 0;
+// Takes a MEAN load — passing an instantaneous one is the error this file exists to prevent.
+export function euiVsBenchmark(meanLoadMw, benchmark = EUI_BENCHMARK.hcmc) {
+  return benchmark > 0 ? euiFromMeanLoadMw(meanLoadMw) / benchmark : 0;
 }
 
 // Operational carbon from grid electricity (Scope 2), at the live load.
