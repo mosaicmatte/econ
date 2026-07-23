@@ -126,12 +126,9 @@ engine; the coefficients it is evaluated with are re-calibrated by editing data.
 
 ### 4.1 The two balances
 
-For each zone, two first-order balances are fitted online:
-
-```
-thermal:  dT/dt = θ₀·(T_out − T_in) + θ₁·flow·(T_in − T_supply) + θ₂·occupancy + θ₃
-co2:      dC/dt = φ₀·occupancy + φ₁·(C_out − C) + φ₂
-```
+For each zone, two first-order balances are fitted online — one on the thermal energy
+balance, one on the CO₂ mass balance. Both are linear in their parameters; §5.6 gives them
+in regression form together with the estimator.
 
 The coefficients are physically interpretable: 1/θ₀ is the room's thermal time constant, θ₁
 its cooling authority, θ₂ the per-occupant heat gain, and φ₁ the room's **measured air-change
@@ -179,7 +176,304 @@ mechanically, not by convention:
 - `acReal` reports whether a setpoint command actually reached an air conditioner, so a
   setback terminating in a log line is never credited with a saving.
 
-## 5. Implementation
+---
+
+## 5. Mathematical foundations
+
+Notation is uniform throughout: $T$ is zone air temperature (°C), $T_o$ outdoor air, $T_s$
+supply air, $C$ zone CO₂ (ppm), $n$ occupant count, $u\in[0,1]$ the cooling flow fraction,
+and $\Delta t$ the integration step (s).
+
+### 5.1 Zone thermal network (2R1C)
+
+Each zone is a two-resistance, one-capacitance network: an air node coupled to a wall node,
+the wall node coupled to outdoors. Writing $C_a$ for air capacitance, $C_w$ for wall
+capacitance and $R_i,R_o$ for the inside and outside resistances,
+
+$$
+C_a\frac{dT}{dt} \;=\; \frac{T_w - T}{R_i} \;+\; \dot{Q}_{\text{int}} \;-\; \dot{Q}_{\text{cool}}
+$$
+
+$$
+C_w\frac{dT_w}{dt} \;=\; \frac{T_o - T_w}{R_o} \;-\; \frac{T_w - T}{R_i}
+$$
+
+integrated by explicit Euler. Internal gain is the sum of the terms the programme library
+defines, with no double counting between them:
+
+$$
+\dot{Q}_{\text{int}} \;=\; \underbrace{A\,\rho_L}_{\text{lighting}} \;+\; \underbrace{P_{\text{fix}}}_{\text{fixed equip.}} \;+\; \underbrace{n\,q_{\text{occ}}}_{\text{people}} \;+\; \underbrace{\sigma_{\text{sol}}\,\rho_S A}_{\text{solar}} \;+\; \underbrace{P_{\text{plug}}}_{\text{plug load}}
+$$
+
+where $A$ is floor area, $\rho_L$ lighting power density (W/m²), $q_{\text{occ}}=100$ W the
+sensible gain per occupant, and $\sigma_{\text{sol}}$ the zone's façade exposure factor.
+
+**Capacitance** is derived from the room's own volume rather than assigned per type:
+
+$$
+C_a \;=\; \kappa\,\rho c_p\,A\,h,\qquad \rho c_p = 1206~\mathrm{J\,m^{-3}K^{-1}},\quad \kappa = 5
+$$
+
+The multiplier $\kappa$ lumps furniture, partitions and slab surface that couple to the air;
+room air alone gives a time constant of minutes, where real rooms respond over hours.
+
+**Resistance** is derived from the zone's own exposed area:
+
+$$
+(UA)_{\text{zone}} \;=\; U_w A_w \;+\; U_r A_r \;+\; U_p A_p, \qquad R \;=\; \frac{1}{(UA)_{\text{zone}}}
+$$
+
+$$
+R_i = f_R\,R,\qquad R_o = (1-f_R)\,R,\qquad f_R = 0.4
+$$
+
+with $A_w$ the façade area (from polygon edges lying on the building outline), $A_r$ roof
+area on the top floor, and $A_p$ partition area. $U_p$ is an *effective* coupling well below
+the assembly U-value, because the 2R1C has a single outdoor node: conductance to a neighbour
+at nearly the same temperature must enter as a smaller coupling to outdoors, or a core zone
+is modelled as though the room next door were the weather.
+
+The resulting open-loop time constant is $\tau = RC_a$.
+
+> **Why this matters.** A flat $R = 0.2~\mathrm{K/W}$ applied to every zone gives a 650 m²
+> floor plate $UA = 3.3~\mathrm{W/K}$ against a realistic $\approx\!224$, and hence
+> $\tau \approx 1300$ h. The identifier in §4.2 then correctly recovers $\tau \approx 10^2$ h
+> and is *not* in error. Deriving $R$ from geometry places 93% of zones in the 1–40 h band.
+
+### 5.2 Cooling delivery
+
+Cooling is sized so that at a VAV's nominal flow the zone holds setpoint against its full
+nominal load, then scaled by the delivered flow fraction and by the available temperature
+lift:
+
+$$
+\dot{Q}_{\text{cool}} \;=\; u \cdot \big(\dot{Q}_{\text{int}}^{\text{nom}} + \dot{Q}_{\text{wall}}^{\text{ss}}\big)\cdot\frac{T - T_s}{T_{sp} - T_s},\qquad u = \frac{\dot{V}}{\dot{V}_{\text{nom}}}
+$$
+
+clipped at $\dot{Q}_{\text{cool}}\ge 0$ — cold air cannot heat. Normalising by each VAV's own
+nominal flow keeps the law correct regardless of how many terminals share an air handler.
+
+### 5.3 Fresh-air load
+
+In a tropical climate the outdoor-air load is the largest single cooling term and is
+predominantly *latent* — dehumidification, not sensible cooling:
+
+$$
+\dot{Q}_{\text{oa}} \;=\; N\,\dot{v}_{\text{oa}}\,\rho_{\text{air}}\,\Delta h
+$$
+
+with $N$ the building occupant count, $\dot{v}_{\text{oa}} = 10$ L·s⁻¹ per person (QCVN
+09:2017/BXD; ASHRAE 62.1), $\rho_{\text{air}} = 1.2$ kg/m³, and $\Delta h \approx 55$ kJ/kg
+the total enthalpy drop from Ho Chi Minh design outdoor air (33 °C, ~75% RH, ≈88 kJ/kg) to
+the supply condition (≈12 °C saturated, ≈33 kJ/kg). At design occupancy this is 2,155 kW of a
+3,283 kW total — **66%**. Because it scales with occupants present, it falls away out of
+hours exactly as a demand-controlled air handler would allow.
+
+### 5.4 Plant conversion and building load
+
+Plant coefficient of performance degrades with thermal strain, since chillers work against a
+higher lift as zones drift above setpoint:
+
+$$
+\mathrm{COP} \;=\; \mathrm{clip}\Big(\mathrm{COP}_0 - \beta\,\overline{s},\; 2.2,\; 3.8\Big),\qquad
+\overline{s} = \frac{1}{|Z|}\sum_{z\in Z}\max\big(0,\,T_z - T_{sp,z}\big)
+$$
+
+with $\mathrm{COP}_0 = 3.6$, $\beta = 0.35$. Total electrical demand is then
+
+$$
+P_{\text{bldg}} \;=\; \underbrace{\frac{\sum_z \dot{Q}_{\text{int},z} + \dot{Q}_{\text{oa}}}{\mathrm{COP}}}_{\text{cooling}} \;+\; \underbrace{A_{\text{cond}}\,\rho_B}_{\text{lighting, fans, lifts, pumps}} \;+\; \underbrace{P_{\text{plug}}}_{\text{live}}
+$$
+
+where $\rho_B = 9$ W/m² is derived from the case-study end-use shares and $A_{\text{cond}}$ is
+conditioned floor area — so the baseline moves when the building does.
+
+### 5.5 Thermal comfort
+
+Discomfort is penalised quadratically in the excess *beyond* the deadband $\delta$, mapped to
+a bounded score so that a 0.1 °C overshoot is effectively healthy and a runaway is not:
+
+$$
+e_z \;=\; \max\big(0,\; |T_z - T_{sp,z}| - \delta_z\big), \qquad
+c_z \;=\; \frac{1}{1 + e_z^2/\sigma_c^2},\qquad \sigma_c = 2.5~^\circ\mathrm{C}
+$$
+
+System health charges separately for zones in genuine alarm, because a mean over $|Z|$ zones
+hides them — one room at 50 °C across 1,350 zones averages to 99.93%:
+
+$$
+H \;=\; \max\!\left(0,\; \frac{100}{|Z|}\sum_{z} c_z \;-\; \min\big(45,\; 12\,|\mathcal{A}|\big)\right),\quad
+\mathcal{A} = \{z : T_z > T_{sp,z} + \delta_z + 5\}
+$$
+
+### 5.6 Online system identification
+
+Both balances are linear in their parameters, so each is written $y_k = \mathbf{x}_k^\top\boldsymbol{\theta} + \varepsilon_k$:
+
+$$
+\underbrace{\frac{dT}{dt}}_{y} = \underbrace{\begin{bmatrix} T_o - \bar T & u(\bar T - T_s) & n & 1\end{bmatrix}}_{\mathbf{x}^\top}
+\begin{bmatrix}\theta_0\\\theta_1\\\theta_2\\\theta_3\end{bmatrix},
+\qquad
+\underbrace{\frac{dC}{dt}}_{y} = \begin{bmatrix} n & C_{\text{out}} - \bar C & 1\end{bmatrix}\begin{bmatrix}\varphi_0\\\varphi_1\\\varphi_2\end{bmatrix}
+$$
+
+The recovered coefficients are physical: $\tau = 1/\theta_0$ is the thermal time constant,
+$\theta_1$ the cooling authority, $\theta_2$ the per-occupant gain as *this* room experiences
+it, and $\varphi_1$ the room's air-change rate in h⁻¹.
+
+**Estimator.** Recursive least squares with forgetting factor $\lambda$:
+
+$$
+\mathbf{P}_{k-1}\mathbf{x}_k \;=\; \mathbf{g},\qquad
+\iota_k = \mathbf{x}_k^\top \mathbf{g},\qquad
+\mathbf{K}_k = \frac{\mathbf{g}}{\lambda + \iota_k}
+$$
+
+$$
+\boldsymbol{\theta}_k = \boldsymbol{\theta}_{k-1} + \mathbf{K}_k\big(y_k - \mathbf{x}_k^\top\boldsymbol{\theta}_{k-1}\big),
+\qquad
+\mathbf{P}_k = \frac{1}{\lambda}\Big(\mathbf{P}_{k-1} - \mathbf{K}_k\mathbf{x}_k^\top\mathbf{P}_{k-1}\Big)
+$$
+
+with $\lambda = 0.999$, $\mathbf{P}_0 = 50\,\mathbf{I}$. The scalar $\iota_k = \mathbf{x}_k^\top\mathbf{P}_{k-1}\mathbf{x}_k$ is the *information* the sample carries — how far it moves the
+regressors into a direction the estimator is still uncertain about.
+
+**Forgetting is conditional.** When $\iota_k < \iota_{\min}$ the update sets $\lambda = 1$.
+This is the standard covariance-windup guard: dividing by $\lambda<1$ on an uninformative
+sample inflates $\mathbf{P}$ without adding knowledge, and repeated often enough the
+estimator becomes arbitrarily sensitive to the next sample — a well-documented failure of
+exponential forgetting under poor excitation.
+
+**Midpoint regressors.** The derivative is a finite difference over the sample interval, and
+the regressor uses the *midpoint* state $\bar T = \tfrac{1}{2}(T_k + T_{k-1})$ rather than an
+endpoint. With endpoint regressors the same measurement noise $\nu_k$ appears in both $y_k$
+and $\mathbf{x}_k$, giving $\mathbb{E}[\mathbf{x}_k\varepsilon_k]\neq\mathbf{0}$ — the
+errors-in-variables condition — and the least-squares estimate is asymptotically biased
+toward zero. The midpoint form makes the shared-noise contribution first-order cancelling.
+
+**Excitation gating.** A sample is admitted only if a *driver* moved or the state is in
+genuine transient:
+
+$$
+\text{accept} \iff \bigvee_j \frac{|d_{j,k} - d_{j,k-1}|}{s_j} > 1 \quad\lor\quad \Big|\frac{dT}{dt}\Big| \ge \eta
+$$
+
+over drivers $d = (T_o, u, n)$ with per-driver scales $s_j$. Gating on the *regressors*
+instead admits sensor noise as though it were excitation — the free response of a room after
+a step is genuinely informative about $\tau$, whereas a stationary room being jittered by
+±0.2 °C of sensor noise is not.
+
+**Uncertainty-weighted ridge.** Under closed-loop control the regressors become collinear —
+flow is itself a function of temperature error — so the estimate can drift in the null space
+without changing the residual. A leak toward the physical prior $\boldsymbol{\theta}^\ast$ is
+applied per coefficient, weighted by that coefficient's *own* remaining uncertainty:
+
+$$
+\theta_i \;\leftarrow\; \theta_i + \gamma\,w_i\,(\theta^\ast_i - \theta_i),
+\qquad w_i = \mathrm{clip}\!\left(\frac{P_{ii}}{P_0},0,1\right),\qquad \gamma = 0.002
+$$
+
+A well-determined coefficient has $P_{ii}\ll P_0$, so $w_i\to0$ and it is left alone; a
+poorly excited one is pulled gently back toward physics. An *unweighted* ridge drags
+well-identified rooms off their measured values — observed moving a correctly identified
+air-change rate from 0.5 to 0.89 h⁻¹.
+
+**Sample spacing.** Observations are taken every $\Delta t_s = 300$ s. This is a
+signal-to-noise choice, not a responsiveness one. For sensor noise $\sigma_\nu$, the
+finite-difference derivative has standard error
+
+$$
+\sigma_{\dot T} \;=\; \frac{\sqrt{2}\,\sigma_\nu}{\Delta t_s}
+$$
+
+An SHT30 at $\sigma_\nu \approx 0.2$ °C differenced over 30 s gives $\pm17$ °C/h against a
+true rate of a few °C/h; over 300 s it falls to $\pm1.7$ °C/h. Maturity requires $k \ge 36$
+accepted samples — three simulated hours, on the principle that a system whose time constant
+is measured in hours cannot be characterised in minutes.
+
+### 5.7 Setback depth as a solved quantity
+
+This is where the identified model does work a schedule cannot. With the room empty ($n=0$)
+and cooling at full flow ($u=1$), the thermal balance is first-order with pole
+
+$$
+k \;=\; \theta_0 - \theta_1
+$$
+
+and equilibrium
+
+$$
+T_\infty \;=\; \frac{\theta_0 T_o - \theta_1 T_s + \theta_3}{k}
+$$
+
+If $T_\infty \ge T_{sp}$ the room cannot reach setpoint even at full cooling; it has no
+recovery margin and **the setback is refused**. Otherwise, integrating the free response
+backwards over the recovery budget $t_r$ gives the temperature from which the room can just
+return in time:
+
+$$
+T_{sb} \;=\; T_\infty + (T_{sp} - T_\infty)\,e^{\,k\,t_r}
+$$
+
+$$
+\boxed{\;\Delta_{\text{setback}} \;=\; \mathrm{clip}\Big(T_{sb} - T_{sp} - \epsilon,\; \Delta_{\min},\; \Delta_{\max}\Big)\;}
+$$
+
+with safety margin $\epsilon$ and $t_r = 1800$ s. A light, responsive room earns a deep
+setback; a heavy one earns a shallow one; a room that cannot recover earns none. **Comfort
+cannot fail silently**, because the bound is derived from the room's own measured recovery
+capability rather than assumed — which is precisely the failure reported in §2.3.
+
+### 5.8 Baseline anomaly scoring
+
+Independently of the physical models, each $(\text{zone},\text{metric},\text{hour})$ triple
+carries an online mean and variance updated by Welford's algorithm, and observations are
+scored in standard deviations:
+
+$$
+\mu_k = \mu_{k-1} + \frac{x_k-\mu_{k-1}}{k},\qquad
+M_{2,k} = M_{2,k-1} + (x_k-\mu_{k-1})(x_k-\mu_k),\qquad
+\sigma_k = \sqrt{\frac{M_{2,k}}{k-1}}
+$$
+
+$$
+z \;=\; \frac{x - \mu}{\max(\sigma,\sigma_{\min})}
+$$
+
+The floor $\sigma_{\min}$ prevents a series that has been quiet from generating enormous
+scores on its first small deviation. This answers "abnormal *for this room, at this hour*",
+which a fixed threshold such as $\mathrm{CO_2} > 1000$ cannot express.
+
+### 5.9 Energy, intensity and carbon
+
+Avoided cooling from a setback is the envelope load the zone no longer holds down, bounded by
+the available outdoor lift — it correctly vanishes when there is no lift to exploit:
+
+$$
+\dot{Q}_{\text{saved}} \;=\; \frac{1}{R_i + R_o}\,\min\big(\Delta_{\text{setback}},\; T_o - T_{sp}\big),\qquad \text{for } T_o > T_{sp}
+$$
+
+Annual energy intensity is defined on the **mean** load, since $\int_0^{8760} P\,dt = \bar P \cdot 8760$ exactly:
+
+$$
+\mathrm{EUI} \;=\; \frac{\bar P \cdot 8760}{A_{\text{floor}}},\qquad
+\bar P = \frac{\int P\,dt}{\int dt} \;\approx\; \frac{\sum_k \tfrac{1}{2}(P_k + P_{k-1})\,\Delta t_k}{\sum_k \Delta t_k}
+$$
+
+with intervals longer than 5 minutes excluded as unobserved rather than assumed constant.
+Substituting an instantaneous $P$ for $\bar P$ is not an approximation but a different
+quantity: an office at 09:00 with 3,000 people in it sits far above its own annual mean, and
+the resulting figure over-reads by roughly 3×.
+
+Operational carbon follows the national grid factor $\epsilon_g = 0.6766$ tCO₂/MWh:
+
+$$
+E_{\mathrm{CO_2}} \;=\; \frac{\bar P\,[\mathrm{kW}] \cdot 8760 \cdot \epsilon_g}{1000}~\mathrm{tCO_2/yr}
+$$
+
+---
+
+## 6. Implementation
 
 ### 5.1 Building fixture
 
@@ -203,7 +497,7 @@ retail. Three further sensors are implemented in firmware to replace remaining a
 with measurements: a DS18B20 supply-air probe, a second current clamp on the air
 conditioner's own supply, and a BH1750 illuminance sensor.
 
-## 6. Results
+## 7. Results
 
 We separate what is verified from what is not, because the distinction is the point.
 
@@ -266,7 +560,7 @@ are measured; **the reduction fractions are assumptions.** Only the air-conditio
 has independent support: [3] measured 8–11% from setpoint reset alone on central plant. At
 the Hanoi tower's peak month (219.4 t CO₂) an 11.9% cut is ≈26 t CO₂ avoided in one month.
 
-## 7. Limitations
+## 8. Limitations
 
 - **No measurement and verification baseline.** Savings are a model counterfactual, never
   compared against a measured baseline period under IPMVP or equivalent. This is the single
@@ -285,7 +579,7 @@ the Hanoi tower's peak month (219.4 t CO₂) an 11.9% cut is ≈26 t CO₂ avoid
 - **The partition coupling coefficient is a calibration choice**, stated as one in the
   library, not a measured U-value.
 
-## 8. Conclusion
+## 9. Conclusion
 
 The case for per-room identification does not rest on a claim that machine learning is
 superior to rules. It rests on two measurements: that the largest end use in a
