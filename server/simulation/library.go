@@ -47,6 +47,7 @@ type Physics struct {
 	SupplyAirDesignC           float64 `json:"supplyAirDesignC"`
 	NonHvacBaseWPerM2          float64 `json:"nonHvacBaseWPerM2"`
 	MinZoneCapacitanceJPerK    float64 `json:"minZoneCapacitanceJPerK"`
+	RInFraction                float64 `json:"rInFraction"`
 }
 
 type libraryDoc struct {
@@ -80,6 +81,7 @@ func defaultLibrary() libraryDoc {
 		SupplyAirDesignC:           supplyAirC,
 		NonHvacBaseWPerM2:          9.0,
 		MinZoneCapacitanceJPerK:    5e4,
+		RInFraction:                0.4,
 	}
 	d.Programmes = map[string]Programme{}
 	d.Calibration.GridEmissionFactor = 0.6766
@@ -124,6 +126,7 @@ func loadLibrary() {
 	mergeF(&p.SupplyAirDesignC, base.SupplyAirDesignC)
 	mergeF(&p.NonHvacBaseWPerM2, base.NonHvacBaseWPerM2)
 	mergeF(&p.MinZoneCapacitanceJPerK, base.MinZoneCapacitanceJPerK)
+	mergeF(&p.RInFraction, base.RInFraction)
 	doc.Physics = p
 	if doc.Calibration.GridEmissionFactor == 0 {
 		doc.Calibration.GridEmissionFactor = 0.6766

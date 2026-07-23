@@ -448,6 +448,27 @@ func NewDynamics() *Dynamics {
 // Observe folds one batch of room conditions into the learned models, if enough
 // simulation time has passed since the last batch. simSeconds is the engine's accumulated
 // simulation clock. Concurrency-safe.
+// Retain drops rooms the building no longer contains. A re-digitized or re-classified
+// building changes which zones exist, and a model fitted to a zone that is gone is not
+// merely useless — it is counted in the "learning" total the dashboard reports, so the
+// twin goes on saying it is still working on 615 rooms that no longer exist. Called with
+// the live zone set on every observation batch.
+func (d *Dynamics) Retain(live map[string]bool) int {
+	if len(live) == 0 {
+		return 0 // never evict everything on an empty set: that is a caller bug, not a demolition
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	dropped := 0
+	for zone := range d.rooms {
+		if !live[zone] {
+			delete(d.rooms, zone)
+			dropped++
+		}
+	}
+	return dropped
+}
+
 func (d *Dynamics) Observe(conds []RoomCondition, simSeconds float64) {
 	if math.IsNaN(simSeconds) || math.IsInf(simSeconds, 0) {
 		return

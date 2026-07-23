@@ -99,20 +99,54 @@ class Library:
         # Below the cellular band: service space. Alternate so a floor gets both.
         return "wet-core" if svc_rank % 2 == 0 else "store"
 
-    def thermal(self, prog, area, height, solar_mult):
+    def envelope_r(self, area, wall_m2, roof_m2, partition_m2):
+        """Total envelope resistance, K/W, from the zone's OWN exposed area.
+
+        The raw fixture used a flat 0.2 K/W for every zone regardless of size, which gives
+        a 650 m2 floor plate UA = 3.3 W/K where a real one is over 200. That single number
+        is why identified time constants came back in the hundreds of hours: the RLS was
+        working correctly and faithfully reporting a building modelled as a thermos.
+        """
+        ua = wall_m2 * self.phys["uValueWallWPerM2K"] + roof_m2 * self.phys["uValueRoofWPerM2K"]
+        # Core zones have no facade; they still exchange heat through their partitions
+        # with the space next door. Scaling that with PARTITION area rather than floor
+        # area is what stops every core zone landing on an identical time constant.
+        ua += partition_m2 * self.phys["uValuePartitionWPerM2K"]
+        return 1.0 / ua if ua > 0 else 1.0
+
+    def thermal(self, prog, area, height, solar_mult, wall_m2, roof_m2, partition_m2):
         spec = self.progs[prog]
         gain = area * spec["lightingWPerM2"] + spec.get("fixedEquipmentW", 0)
         cap = (self.phys["airRhoCpJPerM3K"] * area * height
                * self.phys["furnishingCapacitanceMultiplier"])
+        r = self.envelope_r(area, wall_m2, roof_m2, partition_m2)
         return {
             "setpoint": spec["setpointC"],
             "deadband": spec["deadbandC"],
             "baseHeatLoad": round(gain),
             "solarGainMultiplier": solar_mult,
-            "rWall": 0.2,
+            "rWall": round(r, 6),
             "cAir": round(cap),
             "areaM2": round(area, 1),
+            "exteriorWallM2": round(wall_m2, 1),
+            "roofM2": round(roof_m2, 1),
+            "partitionM2": round(partition_m2, 1),
+            "timeConstantH": round(r * cap / 3600.0, 2),
         }
+
+
+def exterior_wall_m(poly, exterior, tol):
+    """Length of a zone's boundary that sits on the building's outer wall."""
+    if not exterior:
+        return 0.0
+    total = 0.0
+    for i in range(len(poly)):
+        x1, y1 = poly[i][0], poly[i][1]
+        x2, y2 = poly[(i + 1) % len(poly)][0], poly[(i + 1) % len(poly)][1]
+        mid = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+        if dist_to_boundary(mid, exterior) <= tol:
+            total += math.hypot(x2 - x1, y2 - y1)
+    return total
 
 
 def build(doc, lib, write):
@@ -123,6 +157,9 @@ def build(doc, lib, write):
     facade = lib.plan["facadeDepthM"]
     EFLH = lib.phys["equivalentFullLoadHoursPerYr"]
     DESIGN_COP = lib.phys["designCop"]
+    tol = lib.plan["facadeToleranceM"]
+    top_level = max(f.get("level", 0) for f in doc["floors"])
+    taus = []
 
     for floor in doc["floors"]:
         height = float(floor.get("height") or 4.0)
@@ -164,9 +201,16 @@ def build(doc, lib, write):
                 if d < facade:
                     solar = round(max(0.15, 1.0 - d / facade), 2)
 
+            wall_m = exterior_wall_m(z["polygon"], exterior, tol)
+            perim_m = sum(math.hypot(z["polygon"][(i+1) % len(z["polygon"])][0] - z["polygon"][i][0],
+                                     z["polygon"][(i+1) % len(z["polygon"])][1] - z["polygon"][i][1])
+                          for i in range(len(z["polygon"])))
+            partition_m2 = max(0.0, perim_m - wall_m) * height
+            roof = a if floor.get("level") == top_level else 0.0
             z["zoneType"] = prog
             z["name"] = "%s %s" % (prog.replace("-", " ").title(), floor.get("name", ""))
-            z["thermalProperties"] = lib.thermal(prog, a, height, solar)
+            z["thermalProperties"] = lib.thermal(prog, a, height, solar, wall_m * height, roof, partition_m2)
+            taus.append(z["thermalProperties"]["timeConstantH"])
             if spec.get("critical"):
                 z["critical"] = True
             out.append(z)
@@ -183,7 +227,14 @@ def build(doc, lib, write):
         print("%-16s %5d %10.1f %7.1f%% %10.0f %7.1f" % (
             k, mix[k], load_by[k] / 1000, 100 * load_by[k] / tot_load, area_by[k],
             load_by[k] / area_by[k] if area_by[k] else 0))
+    import statistics as _st
+    taus.sort()
     print("\nkept %d zones, dropped %d slivers under %.0f m2" % (kept, dropped, sliver))
+    print("envelope time constant h: min %.1f  p25 %.1f  median %.1f  p75 %.1f  max %.1f"
+          % (taus[0], taus[len(taus)//4], _st.median(taus), taus[3*len(taus)//4], taus[-1]))
+    plausible = sum(1 for t in taus if 1.0 <= t <= 40.0)
+    print("  in the 1-40 h band a real office shows: %d/%d (%.0f%%)"
+          % (plausible, len(taus), 100*plausible/len(taus)))
     print("lighting + fixed equipment: %.0f kW over %.0f m2 = %.1f W/m2"
           % (tot_load / 1000, tot_area, tot_load / tot_area))
 

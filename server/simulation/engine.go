@@ -205,6 +205,9 @@ type Engine struct {
 	// anything learning the physics: identifying on this clock keeps every learned time
 	// constant in one consistent timescale.
 	simClock float64
+	// dynamicsPruned is the zone count the room models were last reconciled against, so
+	// the eviction sweep runs on a building change rather than on every tick.
+	dynamicsPruned int
 }
 
 // histSample is one forecaster timestep: building-average room temperature and
@@ -311,8 +314,14 @@ func (e *Engine) buildFromJSON(data []byte) error {
 				// state is unaffected since it depends on the heat balance, not CAir.
 				CAir:                math.Max(z.ThermalProperties.CAir, Phys().MinZoneCapacitanceJPerK),
 				CWall:               4000000.0,
-				RIn:                 z.ThermalProperties.RWall / 2,
-				ROut:                z.ThermalProperties.RWall/2 + 0.1,
+				// Split the zone's derived envelope resistance into inside-surface and
+				// outside-surface halves. The old form added a fixed 0.1 K/W to ROut,
+				// which is fine against the raw fixture's flat 0.2 but swamps a real
+				// envelope: a 200 m2 perimeter office works out near 0.005 K/W total, so
+				// that constant alone was a 20x error and set the zone's time constant
+				// almost single-handedly.
+				RIn:                 z.ThermalProperties.RWall * Phys().RInFraction,
+				ROut:                z.ThermalProperties.RWall * (1 - Phys().RInFraction),
 				Setpoint:            z.ThermalProperties.Setpoint,
 				BaseSetpoint:        baseSp,
 				Deadband:            z.ThermalProperties.Deadband,
@@ -1640,7 +1649,20 @@ func (e *Engine) broadcast() {
 	// SIMULATION clock, because that is the clock the physics advances on; the model
 	// enforces its own spacing, so calling it every broadcast is safe and cheap.
 	if e.dynamics != nil {
-		e.dynamics.Observe(e.roomConditions(), e.simClock)
+		conds := e.roomConditions()
+		// Evict models for zones the building no longer has, so the identified/learning
+		// counts describe the building that exists rather than the one that used to.
+		if e.dynamicsPruned != len(conds) {
+			live := make(map[string]bool, len(conds))
+			for _, c := range conds {
+				live[c.Zone] = true
+			}
+			if n := e.dynamics.Retain(live); n > 0 {
+				log.Printf("[dynamics] dropped %d room models for zones no longer in the building", n)
+			}
+			e.dynamicsPruned = len(conds)
+		}
+		e.dynamics.Observe(conds, e.simClock)
 	}
 
 	// FlatBuffers Serialization

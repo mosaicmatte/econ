@@ -80,7 +80,29 @@
       "109.6 kWh/m2.yr cohort EUI, over ~3000 equivalent full-load hours."
     ],
     "minZoneCapacitanceJPerK": 50000.0,
-    "minZoneCapacitanceNote": "Numerical floor for the explicit-Euler integration only. The raw digitizer fixture carried 39 kJ/K rooms with 85 kW in them, which ran away; with capacitance derived from real volume this floor should never bind. Raise it if a small zone oscillates."
+    "minZoneCapacitanceNote": "Numerical floor for the explicit-Euler integration only. The raw digitizer fixture carried 39 kJ/K rooms with 85 kW in them, which ran away; with capacitance derived from real volume this floor should never bind. Raise it if a small zone oscillates.",
+    "uValueWallWPerM2K": 2.8,
+    "uValueWallNote": "Vietnamese commercial facade: single or lightly-coated glazing over concrete, no continuous insulation. QCVN 09:2017/BXD sets the envelope OTTV ceiling; 2.8 is a representative assembly U for existing stock rather than new-build best practice.",
+    "uValueRoofWPerM2K": 1.8,
+    "uValueRoofNote": "Exposed roof slab on the top floor only.",
+    "internalCouplingNote": "superseded by uValuePartitionWPerM2K",
+    "rInFraction": 0.4,
+    "rInNote": "Split of total envelope resistance into inside-surface (air film + inner mass) and outside-surface halves for the 2R1C. Replaces a hardcoded 'rWall/2 and rWall/2 + 0.1' in engine.go, where that fixed +0.1 K/W swamped any realistic envelope: a real facade is ~0.005 K/W total.",
+    "uValuePartitionWPerM2K": 0.8,
+    "uValuePartitionNote": [
+      "EFFECTIVE coupling through internal partitions, W/m2K of partition area -- not the",
+      "partition's own U-value, which is nearer 2.0 for uninsulated plasterboard or light",
+      "block. The reduction is deliberate: the 2R1C has a single outdoor node, so partition",
+      "conductance to a NEIGHBOUR that sits at nearly the same temperature has to be entered",
+      "as a smaller coupling to outdoors, or a core zone is modelled as though the room next",
+      "door were the weather. Roughly 0.4 of the assembly U, i.e. the fraction of the outdoor",
+      "temperature difference that actually appears across the partition.",
+      "This is a calibration choice, like furnishingCapacitanceMultiplier, and is stated as",
+      "one: it is set so identified time constants land in the 2-10 h band real offices show.",
+      "A room identified from its own measured data supersedes it.",
+      "Applied to partition area, not floor area -- floor-area coupling cancels against a",
+      "floor-area capacitance and hands every core zone an identical time constant."
+    ]
   },
   "planning": {
     "$comment": "Area bands a space planner uses, m2. Drives programme assignment from geometry.",
@@ -91,7 +113,9 @@
     "cellularMinM2": 12.0,
     "lobbyMinM2": 300.0,
     "facadeDepthM": 6.0,
-    "facadeDepthNote": "A zone whose centroid is within one room-depth of the exterior wall sees solar; core zones do not."
+    "facadeDepthNote": "A zone whose centroid is within one room-depth of the exterior wall sees solar; core zones do not.",
+    "facadeToleranceM": 1.0,
+    "facadeToleranceNote": "A polygon edge whose midpoint lies within this distance of the building's exterior outline is counted as external wall."
   },
   "programmes": {
     "open-office": {
