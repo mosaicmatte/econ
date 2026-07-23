@@ -475,7 +475,7 @@ $$
 
 ## 6. Implementation
 
-### 5.1 Building fixture
+### 6.1 Building fixture
 
 The bundled building is a 15-storey, 39,777 m², 735-zone office derived from a real floor
 plan by DeepFloorplan segmentation. The segmenter locates room *boundaries* well and names
@@ -487,7 +487,7 @@ programme and physics from geometry against the library: internal gain from publ
 densities, air capacitance from each room's actual volume, and envelope resistance from each
 zone's own façade, roof and partition area. Calibration target is the measured cohort [2].
 
-### 5.2 Edge hardware
+### 6.2 Edge hardware
 
 Nodes are ESP32-WROOM-32 with SHT30 temperature/humidity (±0.2 °C), Ai-Thinker Rd-03 24 GHz
 radar presence (which holds a *stationary* occupant), ASAIR ACD1200 NDIR CO₂, an SCT-013
@@ -501,7 +501,7 @@ conditioner's own supply, and a BH1750 illuminance sensor.
 
 We separate what is verified from what is not, because the distinction is the point.
 
-### 6.1 Verified
+### 7.1 Verified
 
 **The estimator recovers known dynamics.** A test suite of 42 cases in the simulation package
 passes. `TestDynamicsIdentifiesKnownRoom` recovers a synthetic room's thermal time constant
@@ -530,7 +530,7 @@ under-reports a tropical office by roughly a third.
 **Hardware.** Two physical edge nodes publish live telemetry into the twin, and vendor IR
 frames reach a real air conditioner.
 
-### 6.2 Not demonstrated
+### 7.2 Not demonstrated
 
 **Identification is converging but has not matured.** Maturity requires 36 samples at 300
 simulated seconds; with simulation time at 1× real this is ~3 hours of continuous uptime.
@@ -567,7 +567,7 @@ the Hanoi tower's peak month (219.4 t CO₂) an 11.9% cut is ≈26 t CO₂ avoid
   largest gap between the projection above and a defensible claim.
 - **No demand-controlled ventilation loop.** CO₂ is measured and air-change rate identified,
   but nothing acts on either. Ventilation is 15.3% of the case-study building's energy and is
-  deliberately excluded from the projection in §6.2 for this reason.
+  deliberately excluded from the projection in §7.2 for this reason.
 - **CO₂ identification is unreachable without hardware.** Only a live NDIR may train the CO₂
   balance, by design. In a simulated building no zone qualifies.
 - **Occupancy is presence, not count, without a camera.** θ₂ and φ₀ are per-*occupant*
