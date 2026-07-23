@@ -21,7 +21,7 @@ conditioners back through those nodes.
 | `ai_modules/branch_b_digitization` | DeepFloorplan → building fixture. |
 | `backend/forecasting` | Python LSTM + TimesFM load forecaster. |
 | `tools/` | Repo-level utilities. `officeize_fixture.py` regenerates the building fixture. |
-| `PAPER.md` | The research paper: the evidence, the mathematics, and what is and is not demonstrated. |
+| `PAPER.md` | The research paper: the evidence, the mathematics, and what is and is not demonstrated. **Appendix A is the module inventory** — for every file, whether it is live, built-but-unwired, or superseded. Check it before assuming code that exists is code that runs. |
 | `COMMISSIONING.md` | Turn on and test every component, each step with a test that fails loudly. |
 | `docs/` | [ROADMAP](docs/ROADMAP.md) (what is *not* built), [EVIDENCE](docs/EVIDENCE.md) (why any of this), [RUNNING](docs/RUNNING.md), [BACKEND_ARCHITECTURE](docs/BACKEND_ARCHITECTURE.md). |
 
@@ -67,6 +67,13 @@ prior, not the answer.
 - **Sim time runs at 1× in nominal operation.** Room identification samples every 300 sim
   seconds and matures at 36 samples, so it needs ~3 h of uptime. A cold demo shows zero
   identified rooms; that is expected, not a bug.
+- **Code that exists is not code that runs.** Several complete, working modules have no
+  caller: the YOLOv11 symbol detector (trained, mAP@50 69.5%) is never invoked by the
+  digitizer; `/api/rooms/models` and `/api/forecast/load` have no dashboard consumer; five
+  dashboard airflow components are orphaned; `backend/core_engine/` has **zero references
+  anywhere** and was superseded by the Go engine. `acW` and `lux` arrive from firmware and are
+  stored, but nothing acts on them. PAPER.md Appendix A is the full list — consult it before
+  extending something that may already be dead.
 - **Two commits' worth of history is not the whole story.** `docs/EVIDENCE.md` explains why
   the design is shaped the way it is, grounded in the case studies it cites.
 
