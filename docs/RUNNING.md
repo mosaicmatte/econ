@@ -57,23 +57,24 @@ cd server
 docker-compose up -d --build
 ```
 
-**Step 2: Start the React Frontend with Network Access**
-By default, Vite only allows access from the computer it's running on. You need to use the `--host` flag to open it up to your local Wi-Fi network.
+**Step 2: Start the React Frontend**
+`npm run dev` now binds the local network by default (`vite --host`), so no extra flag is
+needed. Use `npm run dev:local` if you want the old loopback-only behaviour.
 ```bash
 # 🚨 CRITICAL: Make sure you are in the dashboard folder!
 cd econ/dashboard
 npm install --legacy-peer-deps
-npm run dev -- --host
+npm run dev
 ```
 
 **Step 3: Open it on your Mobile Phone**
 1. Make sure your mobile phone is connected to the **same Wi-Fi network** as your computer.
-2. Look at the terminal where you ran `npm run dev -- --host`. Vite will output something like this:
+2. Look at the terminal where you ran `npm run dev`. Vite will output something like this:
    ```text
-   ➜  Local:   http://localhost:5173/
-   ➜  Network: http://192.168.x.x:5173/   <--- Use this one!
+   ➜  Local:   http://localhost:5188/
+   ➜  Network: http://192.168.x.x:5188/   <--- Use this one!
    ```
-3. Open Safari or Chrome on your phone, and type in that exact **Network URL** (e.g., `http://192.168.1.5:5173`).
+3. Open Safari or Chrome on your phone, and type in that exact **Network URL** (e.g., `http://192.168.1.5:5188`).
 
 On viewports ≤ 820 px the site automatically serves the live mobile **Impact screen**
 instead of the WebGL-heavy desktop stack: an autonomous-savings donut (streamed

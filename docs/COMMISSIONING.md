@@ -139,6 +139,31 @@ cd econ/dashboard && npm install --legacy-peer-deps && npm run dev
 **Test:** open http://localhost:5188.
 
 **Pass:** the 3D building renders and the header shows a load figure.
+
+### Opening it on a phone
+
+`npm run dev` binds the LAN (`vite --host`), so the dev server prints a **Network:** address
+alongside the local one. Open that on the phone — under 768 px wide the dashboard renders
+its mobile UI rather than the desktop one.
+
+```bash
+ipconfig getifaddr en0        # macOS: the address to type on the phone
+```
+
+Then browse to `http://<that address>:5188`.
+
+Two things make this work, and both are already in place:
+
+- **The dashboard derives the engine host from the page URL** (`src/api.js`), so a phone at
+  `http://192.168.1.20:5188` calls the API and WebSocket at `192.168.1.20:8080`. Hard-coding
+  `localhost` would break exactly here — on the phone, `localhost` is the phone.
+- **The Go engine binds all interfaces** (`:8080`) and sends permissive CORS.
+
+If the page loads on the phone but every metric reads 0, the engine is unreachable rather
+than the page being broken: check the laptop's firewall is not blocking 8080, and that both
+devices are on the same network — a "guest" SSID is usually isolated from the main one.
+
+Use `npm run dev:local` for the old loopback-only behaviour.
 **Fail — blank page:** this is almost always a stale Vite dependency cache. Clear **both**:
 
 ```bash
