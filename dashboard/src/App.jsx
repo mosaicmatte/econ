@@ -223,7 +223,13 @@ const buildTopologyFromSim = (simState, activeFloor, ontology) => {
       data: {
         label: z.label, temp: z.temp, setpoint: z.setpoint, deadband: z.deadband,
         occupancy: z.occupancy, alert: z.alert,
-        vavId, vavLabel: vavId ? vavId.toUpperCase() : 'DIRECT',
+        // Label the terminal unit by the SERVING RELATIONSHIP, not by its raw id. Zone and
+        // VAV ids are opaque keys minted by the digitizer and referenced across the Brick
+        // ontology, so they outlive any re-classification of what the room is for — which
+        // is how a zone correctly labelled "Cellular Office" came to sit under a unit
+        // captioned "VAV-SERVER-ROOM-59-LVL1". The id stays; the caption follows the room.
+        vavId,
+        vavLabel: vavId ? `VAV · ${(z.label || z.id).toUpperCase()}` : 'DIRECT',
         flowVal: v?.flow || 0,
       }
     });
