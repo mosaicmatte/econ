@@ -1,8 +1,5 @@
 # ECON Enterprise Digital Twin
 
-> **New here — or an AI agent reading this repo?** Start with **[CLAUDE.md](CLAUDE.md)**:
-> where each part lives, how data moves through the engine, and the four rules this
-> codebase enforces. This file is the manual; that one is the map.
 
 [![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/nguyenhoangkhoi2312/econ)
 
