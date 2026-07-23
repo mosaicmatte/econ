@@ -21,7 +21,9 @@ conditioners back through those nodes.
 | `ai_modules/branch_b_digitization` | DeepFloorplan → building fixture. |
 | `backend/forecasting` | Python LSTM + TimesFM load forecaster. |
 | `tools/` | Repo-level utilities. `officeize_fixture.py` regenerates the building fixture. |
-| `docs/` | [PAPER](docs/PAPER.md) (the research write-up), [COMMISSIONING](docs/COMMISSIONING.md) (turn on and test every component), [ROADMAP](docs/ROADMAP.md) (what is *not* built), [EVIDENCE](docs/EVIDENCE.md) (why any of this), [RUNNING](docs/RUNNING.md), [BACKEND_ARCHITECTURE](docs/BACKEND_ARCHITECTURE.md). |
+| `PAPER.md` | The research paper: the evidence, the mathematics, and what is and is not demonstrated. |
+| `COMMISSIONING.md` | Turn on and test every component, each step with a test that fails loudly. |
+| `docs/` | [ROADMAP](docs/ROADMAP.md) (what is *not* built), [EVIDENCE](docs/EVIDENCE.md) (why any of this), [RUNNING](docs/RUNNING.md), [BACKEND_ARCHITECTURE](docs/BACKEND_ARCHITECTURE.md). |
 
 ## The engine, in the order data moves
 

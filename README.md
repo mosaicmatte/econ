@@ -630,8 +630,8 @@ Full setup — engine, dashboard, broker, forecaster, digitizer — is in
 **[docs/RUNNING.md](docs/RUNNING.md)**.
 
 To bring up *and verify* every component, including hardware, use
-**[docs/COMMISSIONING.md](docs/COMMISSIONING.md)**: each step carries a test that fails
+**[COMMISSIONING.md](COMMISSIONING.md)**: each step carries a test that fails
 loudly, because a component that starts is not a component that works.
 
 The research write-up — the case for the design, the method, and what is and is not
-demonstrated — is **[docs/PAPER.md](docs/PAPER.md)**.
+demonstrated — is **[PAPER.md](PAPER.md)**.
