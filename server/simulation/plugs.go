@@ -10,7 +10,7 @@ package simulation
 // LARGEST end use — 26.4% of energy — in a 117,000 m² building that already ran a
 // full BMS. (The same paper reports 35.3% of operational CO2 for plug loads, but its
 // energy and carbon shares disagree while it applies a single grid emission factor,
-// under which they must be equal; only the energy share is used here. See EVIDENCE.md.)
+// under which they must be equal; only the energy share is used here. See docs/EVIDENCE.md.)
 // The 57-building Vietnam survey (Hoang et al.
 // 2022, doi:10.55066/proc-icec.2021.19) puts appliance intensity at 17.7–20 kWh/m²·yr,
 // second only to air conditioning.

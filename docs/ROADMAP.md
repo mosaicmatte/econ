@@ -1,3 +1,40 @@
+# Roadmap — what ECON does not do yet
+
+Everything on this page is **deliberately not implemented**. It lives here rather than in
+the README so the README describes the system that exists, and this file describes the one
+that is planned. Nothing here is wired up, however plausible it sounds in a pitch.
+
+Two rules keep this file honest:
+
+1. **A gap leaves this page only when the code lands.** Not when a sensor is bought, not
+   when a field is ingested — when something acts on it.
+2. **Anything the twin claims a saving from must not be on this page.** If a number in
+   [EVIDENCE.md](EVIDENCE.md) depends on a mechanism, that mechanism is built or the number
+   is withdrawn.
+
+---
+
+## Current gap ledger
+
+Ordered roughly by what blocks a real deployment first.
+
+| Gap | Reality today | Why it matters |
+| --- | --- | --- |
+| **Irradiance-driven solar gain** | `qSolar = SolarGainMult × 10 kW`, a static per-zone constant. | No time-of-day or cloud response; a west façade behaves identically at 08:00 and 16:00. (Outdoor *temperature* is no longer on this list: the envelope integrates against live Open-Meteo data, `/api/weather` shows what it is using, and it falls back to the 30 °C design-day constant only while the feed is down.) |
+| **On-site solar PV / generation** | No model of any kind. | Any "uses excess daytime solar" claim is unsupported. |
+| **BESS degradation / state-of-health** | SoC integrates against real capacity and inverter limits, bounded 5–98%. No cycle ageing, no round-trip loss. | Payback maths that assumes a battery never degrades is optimistic. |
+| **Tariff-clock pre-cooling & peak setback** | Pre-cooling fires when the LSTM's predicted peak crosses `PRECOOL_TRIGGER_MW`. Setback is vacancy-driven only. | There is no scheduled 15:00–17:00 charge, and no partial-hibernation setback across the 17:30–22:30 peak. |
+| ~~Plug-load visibility or control~~ | **Implemented.** `simulation/plugs.go` models per-zone plug draw and sweeps switchable sockets on verified vacancy; an SCT-013 clamp replaces the model with measured watts where fitted (`plugW`). | Was the largest gap on this list. |
+| **CO₂-based demand-controlled ventilation** | Real CO₂ is ingested, scored and used to identify each room's air-change rate, but **no ventilation loop acts on it**. Fresh-air *load* is now modelled (it is the largest cooling term in a tropical office); fresh-air *control* is not. | The measurement exists; the control does not. Any saving attributed to DCV would be unearned — see EVIDENCE.md, which no longer claims one. |
+| **Two-part tariff / capacity charge** | Energy-only pricing. | Correct for commercial *kinh doanh* sites today; the manufacturing pilot began 1 Jul 2026 and commercial follows ~2028–2030. |
+| ~~A demo building that resembles an office~~ | **Fixed.** The digitizer mislabelled 555 closets of ~4 m² as server rooms at 85 kW each — 86% of connected load, and 96% of all credited savings. `tools/officeize_fixture.py` re-derives programme and physics from geometry against `data/programme-library.json`, calibrated to the 105.9–116.4 kWh/m²·yr cohort. Grid power went 15.2 MW → 0.7 MW. Raw digitizer output is kept at `building-data.json.digitizer-raw`. | Every đồng figure was scaled to a 17 MW data centre. |
+| **Solar gain still static** | `qSolar = solarGainMultiplier × solarPeakWPerM2 × area`, with the multiplier now derived from real façade distance rather than assumed — but no time-of-day or cloud response. | A BH1750 lux sensor (`-DUSE_LUX=1`) publishes measured illuminance; the engine ingests it but does not yet drive solar gain from it. |
+| **Firmware not deployable at building scale** | No OTA update, MQTT anonymous on 1883, per-board identity baked into build flags, no local fail-safe when the broker is unreachable. | You cannot USB-flash forty ceiling boxes. This blocks a real install harder than any missing sensor. |
+
+---
+
+## Longer-horizon direction
+
 # ECON: From Prototype to Enterprise — Architecture Review & Roadmap
 
 ***
