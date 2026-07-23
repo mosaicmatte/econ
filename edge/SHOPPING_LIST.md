@@ -245,6 +245,34 @@ the twin knows its own VAV. For the physical rooms this list is meant to instrum
 means the most operationally consequential coefficient is regressed partly on the twin's own
 assumption.
 
+### Three parts that close it — now in the firmware
+
+All three are stocked, cheap, and land on pins held free for them. **Each replaces a value
+the twin currently assumes with one it measures**, and each is behind its own build flag so
+a board fitted with one still reports honestly about the others. Buy them when convenient;
+the software is already waiting.
+
+| Part | SKU | ≈ VND | Flag | Turns this assumption into a measurement |
+|---|---|---|---|---|
+| [DS18B20 waterproof probe](https://hshop.vn/cam-bien-nhiet-do-chong-nuoc-mke-s15-ds18b20-waterproof-temperature-sensor) | `HS2243V` | ✓ **75.000₫** | `-DUSE_SUPPLY_TEMP=1` → **GPIO26** | `T_supply`, today a 12 °C constant. Cable-tie it in the indoor unit's discharge louvre and the cooling regressor is referenced to the real discharge. Its gap to room temperature is also a better "is the compressor running" signal than `acReal`, which only says the firmware *sent* an IR frame |
+| A second [SCT-013](https://hshop.vn/cam-bien-dong-dien-hall-100a-yhdc) on the AC supply | `HS0186` | ✓ **102.000₫** | `-DUSE_AC_CLAMP=1` → **GPIO35** | `flow`, today the twin's own simulated VAV. The compressor's power draw *is* the cooling drive term. ADC1, input-only, same front end as the plug clamp |
+| [BH1750 ambient light](https://hshop.vn/cam-bien-cuong-do-onh-song-lux-bh1750) | `HS0159V` | ✓ **35.000₫** | `-DUSE_LUX=1` → I²C `0x23` | Solar gain, today a static per-zone multiplier with no time-of-day or cloud response. A lux reading is a real irradiance proxy and the precondition for daylight-linked dimming. Shares the existing I²C bus, 3.3 V, no shifter |
+
+**212.000₫ for all three.** The node publishes `supplyC`, `acW` and `lux`; the engine
+ingests all three and already uses `supplyC` in place of the design constant wherever a
+probe reports. Fields are **omitted, never defaulted**, when a sensor is absent or fails —
+a fabricated zero on the AC clamp would tell the twin the compressor is off.
+
+### Also worth a look, not yet in firmware
+
+| Part | ≈ VND | Why it might earn its place |
+|---|---|---|
+| [ASAIR APM2000 laser PM1.0/2.5/10](https://hshop.vn/cam-bien-bui-min-apm2000-laser-particulate-matter-pm1-0-pm2-5-pm10-sensor-asair) `HS2169V` | ✓ 270.000₫ | Indoor air quality is a *scored* comfort criterion, and CO₂ alone does not cover particulates — the thing occupants in a Vietnamese city actually notice |
+| [ACS712 30 A Hall current sensor](https://hshop.vn/cam-bien-dong-dien-hall-acs712-30a) `HS0187C` | ✓ 27.000₫ | A quarter the price of an SCT-013, but it goes *inline* — it breaks the circuit, so it is bench/appliance metering, not a retrofit clamp |
+| [AC current transformer, 5 A](https://hshop.vn/cam-bien-dong-dien-ac-current-transformer-sensor-5a) `HS1275` | ✓ 18.000₫ | For a small single split unit the 100 A clamp is wildly oversized; a 5 A CT gives far better resolution on the same front end |
+
+### The original two-part note
+
 ### Two parts that would close it
 
 Both are stocked, both are cheap, and both land on ESP32 pins that are currently free.

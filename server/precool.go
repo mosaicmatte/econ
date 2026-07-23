@@ -111,6 +111,13 @@ func precoolHandler(engine *simulation.Engine) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 
 		if r.Method == http.MethodPost {
+			// Opening a pre-cool window drives the whole building's setpoints down for
+			// hours and costs real energy. It is a control action, so it is guarded like
+			// one — the same admin token the plug policy and the building deploy use.
+			// It was the only unauthenticated write on the API.
+			if !requireAdmin(w, r) {
+				return
+			}
 			d := precoolWindow
 			if m := r.URL.Query().Get("minutes"); m != "" {
 				if v, err := strconv.Atoi(m); err == nil && v > 0 && v <= 240 {

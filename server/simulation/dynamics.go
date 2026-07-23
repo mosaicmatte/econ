@@ -93,7 +93,9 @@ const (
 	// supplyAirC is the AHU discharge temperature the cooling regressor is referenced to,
 	// matching the engine's own cooling law (engine.go tick). Cooling power scales with
 	// flow × (room − supply), the physical heat-extraction term.
-	supplyAirC = 12.0
+	// Retained only as the compile-time default the library merges over; every read now
+	// goes through RoomCondition.supplyC() or Phys().SupplyAirDesignC.
+	supplyAirC = 12.0 // referenced by defaultLibrary() as SupplyAirDesignC
 	// outdoorCo2Ppm is the outdoor concentration a room decays toward with ventilation.
 	outdoorCo2Ppm = 400.0
 	// dynamicsResAlphaFloor bounds the residual EMA's adaptivity, mirroring the baseline
@@ -411,6 +413,20 @@ type RoomCondition struct {
 	Occupancy int
 	Co2       float64
 	Co2Live   bool // a fresh NDIR sensor is measuring this zone
+	// SupplyC is the AC discharge temperature the cooling regressor is referenced to.
+	// Zero means no probe reported and the library's design value stands in; a live
+	// DS18B20 in the louvre supersedes it, which is the difference between fitting
+	// cooling authority against a measurement and fitting it against an assumption.
+	SupplyC float64
+}
+
+// supplyC returns the discharge temperature to regress against: measured when a probe
+// reported, the design value from the programme library otherwise.
+func (c RoomCondition) supplyC() float64 {
+	if c.SupplyC > 0 {
+		return c.SupplyC
+	}
+	return Phys().SupplyAirDesignC
 }
 
 // Dynamics is the concurrency-safe collection of per-room learned models. Like Baselines
@@ -493,7 +509,7 @@ func (d *Dynamics) observeRoom(zd *zoneDynamics, c RoomCondition, now float64) {
 			zd.LastThermalDrv = append(zd.LastThermalDrv[:0], drv...)
 			x := []float64{
 				c.OutdoorC - tMid,
-				c.FlowRatio * (tMid - supplyAirC),
+				c.FlowRatio * (tMid - c.supplyC()),
 				float64(c.Occupancy),
 				1.0,
 			}
@@ -708,7 +724,7 @@ func (d *Dynamics) thermalOutlookLocked(c RoomCondition, limit, horizonSec float
 		return ThermalOutlook{}
 	}
 	// Solving 0 = env·(T_out − T) + cool·flow·(T − T_supply) + occ·people + base for T.
-	eq := (env*c.OutdoorC - cool*c.FlowRatio*supplyAirC + occ*float64(c.Occupancy) + base) / k
+	eq := (env*c.OutdoorC - cool*c.FlowRatio*c.supplyC() + occ*float64(c.Occupancy) + base) / k
 	if math.IsNaN(eq) || math.IsInf(eq, 0) {
 		return ThermalOutlook{}
 	}
@@ -849,7 +865,7 @@ func (d *Dynamics) SetbackCeiling(zone string, setpoint, outdoorC float64, recov
 	if k <= 1e-6 {
 		return 0, false
 	}
-	eqFull := (env*outdoorC - cool*1.0*supplyAirC + occ*0 + base) / k
+	eqFull := (env*outdoorC - cool*1.0*Phys().SupplyAirDesignC + occ*0 + base) / k
 	// A room that cannot get below its own setpoint even at full cooling has no recovery
 	// margin to spend; setting it back at all risks never catching up.
 	if eqFull >= setpoint-0.1 {

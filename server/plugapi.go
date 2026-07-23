@@ -40,10 +40,26 @@ func loadPlugState(engine *simulation.Engine) {
 		log.Printf("[plugs] state file unreadable, using defaults: %v", err)
 		return
 	}
+	// Critical types are unioned with the programme library's rather than restored
+	// verbatim. The library flag is a statement about physics — a comms room's equipment
+	// does not stop making heat because the room is empty — so a saved policy written
+	// before a programme existed, or against a building that has since been re-digitized,
+	// must not quietly leave that room sweepable. Operator additions are kept: the union
+	// only ever protects more rooms, never fewer.
+	seen := map[string]bool{}
+	merged := []string{}
+	for _, t := range append(append([]string{}, s.Config.CriticalTypes...), simulation.CriticalTypes()...) {
+		if t != "" && !seen[t] {
+			seen[t] = true
+			merged = append(merged, t)
+		}
+	}
+	s.Config.CriticalTypes = merged
 	engine.SetPlugConfig(s.Config)
 	engine.RestorePlugSavedKwh(s.SavedKwh)
-	log.Printf("[plugs] restored: enabled=%v work=%02d-%02d grace=%dm saved=%.2f kWh",
-		s.Config.Enabled, s.Config.WorkStartHour, s.Config.WorkEndHour, s.Config.GraceMinutes, s.SavedKwh)
+	log.Printf("[plugs] restored: enabled=%v work=%02d-%02d grace=%dm saved=%.2f kWh critical=%v",
+		s.Config.Enabled, s.Config.WorkStartHour, s.Config.WorkEndHour, s.Config.GraceMinutes,
+		s.SavedKwh, merged)
 }
 
 func savePlugState(engine *simulation.Engine) {

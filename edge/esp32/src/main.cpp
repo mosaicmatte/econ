@@ -105,6 +105,74 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #define USE_PLUG 0
 #endif
 
+// ---------------------------------------------------------------------------------
+// Sensors that replace a MODELLED value in the twin with a measured one.
+//
+// Each of the three below exists because the engine currently substitutes an assumption
+// where a number should be, and the assumption is load-bearing for something the twin
+// claims. They are separate flags so a board fitted with one still reports honestly
+// about the other two.
+// ---------------------------------------------------------------------------------
+#ifndef USE_SUPPLY_TEMP
+  // DS18B20 (1-Wire) cable-tied in the indoor unit's discharge louvre.
+  //
+  // simulation/dynamics.go regresses cooling against flow x (T_room - T_supply) and takes
+  // T_supply from a CONSTANT (supplyAirDesignC, 12 C). A split unit's discharge is
+  // nowhere near 12 C and it moves with compressor state, so the cooling-authority
+  // coefficient — the one the learned setback ceiling depends on — is fit against a
+  // number nobody measured. This probe replaces it. Its gap to room temperature is also
+  // a far better answer to "is the compressor actually running" than acReal, which only
+  // reports that the firmware SENT an IR frame.
+  #define USE_SUPPLY_TEMP 0
+#endif
+#ifndef USE_AC_CLAMP
+  // Second SCT-013 on the indoor unit's own supply, GPIO35 (ADC1, input-only).
+  //
+  // The same regressor takes `flow` from the twin's SIMULATED VAV. A real room on a split
+  // AC has no VAV at all. The compressor's power draw IS the cooling drive term, so
+  // clamping it turns that regressor from a simulation artifact into a measurement.
+  #define USE_AC_CLAMP 0
+#endif
+#ifndef USE_LUX
+  // BH1750 ambient light (I2C 0x23), facing the facade.
+  //
+  // Solar gain in the engine is `solarGainMultiplier x a constant` — a static per-zone
+  // number with no time-of-day or cloud response, so a west facade behaves identically at
+  // 08:00 and 16:00. A lux reading is a real irradiance proxy, and it is also what makes
+  // daylight-linked dimming possible rather than assumed.
+  #define USE_LUX 0
+#endif
+
+#if USE_AC_CLAMP
+  #ifndef AC_CLAMP_PIN
+    #define AC_CLAMP_PIN 35
+  #endif
+  #ifndef AC_CAL_A_PER_V
+    #define AC_CAL_A_PER_V 60.6f   // same burden/front end as the plug clamp
+  #endif
+  #ifndef AC_MAINS_V
+    #define AC_MAINS_V 220.0f
+  #endif
+#endif
+
+#if USE_SUPPLY_TEMP
+  #include <OneWire.h>
+  #include <DallasTemperature.h>
+  #ifndef SUPPLY_TEMP_PIN
+    #define SUPPLY_TEMP_PIN 26     // clear of I2C, the IR pin and both relay lines
+  #endif
+  static OneWire supplyWire(SUPPLY_TEMP_PIN);
+  static DallasTemperature supplyProbe(&supplyWire);
+  static bool supplyProbeReady = false;
+#endif
+
+#if USE_LUX
+  #ifndef BH1750_ADDR
+    #define BH1750_ADDR 0x23
+  #endif
+  static bool luxReady = false;
+#endif
+
 #if USE_PLUG
   // SCT-013 on GPIO34: ADC1 channel 6, input-only. Deliberate — ADC2 is unusable while
   // WiFi is up, and an input-only pin can never be misconfigured into driving the clamp.
@@ -470,6 +538,57 @@ float readPlugAmps() {
 }
 #endif
 
+#if USE_AC_CLAMP
+// True-RMS on the air conditioner's own supply. Identical front end and identical
+// discipline to the plug clamp: a starved sampling window returns -1 and the field is
+// omitted, because a fabricated zero here would tell the twin the compressor is off.
+float readAcAmps() {
+  double sum = 0, sumSq = 0;
+  int n = 0;
+  unsigned long start = millis();
+  while (millis() - start < 100) {
+    int v = analogRead(AC_CLAMP_PIN);
+    sum += v;
+    sumSq += (double)v * v;
+    n++;
+  }
+  if (n < 100) return -1;
+  double mean = sum / n;
+  double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
+  float amps = (float)(rmsCounts * (3.3 / 4095.0) * AC_CAL_A_PER_V);
+  return amps < 0.10 ? 0.0f : amps;
+}
+#endif
+
+#if USE_LUX
+// BH1750 in one-time high-resolution mode: 1 lx resolution, ~120 ms conversion. One-shot
+// rather than continuous so the part returns to low power between the node's 5 s cycles.
+bool readLux(float& out) {
+  Wire.beginTransmission(BH1750_ADDR);
+  Wire.write(0x20);                       // one-time H-resolution mode
+  if (Wire.endTransmission() != 0) return false;
+  delay(180);                             // datasheet max conversion 180 ms
+  if (Wire.requestFrom(BH1750_ADDR, 2) != 2) return false;
+  uint16_t raw = (Wire.read() << 8) | Wire.read();
+  out = raw / 1.2f;                       // datasheet counts -> lux
+  return true;
+}
+#endif
+
+#if USE_SUPPLY_TEMP
+// DS18B20 in the supply-air stream. Returns false on the disconnect sentinel (-127 C)
+// and on the power-on default (85 C) so a probe that has fallen out of the louvre is
+// omitted rather than published as a plausible supply temperature.
+bool readSupplyC(float& out) {
+  if (!supplyProbeReady) return false;
+  supplyProbe.requestTemperatures();
+  float c = supplyProbe.getTempCByIndex(0);
+  if (c <= -100.0f || c >= 84.9f) return false;
+  out = c;
+  return true;
+}
+#endif
+
 // ---------------- COMMAND PARSING ----------------
 // Accepts "LIGHTS_ON;SETPOINT=22.0", "LIGHTS_OFF;SETPOINT=26.0", or "HVAC_SET:23".
 // Ignores any extra ;KEY=VAL tokens (e.g. the gateway's ;SRC=FAILSAFE).
@@ -589,6 +708,25 @@ void readAndPublish() {
   doc["plug"] = plugOn ? "ON" : "OFF";
 #endif
 
+  // --- measurements that replace a modelled value in the twin ---
+  // Each is omitted when its sensor is absent or failed, never defaulted: the engine
+  // keeps its own assumption and says so, which is the whole point of publishing these.
+#if USE_SUPPLY_TEMP
+  float supplyC;
+  if (readSupplyC(supplyC)) doc["supplyC"] = round(supplyC * 10) / 10.0;
+  else Serial.println("[supply] DS18B20 absent/out of range -> omitted (engine keeps its design value)");
+#endif
+#if USE_AC_CLAMP
+  float acAmps = readAcAmps();
+  if (acAmps >= 0) doc["acW"] = round(acAmps * AC_MAINS_V * 10) / 10.0;
+  else Serial.println("[ac] ADC window starved -> omitted");
+#endif
+#if USE_LUX
+  float lux;
+  if (readLux(lux)) doc["lux"] = round(lux);
+  else Serial.println("[lux] BH1750 read failed -> omitted");
+#endif
+
   doc["lights"]      = lightsOn ? "ON" : "OFF";
   doc["setpoint"]    = hvacSetpointC;
   // Whether that setpoint was actually transmitted to an air conditioner, or merely
@@ -651,7 +789,7 @@ void setup() {
 #endif
   pinMode(STATUS_LED, OUTPUT);
   setLights(true);
-#if USE_SHT30 || USE_CO2
+#if USE_SHT30 || USE_CO2 || USE_LUX
   Wire.begin(I2C_SDA, I2C_SCL);
   Serial.printf("[i2c] bus up on SDA=GPIO%d SCL=GPIO%d\n", I2C_SDA, I2C_SCL);
 #endif
@@ -688,6 +826,33 @@ void setup() {
   analogReadResolution(12);
   Serial.printf("[plug] SCT-013 on GPIO%d (cal %.1f A/V), relay on GPIO%d\n",
                 PLUG_ADC_PIN, (double)PLUG_CAL_A_PER_V, PLUG_RELAY_PIN);
+#endif
+#if USE_SUPPLY_TEMP
+  supplyProbe.begin();
+  supplyProbeReady = supplyProbe.getDeviceCount() > 0;
+  if (supplyProbeReady) {
+    supplyProbe.setResolution(12);
+    Serial.printf("[supply] DS18B20 on GPIO%d — measured supply air replaces the engine's "
+                  "design constant for this zone\n", SUPPLY_TEMP_PIN);
+  } else {
+    Serial.printf("[supply] no DS18B20 found on GPIO%d — supplyC omitted, engine keeps its "
+                  "design value\n", SUPPLY_TEMP_PIN);
+  }
+#endif
+#if USE_AC_CLAMP
+  analogReadResolution(12);
+  Serial.printf("[ac] SCT-013 on the AC supply, GPIO%d (cal %.1f A/V) — measured compressor "
+                "power replaces the twin's simulated VAV flow for this zone\n",
+                AC_CLAMP_PIN, (double)AC_CAL_A_PER_V);
+#endif
+#if USE_LUX
+  {
+    float probe;
+    luxReady = readLux(probe);
+    Serial.printf("[lux] BH1750 at 0x%02X %s\n", BH1750_ADDR,
+                  luxReady ? "responding — measured daylight replaces the static solar constant"
+                           : "NOT responding — lux omitted");
+  }
 #endif
 #if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
   // Calibrate the untouched touch level; a touch reads far below this baseline.

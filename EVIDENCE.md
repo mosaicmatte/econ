@@ -122,13 +122,20 @@ part of this table to argue with:
 |---|---|---|---|---|
 | Plug loads | 26.4 % | Metered sweep of non-critical sockets outside occupied hours | 25 % | **6.6 %** |
 | Air-conditioning | 25.1 % | Per-room learned setback, bounded by identified recovery | 12 % | **3.0 %** |
-| Ventilation | 15.3 % | Demand-controlled ventilation on measured CO₂ and identified ACH | 15 % | **2.3 %** |
+| ~~Ventilation~~ | 15.3 % | **Not claimed.** CO₂ is measured and each room's air-change rate is identified, but no ventilation control loop exists, so there is nothing here to credit. | — | — |
 | Indoor lighting | 9.1 % | Presence-driven switching | 25 % | **2.3 %** |
 | Outdoor lighting, elevators, pumps | 24.1 % | not addressed | — | — |
-| | | | **Total** | **≈ 14.2 %** |
+| | | | **Total** | **≈ 11.9 %** |
 
 That lands inside the 10–20 % band Source E asks for, and it is derived from the metered
 end-use split of a real Vietnamese office tower rather than from a product datasheet.
+
+An earlier version of this table claimed a further 2.3 % from demand-controlled
+ventilation. It was withdrawn: the twin measures CO₂ and identifies each room's air-change
+rate, but nothing acts on either, and a saving from a control loop that does not exist is
+exactly the kind of claim the rest of this document is written to avoid. DCV remains the
+single largest unclaimed opportunity on the list — 15.3 % of the building's energy sitting
+behind a loop that has not been built.
 
 The air-conditioning assumption is the one with independent support: Source C *measured*
 8–11 % from setpoint reset alone on central plant. 12 % from per-room control that also knows
@@ -136,8 +143,8 @@ when a room is empty is the same order of magnitude, not a leap.
 
 **Carbon.** Vietnam's grid emission factor is **0.6766 tCO₂/MWh** (Source A, 2022 national
 figure), and with a single grid factor the CO₂ saving is proportional to the electricity
-saving — so ≈14.2 % of operational carbon as well. At that building's peak month (219.4 t CO₂,
-October 2024) a 14.2 % cut is **≈31 t CO₂ avoided in one month, in one building**.
+saving — so ≈11.9 % of operational carbon as well. At that building's peak month (219.4 t CO₂,
+October 2024) an 11.9 % cut is **≈26 t CO₂ avoided in one month, in one building**.
 
 > **A discrepancy in Source A worth noting.** The paper reports one set of shares for energy
 > (§3.2) and a different set for CO₂ (§3.3) — indoor lighting 9.1 % of energy but 16 % of

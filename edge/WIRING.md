@@ -28,17 +28,23 @@ pin physically sits on the board changes.
 | **32** | in (touch T9) | bare pin or a jumper wire | *(demo default)* | Zero-wiring presence demo |
 | **2** | out | Onboard LED | *(always)* | MQTT link status |
 
-### Kept free on purpose
+### The three that replace an assumption with a measurement
 
-Two pins are deliberately unassigned, because they are where the parts that would close the
-model's last two unmeasured terms have to land (see the fitness table in
-[SHOPPING_LIST.md](SHOPPING_LIST.md)). Neither is in the firmware yet — do not wire them
-expecting a reading.
+These are **in the firmware now**, each behind its own flag, so a board fitted with one
+still reports honestly about the others. They exist because the engine otherwise
+substitutes an assumption where a number should be, and each of those assumptions is
+load-bearing for something the twin claims. A field is **omitted, never defaulted**, when
+its sensor is absent or fails — a fabricated zero on the AC clamp would tell the twin the
+compressor is off.
 
-| GPIO | Reserved for | Why it has to be this pin |
-|---|---|---|
-| **35** | A second SCT-013, clamped on the split unit's own supply | Input-only, and on **ADC1** — ADC2 is unusable while WiFi is up, which rules out most of the other analog-capable pins. GPIO34 is already the plug clamp |
-| **26** | DS18B20 probe in the AC's discharge louvre (`T_supply`) | 1-Wire needs nothing but a free bidirectional GPIO and a 4.7 kΩ pull-up; 26 is clear of the I²C bus, the IR pin and both relay lines |
+| GPIO | Sensor | Build flag | Publishes | Replaces |
+|---|---|---|---|---|
+| **26** | DS18B20 in the AC's discharge louvre | `USE_SUPPLY_TEMP` | `supplyC` | The 12 °C constant the cooling regressor is referenced to. 1-Wire, 4.7 kΩ pull-up to 3V3; clear of I²C, the IR pin and both relays |
+| **35** | 2nd SCT-013 on the AC's own supply | `USE_AC_CLAMP` | `acW` | The **simulated** VAV flow in the cooling regressor. Input-only and on **ADC1** — ADC2 is dead while WiFi is up. Same burden/bias front end as GPIO34 |
+| **21/22** | BH1750 ambient light, `0x23` | `USE_LUX` | `lux` | The static solar multiplier, which has no time-of-day or cloud response. Shares the existing I²C bus, 3.3 V, no shifter |
+
+Wiring any of the three costs nothing if you have not bought it yet: leave the flag at 0
+and the node behaves exactly as before.
 
 ### ⚠️ Three constraints that are not style preferences
 

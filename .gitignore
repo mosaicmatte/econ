@@ -35,3 +35,7 @@ server/data/plug-state.json
 server/data/baseline-model.json
 server/data/room-dynamics.json
 server/data/load-history.json
+
+# Dependency tree — 20k files and 363 MB in git history, and the source of the
+# repository's vulnerability alerts. Reproducible from package-lock.json.
+node_modules/

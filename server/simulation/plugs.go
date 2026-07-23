@@ -58,12 +58,19 @@ type PlugConfig struct {
 }
 
 func defaultPlugConfig() PlugConfig {
+	// Critical types come from the programme library, which is also what the HVAC
+	// setback reads. Two hand-maintained lists is how the sweep came to protect a comms
+	// room that the thermostat was happily setting back at the same moment.
+	crit := CriticalTypes()
+	if len(crit) == 0 {
+		crit = []string{"server-room", "mechanical", "comms-room", "plant-room"}
+	}
 	return PlugConfig{
 		Enabled:       true,
 		WorkStartHour: 7,
 		WorkEndHour:   19,
 		GraceMinutes:  15,
-		CriticalTypes: []string{"server-room", "mechanical"},
+		CriticalTypes: crit,
 	}
 }
 

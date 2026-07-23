@@ -1,0 +1,184 @@
+{
+  "$comment": [
+    "Space-programme library. Every engineering coefficient the fixture generator and the",
+    "engine need lives here rather than as a literal in code, so a site can be re-calibrated",
+    "by editing data instead of recompiling. Each entry carries the source it came from.",
+    "",
+    "Heat-balance contract, so nothing is counted twice:",
+    "  baseHeatLoad  = lightingWPerM2 x area  +  fixedEquipmentW   (always-present gain)",
+    "  plug load     = simulation/plugs.go    (occupant-driven + standby, switchable)",
+    "  occupants     = occupantSensibleW each",
+    "  solar         = solarGainMultiplier x solarPeakWPerM2 x area",
+    "Equipment power density is deliberately absent from the programmes: it is plugs.go's",
+    "job. Putting it in both places is how a cooling load gets double-counted."
+  ],
+  "version": 2,
+  "calibration": {
+    "cohortEuiKwhPerM2Yr": {
+      "hanoi": 105.9,
+      "hcmc": 116.4,
+      "both": 109.6
+    },
+    "source": "Hoang et al. 2021, 57 commercial+government offices, doi:10.55066/proc-icec.2021.19",
+    "applianceIntensityKwhPerM2Yr": [
+      17.7,
+      20.0
+    ],
+    "endUseShares": {
+      "plugLoads": 0.264,
+      "airConditioning": 0.251,
+      "outdoorLighting": 0.161,
+      "ventilation": 0.153,
+      "indoorLighting": 0.091,
+      "elevators": 0.078,
+      "pumps": 0.002,
+      "source": "Luong et al. 2025, 45-storey Hanoi tower, doi:10.54772/jomc.v15i02.1190"
+    },
+    "gridEmissionFactorTCo2PerMwh": 0.6766,
+    "gridEmissionFactorSource": "Vietnam national grid factor 2022, quoted in Luong et al. 2025"
+  },
+  "physics": {
+    "airRhoCpJPerM3K": 1206.0,
+    "airRhoCpNote": "1.2 kg/m3 x 1005 J/kg.K at 25 C",
+    "furnishingCapacitanceMultiplier": 5.0,
+    "furnishingCapacitanceNote": [
+      "Room air alone gives a time constant of minutes; real rooms respond over hours",
+      "because furniture, partitions and slab surface couple to the air. A lumped 4-6x",
+      "multiplier on air capacitance is the standard single-node way to represent that,",
+      "and it is what puts identified time constants in the 2-10 h band an office shows.",
+      "This is the one number here that is a modelling choice rather than a measurement;",
+      "once a room is identified from real data its measured time constant supersedes it."
+    ],
+    "occupantSensibleW": 100.0,
+    "occupantSensibleSource": "ASHRAE Fundamentals, seated light office work, sensible portion",
+    "outdoorAirLPerSPerPerson": 10.0,
+    "outdoorAirSource": "QCVN 09:2017/BXD and ASHRAE 62.1 office ventilation rate",
+    "ventilationEnthalpyKjPerKg": 55.0,
+    "ventilationEnthalpyNote": [
+      "Total (sensible + latent) enthalpy drop from Ho Chi Minh design outdoor air",
+      "(33 C, ~75% RH, ~88 kJ/kg) to the AHU supply condition (~12 C saturated,",
+      "~33 kJ/kg). In a tropical climate this fresh-air load is the LARGEST single",
+      "cooling term and is mostly latent -- dehumidifying the outdoor air, not cooling",
+      "it. Omitting it is why a twin calibrated only on internal gains under-reports a",
+      "Vietnamese office by roughly a third. Recomputed live against the weather feed",
+      "when outdoor humidity is available; this is the design-day fallback."
+    ],
+    "airDensityKgPerM3": 1.2,
+    "solarPeakWPerM2": 10.0,
+    "designCop": 3.6,
+    "designCopNote": "Plant COP at nominal lift; simulation/engine.go degrades from this as the building is strained.",
+    "equivalentFullLoadHoursPerYr": 3000,
+    "eflhNote": "Office EFLH for a Vietnamese commercial building on a ~11 h day, 5.5 d week, year-round cooling. Converts a design-day peak to an annual intensity for the cohort check.",
+    "supplyAirDesignC": 12.0,
+    "supplyAirNote": "Design AHU discharge. Superseded per zone by a measured supply-air probe when one reports (edge/esp32 SUPPLY_C).",
+    "nonHvacBaseWPerM2": 9.0,
+    "nonHvacBaseNote": [
+      "Lighting + fans + lifts + pumps as a floor-area-scaled baseline, replacing a fixed",
+      "1.15 MW that was sized for the mis-digitized data-centre fixture and did not move",
+      "when the building did. Derived from the case-study shares: outdoor lighting 16.1%",
+      "+ ventilation 15.3% + indoor lighting 9.1% + lifts 7.8% + pumps 0.2% = 48.5% of a",
+      "109.6 kWh/m2.yr cohort EUI, over ~3000 equivalent full-load hours."
+    ],
+    "minZoneCapacitanceJPerK": 50000.0,
+    "minZoneCapacitanceNote": "Numerical floor for the explicit-Euler integration only. The raw digitizer fixture carried 39 kJ/K rooms with 85 kW in them, which ran away; with capacitance derived from real volume this floor should never bind. Raise it if a small zone oscillates."
+  },
+  "planning": {
+    "$comment": "Area bands a space planner uses, m2. Drives programme assignment from geometry.",
+    "sliverM2": 6.0,
+    "sliverNote": "Below this a polygon is a segmentation artifact (wall cavity, column enclosure, duct shaft), not a room. Not conditioned, not credited, not identified.",
+    "openOfficeMinM2": 60.0,
+    "meetingMinM2": 18.0,
+    "cellularMinM2": 12.0,
+    "lobbyMinM2": 300.0,
+    "facadeDepthM": 6.0,
+    "facadeDepthNote": "A zone whose centroid is within one room-depth of the exterior wall sees solar; core zones do not."
+  },
+  "programmes": {
+    "open-office": {
+      "lightingWPerM2": 9.0,
+      "fixedEquipmentW": 0,
+      "setpointC": 24.0,
+      "deadbandC": 2.0,
+      "areaPerOccupantM2": 10.0,
+      "facadeExposed": true,
+      "critical": false,
+      "lightingSource": "QCVN 09:2017/BXD and ASHRAE 90.1 LED office LPD"
+    },
+    "meeting-room": {
+      "lightingWPerM2": 9.0,
+      "fixedEquipmentW": 0,
+      "setpointC": 24.0,
+      "deadbandC": 2.0,
+      "areaPerOccupantM2": 2.5,
+      "facadeExposed": true,
+      "critical": false
+    },
+    "cellular-office": {
+      "lightingWPerM2": 9.0,
+      "fixedEquipmentW": 0,
+      "setpointC": 24.0,
+      "deadbandC": 2.0,
+      "areaPerOccupantM2": 10.0,
+      "facadeExposed": true,
+      "critical": false
+    },
+    "lobby": {
+      "lightingWPerM2": 12.0,
+      "fixedEquipmentW": 0,
+      "setpointC": 25.0,
+      "deadbandC": 2.5,
+      "areaPerOccupantM2": 20.0,
+      "facadeExposed": true,
+      "critical": false
+    },
+    "corridor": {
+      "lightingWPerM2": 5.0,
+      "fixedEquipmentW": 0,
+      "setpointC": 26.0,
+      "deadbandC": 3.0,
+      "areaPerOccupantM2": null,
+      "facadeExposed": false,
+      "critical": false
+    },
+    "wet-core": {
+      "lightingWPerM2": 6.0,
+      "fixedEquipmentW": 0,
+      "setpointC": 27.0,
+      "deadbandC": 3.0,
+      "areaPerOccupantM2": null,
+      "facadeExposed": false,
+      "critical": false
+    },
+    "store": {
+      "lightingWPerM2": 4.0,
+      "fixedEquipmentW": 0,
+      "setpointC": 28.0,
+      "deadbandC": 4.0,
+      "areaPerOccupantM2": null,
+      "facadeExposed": false,
+      "critical": false
+    },
+    "comms-room": {
+      "lightingWPerM2": 6.0,
+      "fixedEquipmentW": 4000,
+      "setpointC": 22.0,
+      "deadbandC": 1.5,
+      "areaPerOccupantM2": null,
+      "facadeExposed": false,
+      "critical": true,
+      "note": "One per floor. A floor comms room is a rack or two on a small split unit. Critical: never swept, never set back.",
+      "perFloor": 1
+    },
+    "plant-room": {
+      "lightingWPerM2": 5.0,
+      "fixedEquipmentW": 1500,
+      "setpointC": 30.0,
+      "deadbandC": 5.0,
+      "areaPerOccupantM2": null,
+      "facadeExposed": false,
+      "critical": true,
+      "note": "AHU / riser plant. Ventilated, not comfort-conditioned. Critical: never swept, never set back.",
+      "perFloor": 1
+    }
+  }
+}

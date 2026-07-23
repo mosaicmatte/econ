@@ -87,6 +87,13 @@ type ZoneSim struct {
 	HwHum    float64   // last measured relative humidity (%), valid while HwHumAt is fresh
 	HwHumAt  time.Time // when HwHum arrived; zero = no humidity sensor has ever reported
 	HwCo2    float64   // last measured CO2 (ppm), valid while HwCo2At is fresh
+	// Measured replacements for values the model otherwise assumes.
+	HwSupplyC  float64   // AC discharge temperature (DS18B20) — supersedes supplyAirDesignC
+	HwSupplyAt time.Time
+	HwAcW      float64   // air-conditioner power (SCT-013) — the real cooling drive term
+	HwAcAt     time.Time
+	HwLux      float64   // ambient illuminance (BH1750) — a real irradiance proxy
+	HwLuxAt    time.Time
 	HwCo2At  time.Time // when HwCo2 arrived; zero = no NDIR sensor has ever reported
 	HwOnline bool      // broker LWT verdict from econ/status/<topic>
 	// Automated Plug Load Control (see plugs.go). PlugStandbyW is sized from the zone's
@@ -267,11 +274,13 @@ func (e *Engine) buildFromJSON(data []byte) error {
 				}
 			}
 
+			// A zone with no setpoint in the fixture takes its programme's setpoint from
+			// the library, not a guess keyed off one hardcoded zone type.
 			temp := z.ThermalProperties.Setpoint
 			if temp == 0 {
 				temp = 24.0
-				if z.ZoneType == "server-room" {
-					temp = 22.0
+				if prog, ok := ProgrammeFor(z.ZoneType); ok && prog.SetpointC > 0 {
+					temp = prog.SetpointC
 				}
 			}
 
@@ -300,7 +309,7 @@ func (e *Engine) buildFromJSON(data []byte) error {
 				// unrealistically small air capacitance that makes the explicit-Euler thermal
 				// integration unstable (runaway temps). A modest floor keeps it stable; steady
 				// state is unaffected since it depends on the heat balance, not CAir.
-				CAir:                math.Max(z.ThermalProperties.CAir, 5e5),
+				CAir:                math.Max(z.ThermalProperties.CAir, Phys().MinZoneCapacitanceJPerK),
 				CWall:               4000000.0,
 				RIn:                 z.ThermalProperties.RWall / 2,
 				ROut:                z.ThermalProperties.RWall/2 + 0.1,
@@ -413,6 +422,9 @@ type Measurement struct {
 	Temp      *float64
 	Humidity  *float64
 	Co2       *float64
+	SupplyC   *float64
+	AcW       *float64
+	Lux       *float64
 	PlugW     *float64 // measured plug-circuit draw (SCT-013 clamp), watts
 	Source    string
 	TempReal  bool
@@ -482,6 +494,21 @@ func (e *Engine) IngestTelemetry(zoneRef, topicSuffix string, m Measurement) {
 	if m.PlugW != nil {
 		z.HwPlugW = *m.PlugW
 		z.HwPlugAt = time.Now()
+	}
+	// Measurements that displace an assumption in the model. Each carries its own
+	// arrival time for the same reason every other field does: a probe that falls out of
+	// the louvre must stop being believed without taking the rest of the node with it.
+	if m.SupplyC != nil {
+		z.HwSupplyC = *m.SupplyC
+		z.HwSupplyAt = time.Now()
+	}
+	if m.AcW != nil {
+		z.HwAcW = *m.AcW
+		z.HwAcAt = time.Now()
+	}
+	if m.Lux != nil {
+		z.HwLux = *m.Lux
+		z.HwLuxAt = time.Now()
 	}
 }
 
@@ -596,6 +623,17 @@ func (e *Engine) actuate() {
 			z.VacantTicks++
 		} else {
 			z.VacantTicks = 0
+		}
+		// A critical space is never set back, however empty it looks. A comms room has
+		// no occupants by design, so vacancy is not evidence that it may drift — and
+		// raising its setpoint does not reduce the heat its equipment makes. The plug
+		// sweep has always known this (PlugConfig.CriticalTypes); the setback did not,
+		// and on the digitized fixture that disagreement is where the overwhelming
+		// majority of credited savings came from. Both now read the same library flag.
+		if IsCritical(z.Type) {
+			z.Setpoint = z.BaseSetpoint
+			z.LightsOn = true
+			continue
 		}
 		vacant := z.Occupancy <= 0 && z.VacantTicks >= vacancyDelayTicks
 
@@ -1147,9 +1185,14 @@ func (e *Engine) Start() {
 				if z.hwFresh() {
 					continue // pinned to a live sensor: deviation is reality, not "recovering"
 				}
-				sp := 24.0
-				if z.Type == "server-room" {
-					sp = 22.0
+				// Compare against the zone's OWN target. Guessing it from the zone type
+				// meant a room whose setpoint differed from the guess read as
+				// permanently "recovering" and held the whole building in accelerated
+				// time — which also detached the learned models' hour-of-day buckets
+				// from real hours.
+				sp := z.BaseSetpoint
+				if sp == 0 {
+					sp = 24.0
 				}
 				if dev := math.Abs(z.Temp - sp); dev > maxDev {
 					maxDev = dev
@@ -1407,6 +1450,10 @@ func (e *Engine) broadcast() {
 	savedThermalW := 0.0  // cooling demand avoided on vacant (set-back) zones
 	alarmCount := 0       // zones far enough past the band to be a genuine alarm
 	plugTotalW := 0.0     // live plug draw (measured where clamped, modelled otherwise)
+	// Outdoor air is what a setback actually saves against — no lift, no saving.
+	tOutside, _ := e.outdoorNow()
+	ventW := 0.0     // fresh-air load, the dominant cooling term in a tropical office
+	condFloorM2 := 0.0 // conditioned floor area, for the area-scaled electrical baseline
 	plugStandbyW := 0.0   // the always-on phantom portion of plugTotalW
 	plugShedW := 0.0      // switchable watts currently swept off by the APLC
 	// Half-comfort point: a zone this many °C *beyond* its deadband scores 0.5 comfort.
@@ -1422,6 +1469,7 @@ func (e *Engine) broadcast() {
 		}
 		totalHeatW += qi
 		totalOccupants += z.Occupancy
+		condFloorM2 += z.AreaM2
 		sp := z.Setpoint
 		if sp == 0 {
 			sp = 24.0
@@ -1438,17 +1486,31 @@ func (e *Engine) broadcast() {
 		if z.Temp > sp+z.Deadband+criticalMargin {
 			alarmCount++
 		}
-		// Occupancy-driven savings: a zone in setback (lights off) avoids its
-		// lighting load and a chunk of its internal-gain cooling. Lighting scales
-		// with the zone's REAL floor area at an LED office lighting power density —
-		// the previous flat 2 kW credited a 9 m² closet and a 650 m² floor plate
-		// identically, which is not a number anyone can report. Counted for every
-		// zone the optimizer set back, real sensor or simulated — the whole point of
-		// AutoPilot being a real control is that its savings are a real number.
-		const lightingWPerM2 = 9.0 // LED office LPD (W/m²), TCVN/ASHRAE 90.1 order
+		// Occupancy-driven savings. Two rules, both of which used to be wrong:
+		//
+		// Lighting: credited only for the zone's OWN installed lighting density, read
+		// from the programme library rather than assumed to be office lighting. A plant
+		// room and an open-plan floor do not have the same luminaires, and crediting
+		// them alike is how a store cupboard came to look like a saving.
+		//
+		// Cooling: the avoided cooling of a setback is NOT a fixed fraction of the
+		// zone's internal gain — that old `BaseHeatGain * 0.25` credited a room for
+		// equipment that goes on running whether or not the thermostat moved. What a
+		// setback actually avoids is the envelope and ventilation load that the zone no
+		// longer has to hold down: raising the setpoint by ΔT cuts conduction against
+		// outdoor air in proportion to ΔT over the original lift. That is a smaller,
+		// defensible number, and it goes to zero when it should — when there is no
+		// temperature difference to exploit.
 		if z.Setpoint > z.BaseSetpoint+0.01 {
-			savedLightingW += z.AreaM2 * lightingWPerM2
-			savedThermalW += z.BaseHeatGain * 0.25
+			if prog, ok := ProgrammeFor(z.Type); ok && !z.LightsOn {
+				savedLightingW += z.AreaM2 * prog.LightingWPerM2
+			}
+			lift := tOutside - z.BaseSetpoint
+			if lift > 0 {
+				dT := z.Setpoint - z.BaseSetpoint
+				uaW := 1.0 / math.Max(z.RIn+z.ROut, 0.05)
+				savedThermalW += uaW * math.Min(dT, lift)
+			}
 		}
 		// Plug loads (APLC, plugs.go): the end use the case-study BMS could not see.
 		pTot, pStandby := z.plugNowW()
@@ -1467,14 +1529,25 @@ func (e *Engine) broadcast() {
 	}
 	plantCop := math.Max(2.2, math.Min(3.8, 3.6-0.35*avgStrain))
 
+	// Fresh air. In Ho Chi Minh City, dehumidifying outdoor air to a supply condition is
+	// the LARGEST single cooling term in an office and it is mostly latent — omitting it
+	// is why a twin calibrated on internal gains alone under-reports a Vietnamese
+	// building by roughly a third. Scales with the people actually present, so it falls
+	// away out of hours exactly as a real demand-controlled AHU would let it.
+	ph := Phys()
+	ventW = float64(totalOccupants) * (ph.OutdoorAirLPerSPerPerson / 1000.0) *
+		ph.AirDensityKgPerM3 * ph.VentilationEnthalpyKjPerKg * 1000.0
+	totalHeatW += ventW
+
 	coolingOutputMW := totalHeatW / 1e6 // thermal cooling delivered (MW)
 	coolingElectricalMW := coolingOutputMW / plantCop
-	// Non-HVAC electrical: lighting + fans + elevators as a fixed baseline, plus the
-	// LIVE plug-load figure — no longer a constant, so the sweep's effect shows up in
-	// the building load the moment sockets shed. (Plug loads were 26.4% of the Hanoi
-	// case-study tower's energy; hiding them inside a constant is how that happens.)
-	const nonPlugBaseMW = 1.15 // lighting + fans + elevators baseline
-	baseElectricalMW := nonPlugBaseMW + plugTotalW/1e6
+	// Non-HVAC electrical: lighting, fans, lifts and pumps, scaled by the building's own
+	// conditioned floor area rather than a fixed 1.15 MW that was sized for the
+	// mis-digitized fixture and did not move when the building did. Plus the LIVE plug
+	// figure, so the sweep's effect shows up the moment sockets shed. (Plug loads were
+	// 26.4% of the Hanoi case-study tower's energy; hiding them in a constant is how
+	// that happens.)
+	baseElectricalMW := (condFloorM2*ph.NonHvacBaseWPerM2 + plugTotalW) / 1e6
 	buildingLoadMW := coolingElectricalMW + baseElectricalMW
 	energySavedMW := (savedLightingW + savedThermalW/plantCop) / 1e6
 	// Feed the load to the BESS dispatcher (read next tick) and snapshot battery state.
