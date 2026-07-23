@@ -181,7 +181,7 @@ $$
 P_{\text{electrical}} = \frac{|Q_{\text{HVAC}}|}{\text{COP}}
 $$
 
-The implementation refines this single-node model into a two-state **2R1C** circuit that separates the fast air node from the slow wall node (§6.1), and the full building electrical load is assembled in §6.6. The engine integrates the resulting ODE system server-side in Go at a fixed $\approx 30\,\mathrm{Hz}$ tick ($\Delta t = 33\,\mathrm{ms}$) and streams the state to the browser as packed FlatBuffers over WebSockets, so the numerical integration never blocks the rendering thread.
+The implementation refines this single-node model into a two-state **2R1C** circuit that separates the fast air node from the slow wall node (§7.1), and the full building electrical load is assembled in §6.6. The engine integrates the resulting ODE system server-side in Go at a fixed $\approx 30\,\mathrm{Hz}$ tick ($\Delta t = 33\,\mathrm{ms}$) and streams the state to the browser as packed FlatBuffers over WebSockets, so the numerical integration never blocks the rendering thread.
 
 ### 5.2 Airflow Balancing (Hardy Cross Method)
 As Variable Air Volume (VAV) dampers modulate to satisfy local $Q\_{\text{HVAC}}$ demands, the pressure across the building's ductwork shifts. ECON balances the network with the **Hardy Cross method**, whose general loop-flow correction for an arbitrary looped topology is
@@ -466,7 +466,7 @@ with $P\_{\text{light},z} = 2\,\mathrm{kW}$ per zone. This is the `energySavedMw
 
 ---
 
-### 7.6 Fresh-air load
+### 7.7 Fresh-air load
 
 In a tropical climate the outdoor-air load is the largest single cooling term and is
 predominantly *latent* — dehumidification, not sensible cooling:
@@ -482,7 +482,7 @@ the supply condition (≈12 °C saturated, ≈33 kJ/kg). At design occupancy thi
 3,283 kW total — **66%**. Because it scales with occupants present, it falls away out of
 hours exactly as a demand-controlled air handler would allow.
 
-### 7.9 Online system identification
+### 7.8 Online system identification
 
 Both balances are linear in their parameters, so each is written $y_k = \mathbf{x}_k^\top\boldsymbol{\theta} + \varepsilon_k$:
 
@@ -567,7 +567,7 @@ true rate of a few °C/h; over 300 s it falls to $\pm1.7$ °C/h. Maturity requir
 accepted samples — three simulated hours, on the principle that a system whose time constant
 is measured in hours cannot be characterised in minutes.
 
-### 7.10 Setback depth as a solved quantity
+### 7.9 Setback depth as a solved quantity
 
 This is where the identified model does work a schedule cannot. With the room empty ($n=0$)
 and cooling at full flow ($u=1$), the thermal balance is first-order with pole
@@ -600,7 +600,7 @@ setback; a heavy one earns a shallow one; a room that cannot recover earns none.
 cannot fail silently**, because the bound is derived from the room's own measured recovery
 capability rather than assumed — which is precisely the failure reported in §2.3.
 
-### 7.11 Baseline anomaly scoring
+### 7.10 Baseline anomaly scoring
 
 Independently of the physical models, each $(\text{zone},\text{metric},\text{hour})$ triple
 carries an online mean and variance updated by Welford's algorithm, and observations are
@@ -620,7 +620,7 @@ The floor $\sigma_{\min}$ prevents a series that has been quiet from generating 
 scores on its first small deviation. This answers "abnormal *for this room, at this hour*",
 which a fixed threshold such as $\mathrm{CO_2} > 1000$ cannot express.
 
-### 7.12 Energy, intensity and carbon
+### 7.11 Energy, intensity and carbon
 
 Avoided cooling from a setback is the envelope load the zone no longer holds down, bounded by
 the available outdoor lift — it correctly vanishes when there is no lift to exploit:
@@ -717,9 +717,9 @@ the Hanoi tower's peak month (219.4 t CO₂) an 11.9% cut is ≈26 t CO₂ avoid
 ## 9. Conclusion & Novel Contributions
 ECON merges physical 3D space, logical 2D topology, and a first-principles thermodynamic engine into a single occupancy-aware Digital Twin. Its specific contributions are:
 
-1. **An energy-conserving 2R1C engine with normalized cooling and a closed-form duct solver** (§6.1–6.3) that stays physically valid out-of-distribution — during faults and thermal runaway — where data-driven surrogates fail.
-2. **A severity-graded comfort/health model** (§6.5) that derives the dashboard's live health metric from the very same quadratic-excess discomfort kernel the RL policy is trained against (§4.5), keeping monitoring and control objectives consistent.
-3. **A layout-constrained, volumetric potential-flow airflow field** (§4.4) — masked Poisson solve with exact no-flux walls and balanced supply/return sources — that visualizes HVAC circulation which respects the real floor geometry, driven directly by the Branch B digitization output.
+1. **An energy-conserving 2R1C engine with normalized cooling and a closed-form duct solver** (§7.1–7.3) that stays physically valid out-of-distribution — during faults and thermal runaway — where data-driven surrogates fail.
+2. **A severity-graded comfort/health model** (§7.5) that derives the dashboard's live health metric from the very same quadratic-excess discomfort kernel the RL policy is trained against (§5.5), keeping monitoring and control objectives consistent.
+3. **A layout-constrained, volumetric potential-flow airflow field** (§5.4) — masked Poisson solve with exact no-flux walls and balanced supply/return sources — that visualizes HVAC circulation which respects the real floor geometry, driven directly by the Branch B digitization output.
 4. **An end-to-end occupancy loop**: edge CV (YOLOv11 + ByteTrack) → MQTT → Go optimizer → ESP32 actuation, with an LSTM peak-load forecaster wired in over `GET /api/forecast`.
 
 By proving that a complex WebGL twin can run on mobile GPUs through aggressive geometry culling, and by deriving its dashboard figures from streamed engine state — measured wherever a sensor is bound, and labelled *modelled* wherever one is not — ECON extends the Digital Twin beyond the stationary control room. Real-world field testing of occupancy-presence sensing has validated up to **17.6%** HVAC energy savings (Bai et al., 2023; Chen et al., 2020); ECON provides a scalable, reinforcement-learning-driven pathway to those high-yield 10–20% ESG energy-reduction targets without compromising occupant comfort.
@@ -730,7 +730,7 @@ Stating the boundary of the claim is part of the claim. ECON's envelope, plant, 
 tariff models are first-principles and its measured quantities are genuinely measured, but the
 following are **not implemented**, and the system should not be described as if they were:
 
-1. **~~The envelope boundary condition is synthetic~~ CLOSED.** The 2R1C integrates against live Open-Meteo outdoor temperature, with `/api/weather` reporting what is in use and a climatological fallback only while the feed is down. Envelope *resistance* is now derived per zone from façade, roof and partition area (§7.1). Originally: (§6.1). $T\_{\text{out}}$ is a fixed
+1. **~~The envelope boundary condition is synthetic~~ CLOSED.** The 2R1C integrates against live Open-Meteo outdoor temperature, with `/api/weather` reporting what is in use and a climatological fallback only while the feed is down. Envelope *resistance* is now derived per zone from façade, roof and partition area (§7.1). Originally: (§7.1). $T\_{\text{out}}$ is a fixed
    $30\,^{\circ}\mathrm{C}$ constant and solar gain a static multiplier, so the 2R1C is exercised at a
    representative rather than a measured boundary. The weather feed already exists for §4.3;
    wiring it into $R\_{\text{out}}$ is the highest-value next step and would make a
