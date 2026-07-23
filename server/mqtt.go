@@ -54,6 +54,20 @@ func startMQTT(engine *simulation.Engine) {
 		SetConnectRetry(true).
 		SetConnectRetryInterval(5 * time.Second)
 
+	// Broker credentials. The shipped mosquitto.conf refuses anonymous clients, so these
+	// are required against a default deployment; they are left unset only for the
+	// anonymous dev broker (mosquitto.dev.conf). Run server/setup-mqtt-auth.sh to mint
+	// them. A missing credential is called out here rather than surfacing later as an
+	// unexplained connection refusal.
+	if user := os.Getenv("MQTT_USERNAME"); user != "" {
+		opts.SetUsername(user)
+		opts.SetPassword(os.Getenv("MQTT_PASSWORD"))
+		log.Printf("[mqtt] authenticating as %q", user)
+	} else {
+		log.Println("[mqtt] no MQTT_USERNAME set — connecting anonymously. " +
+			"This only works against mosquitto.dev.conf; run server/setup-mqtt-auth.sh for a real broker.")
+	}
+
 	opts.OnConnect = func(c mqtt.Client) {
 		log.Printf("[mqtt] connected to %s", broker)
 		if token := c.Subscribe("econ/telemetry/+", 0, func(_ mqtt.Client, m mqtt.Message) {

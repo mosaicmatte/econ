@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
-	"crypto/subtle"
 	"econ/simulation"
 	"encoding/hex"
 	"encoding/json"
@@ -47,13 +46,11 @@ func corsPreflight(w http.ResponseWriter, r *http.Request) bool {
 // requireAdmin gates the destructive endpoints. With ECON_ADMIN_TOKEN unset the gate is
 // open (demo mode); set, the exact token must arrive in X-Admin-Token. Constant-time
 // comparison — an admin token that leaks its length or prefix through timing is theatre.
+// The token itself is read and compared in auth.go, which is also what gates the
+// WebSocket — one source of truth, so securing one surface can never silently leave the
+// other open.
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
-	want := os.Getenv("ECON_ADMIN_TOKEN")
-	if want == "" {
-		return true
-	}
-	got := r.Header.Get("X-Admin-Token")
-	if subtle.ConstantTimeCompare([]byte(want), []byte(got)) == 1 {
+	if tokenMatches(r.Header.Get("X-Admin-Token")) {
 		return true
 	}
 	w.Header().Set("Content-Type", "application/json")

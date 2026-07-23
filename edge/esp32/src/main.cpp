@@ -748,14 +748,28 @@ void readAndPublish() {
 bool mqttConnect() {
   Serial.print("[mqtt] connecting...");
   // LWT: broker publishes "offline" (retained) on STATUS_TOPIC if this node drops.
+  //
+  // Credentials come from wifi_secrets.h (MQTT_USER / MQTT_PASS), because the shipped
+  // broker refuses anonymous clients — econ/commands/<zone> closes a relay on a mains
+  // circuit, and an open broker means anyone on the network can close it. Nodes without
+  // the defines still build and connect anonymously, which only works against
+  // mosquitto.dev.conf; rc=5 (unauthorized) is what a real broker answers instead.
+#if defined(MQTT_USER) && defined(MQTT_PASS)
+  bool ok = client.connect(CLIENT_ID, MQTT_USER, MQTT_PASS, STATUS_TOPIC, 0, true, "offline");
+#else
   bool ok = client.connect(CLIENT_ID, nullptr, nullptr, STATUS_TOPIC, 0, true, "offline");
+#endif
   if (ok) {
     Serial.println(" connected");
     client.publish(STATUS_TOPIC, "online", true);
     client.subscribe(COMMAND_TOPIC);
     digitalWrite(STATUS_LED, HIGH);
   } else {
-    Serial.printf(" failed rc=%d\n", client.state());
+    // rc=5 is "not authorized" — almost always a missing or wrong MQTT_USER/MQTT_PASS in
+    // wifi_secrets.h against an authenticated broker. Naming it saves an hour of
+    // suspecting the WiFi.
+    Serial.printf(" failed rc=%d%s\n", client.state(),
+                  client.state() == 5 ? " (not authorized - check MQTT_USER/MQTT_PASS)" : "");
     digitalWrite(STATUS_LED, LOW);
   }
   return ok;

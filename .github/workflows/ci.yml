@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    name: Go engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: server/go.sum
+      - name: go vet
+        working-directory: server
+        run: go vet ./...
+      - name: go build
+        working-directory: server
+        run: go build ./...
+      - name: go test
+        working-directory: server
+        run: go test ./... -count=1
+
+  dashboard:
+    name: Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: install
+        working-directory: dashboard
+        run: npm ci
+      - name: build
+        working-directory: dashboard
+        run: npm run build
+      # Advisory only: a new upstream advisory should not turn the branch red on a
+      # morning nobody changed anything. It should still be visible in the run.
+      - name: audit (advisory)
+        working-directory: dashboard
+        continue-on-error: true
+        run: npm audit --omit=dev
+
+  python:
+    name: Python modules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # Syntax-only. The AI modules pull torch/ultralytics/opencv, which is a
+      # multi-gigabyte install for a check that catches almost nothing extra; a
+      # compile pass catches the error that actually happens here, which is a
+      # typo shipped in a file nobody ran.
+      - name: compile all modules
+        run: python -m compileall -q ai_modules backend digitizer tools edge
+
+  fixture:
+    name: Fixture generator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # The generator is the only writer of building-data.json. Running it in dry-run
+      # mode proves the programme library still parses and the geometry still resolves
+      # — the two things that silently rot when someone edits the JSON by hand.
+      - name: regenerate fixture (dry run)
+        run: python3 tools/officeize_fixture.py

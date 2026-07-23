@@ -41,7 +41,7 @@ The frontend connects to the local Go backend to render the 3D map and interacti
 cd econ/dashboard
 
 # Install all Node.js dependencies (use --legacy-peer-deps to bypass Three.js peer conflicts)
-npm install --legacy-peer-deps
+npm ci
 
 # Start the Vite development server
 npm run dev
@@ -63,7 +63,7 @@ needed. Use `npm run dev:local` if you want the old loopback-only behaviour.
 ```bash
 # 🚨 CRITICAL: Make sure you are in the dashboard folder!
 cd econ/dashboard
-npm install --legacy-peer-deps
+npm ci
 npm run dev
 ```
 

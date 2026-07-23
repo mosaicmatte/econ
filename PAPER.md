@@ -32,7 +32,7 @@ same learned layer drives per-(zone, metric, hour) baselines scored in σ, an au
 plug-load sweep that closes the loop the BMS could not, and a model bundle that can be
 exported and scored offline.
 
-We report what is verified separately from what is not. Fifty Go tests pass, including
+We report what is verified separately from what is not. Fifty-seven Go tests pass, including
 recovery of a synthetic room's time constant and cooling authority to within 15% of ground
 truth and a regression test for a live failure in which closed-loop collinearity destroyed
 the fit. Deriving envelope resistance from geometry moved **93% of zones into the 1–40 h**
@@ -803,8 +803,10 @@ We separate what is verified from what is not, because the distinction is the po
 
 ### 8.1 Verified
 
-**The estimator recovers known dynamics.** A suite of **50 Go tests passes** — 42 in the
-simulation package and 8 in the server package (`go test ./...`).
+**The estimator recovers known dynamics.** A suite of **57 Go tests passes** — 42 in the
+simulation package and 15 in the server package (`go test ./...`), the latter including a
+suite that attempts the cross-origin WebSocket takeover of §9.1.11 and asserts it is
+refused.
 `TestDynamicsIdentifiesKnownRoom` recovers a synthetic room's thermal time constant
 and cooling authority to **within 15%** of ground truth;
 `TestDynamicsIdentifiesAirChangeRate` recovers air-change rate to the same tolerance;
@@ -850,9 +852,44 @@ With envelope resistance derived from geometry, that falls to 4% and the cooling
 sign is correct in 96% of rooms. The identifier had been faithfully recovering the physics of
 a building modelled as a thermos.
 
-**No room has yet passed the maturity gate** (median 3 of 36 samples at time of writing), so
-no identified coefficient is in use by the controller. We report convergence, not
-convergence *achieved*.
+**Two rooms have now passed the maturity gate — and the gate is doing more work than the
+sample count.** A 7.5-hour continuous run on the live instance produced, across 735 zones:
+
+| | Count |
+|---|---|
+| Zones with ≥ 36 thermal samples (the nominal gate) | **250** of 735 |
+| Zones reported **identified** (`thermalReady`) | **2** |
+| Median thermal samples | 35 |
+| Maximum thermal samples | 103 |
+
+The 250 → 2 collapse is the point, and it is the refusal discipline of §7.9 operating one
+level earlier than the setback decision. Maturity is not a counter: `thermalUsable()`
+requires the sample count *and* that the fit be physically sane — the envelope coefficient
+inside $(0.02,\,15)\ \mathrm{h^{-1}}$ (a time constant between ~4 minutes and ~50 hours) and
+the cooling term strictly negative, because heat flows from hot to cold and cooling removes
+heat. Neither sign is learned from data; both are known in advance. A fit that violates one
+has not discovered surprising physics, it has landed in the null space of an
+under-determined problem — 248 rooms accumulated enough samples and were still reported as
+*not identified* rather than being allowed to predict.
+
+The two that passed:
+
+| Zone | τ | Cooling authority | Per-occupant | n | Residual |
+|---|---|---|---|---|---|
+| `conference-2-lvl10` | 24.8 h | 1.363 | 0.0038 °C | 40 | 1.085 |
+| `conference-2-lvl14` | 24.8 h | 1.363 | 0.0038 °C | 40 | 1.085 |
+
+**These are not two independent confirmations.** The coefficients agree to four significant
+figures because they are the same generated conference-room template on two floors,
+experiencing near-identical simulated conditions — so this is one result observed twice, and
+a τ of 24.8 h sits at the slow end of the plausible band. What the run demonstrates is that
+the gate can be passed and that the sanity checks reject the overwhelming majority of
+mature-by-count fits. It does not yet demonstrate identification on a *physically
+instrumented* room, which is the result that would matter, and which requires more edge
+nodes than the two currently reporting.
+
+Accordingly: an identified coefficient is now available to the controller for two zones,
+and no setback decision in the measurements reported here was driven by one.
 
 **Projected rather than measured savings.** Applying reduction fractions to the measured
 end-use shares of [1] gives ≈11.9% of building electricity: plug loads 6.6% (26.4% × 25%),
@@ -925,12 +962,23 @@ following are **not implemented**, and the system should not be described as if 
    16:00. A BH1750 sensor (`-DUSE_LUX=1`) publishes measured illuminance and the engine
    ingests it, but **nothing drives solar gain from that measurement yet**; this is the same
    sensing-precedes-actuation pattern as limitation 5.
-10. **The firmware is not deployable at building scale.** No OTA update path, MQTT anonymous
-    on port 1883, per-board identity baked into build flags, and no local fail-safe when the
-    broker is unreachable beyond the Raspberry Pi gateway. Forty ceiling boxes cannot be
-    USB-flashed one at a time. This blocks a real installation harder than any missing
-    sensor, and it is a deployment problem rather than a research one — which is precisely
-    why it is easy to leave unstated.
+10. **The firmware is not deployable at building scale.** No OTA update path, no per-board
+    identity — every node shares one `econ-node` broker credential compiled into
+    `wifi_secrets.h` — and no local fail-safe when the broker is unreachable beyond the
+    Raspberry Pi gateway. Forty ceiling boxes cannot be USB-flashed one at a time, and one
+    board cannot be revoked without rotating all of them. This blocks a real installation
+    harder than any missing sensor, and it is a deployment problem rather than a research
+    one — which is precisely why it is easy to leave unstated.
+11. **Transport is authenticated but not encrypted.** The broker rejects anonymous clients
+    and an ACL confines nodes to telemetry, so a sensor node can no longer command a relay;
+    the engine's WebSocket validates `Origin` and requires a token before accepting any
+    command. All of it is plaintext on the LAN. That stops the accidental and the casual,
+    not an attacker already on the segment — mTLS between nodes and broker is the next step
+    and is what IEC 62443 zoning assumes.
+12. **There is one shared operator token, not user identity.** Every write is authorized by
+    the same secret, so the append-only audit log can record what changed and when but never
+    *who*. Adequate for a single-operator pilot; inadequate the moment two people can
+    command the building.
 
 ---
 
@@ -1088,10 +1136,14 @@ Everything outside this diagram is in A.6 or A.7.
 | `/api/rooms/models` | `dynamics.go` | **none** | **BUILT, UNWIRED** — the identification results have no UI |
 | `/api/forecast/load`, `/api/forecast/engines` | `forecast.go` (TimesFM) | **none** | **BUILT, UNWIRED** — zero-shot forecasting is reachable only by direct HTTP |
 
-> The two unwired endpoints are the paper's clearest instance of its own thesis: the
-> identification layer of §7.8 is the system's differentiator and **has no dashboard**, so the
-> convergence table of §8.2 had to be assembled by querying the engine directly. Surfacing
-> `/api/rooms/models` is the highest-value UI work outstanding.
+> The two unwired endpoints are the paper's clearest instance of its own thesis. The
+> identification layer of §7.8 is the system's differentiator, and while the dashboard shows
+> its *counts* (`roomsIdentified` / `roomsLearning`, carried on `/api/recommendations`), **no
+> per-room coefficient is displayed anywhere** — not a time constant, not a cooling
+> authority, not a residual. The tables of §8.2 had to be assembled by querying the engine
+> directly. Surfacing `/api/rooms/models` is the highest-value UI work outstanding: without
+> it an operator cannot see why a setback was refused, which is the one thing this system
+> does that a conventional BMS cannot.
 
 ---
 
@@ -1200,7 +1252,7 @@ Consolidated from §9.1 so that one list answers "what does ECON not do":
 The inventory above is mechanically checkable, and should be re-derived rather than trusted:
 
 ```bash
-cd econ/server && go build ./... && go test ./...      # 50 tests
+cd econ/server && go build ./... && go test ./...      # 57 tests
 grep -rn "HandleFunc" server/main.go                    # API surface vs A.3
 grep -rn "api/" dashboard/src/                          # which endpoints have callers
 ```

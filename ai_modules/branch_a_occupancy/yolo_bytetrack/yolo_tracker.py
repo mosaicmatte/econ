@@ -14,6 +14,7 @@ Run on demo footage:        python3 yolo_tracker.py --source people-detection.mp
 Headless (no cv2 window):   python3 yolo_tracker.py --source 0 --headless
 """
 
+import os
 import argparse
 import json
 import logging
@@ -54,6 +55,13 @@ def make_mqtt_client():
     except AttributeError:
         client = mqtt.Client(client_id=cid)
     client.will_set(STATUS_TOPIC, "offline", retain=True)
+
+    # Broker credentials. The shipped broker refuses anonymous clients (see
+    # server/mosquitto/mosquitto.conf); run server/setup-mqtt-auth.sh to mint them.
+    # Unset is only correct against the anonymous dev broker.
+    _u = os.environ.get("MQTT_USER", "")
+    if _u:
+        client.username_pw_set(_u, os.environ.get("MQTT_PASS", ""))
 
     def on_connect(c, *rest):
         c.publish(STATUS_TOPIC, "online", retain=True)

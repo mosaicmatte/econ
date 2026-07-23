@@ -18,7 +18,14 @@ services:
     ports:
       - "1883:1883"
     volumes:
+      # Authenticated by default. Run ./setup-mqtt-auth.sh once to mint mosquitto/passwd
+      # before the first start — the broker will not come up without it, which is the
+      # correct failure for something that switches mains circuits.
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+      # Local demo with no hardware attached? Swap the three lines above for this one:
+      # - ./mosquitto/mosquitto.dev.conf:/mosquitto/config/mosquitto.conf
 
   server:
     build: .
@@ -33,6 +40,12 @@ services:
       # the running building then require this token (X-Admin-Token). Empty = open, for
       # the local demo only.
       - ECON_ADMIN_TOKEN=${ECON_ADMIN_TOKEN:-}
+      # Broker credentials, minted by ./setup-mqtt-auth.sh into .env beside this file.
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      # Only needed when the dashboard is served from a DIFFERENT host than the engine.
+      # Same-host deployments (including a phone on the LAN) pass without this.
+      - ECON_ALLOWED_ORIGINS=${ECON_ALLOWED_ORIGINS:-}
       # Building-local timezone. The APLC plug sweep arms OUTSIDE work hours by the
       # wall clock of the building, not of the container (which defaults to UTC — 7
       # hours off in Vietnam, i.e. armed at lunch, disarmed at midnight).

@@ -10,11 +10,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for dev
-	},
-}
+// checkOrigin lives in auth.go. Browsers do not apply the same-origin policy to
+// WebSockets, so this is the only thing standing between a page the operator happened to
+// open and a socket that can switch the building.
+var upgrader = websocket.Upgrader{CheckOrigin: checkOrigin}
 
 func main() {
 	// 1. Serve static building data
@@ -137,8 +136,14 @@ func main() {
 		handleWebSocket(w, r, engine)
 	})
 
-	// Start server
-	port := "8080"
+	// Start server. PORT is overridable so a second engine can be run alongside a live
+	// one — the identification soak takes hours, and having to kill it to test an
+	// unrelated change is how a soak never finishes.
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	logAuthPosture()
 	log.Printf("ECON Enterprise Backend running on port %s...\n", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("Server failed: %v", err)
@@ -158,11 +163,37 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, engine *simulation.
 
 	log.Println("New telemetry client connected!")
 
+	// Telemetry is readable by anyone who got this far; control is not. A connection
+	// starts unauthorized and stays that way until it presents the token, so the
+	// read-only case (a wall display, a read-only viewer) needs no credential at all.
+	// In demo mode (no ECON_ADMIN_TOKEN) every connection is authorized on arrival —
+	// the engine warns about that at boot rather than silently pretending otherwise.
+	authorized := !authEnforced()
+
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			log.Println("Client disconnected")
 			break
+		}
+		// The auth handshake is handled before the command log line: a token must never
+		// be written to the log, and every other message is safe to record.
+		if tok, isAuth := parseAuthMessage(msg); isAuth {
+			authorized = tokenMatches(tok)
+			if authorized {
+				log.Println("[auth] websocket client authorized for control")
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"auth","ok":true}`))
+			} else {
+				log.Println("[auth] websocket client presented an invalid token")
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"auth","ok":false}`))
+			}
+			continue
+		}
+		if !authorized {
+			log.Printf("[auth] refused command from unauthorized websocket client: %s", string(msg))
+			_ = conn.WriteMessage(websocket.TextMessage,
+				[]byte(`{"type":"error","error":"unauthorized: send {\"action\":\"auth\",\"token\":\"...\"} before issuing commands"}`))
+			continue
 		}
 		log.Printf("Received command: %s", string(msg))
 		// Isolate command handling: a panic here must never take down the whole

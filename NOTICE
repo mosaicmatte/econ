@@ -1,0 +1,23 @@
+ECON — Building Digital Twin
+Copyright 2026 Nguyen Hoang Khoi
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product bundles third-party components under their own licenses,
+including but not limited to:
+
+  - Eclipse Paho MQTT Go client        (EPL-2.0)
+  - gorilla/websocket                  (BSD-3-Clause)
+  - lib/pq                             (MIT)
+  - google/flatbuffers                 (Apache-2.0)
+  - React, Vite, three.js, @react-three/fiber and drei  (MIT)
+  - Ultralytics YOLO                   (AGPL-3.0) — see note below
+  - Brick Schema                       (BSD-3-Clause)
+
+NOTE ON ULTRALYTICS: ai_modules/branch_a_occupancy and the Branch B symbol
+detector import the `ultralytics` package, which is AGPL-3.0. AGPL obligations
+attach to those modules and to any network service built from them. They are
+optional components — the Go engine, the dashboard and the edge firmware run
+without them. Anyone distributing or hosting ECON with the CV modules enabled
+must either comply with AGPL-3.0 for those parts or obtain an Ultralytics
+commercial license.

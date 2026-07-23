@@ -81,6 +81,13 @@ def main():
         
         status_topic = f"econ/status/{suffix}"
         client.will_set(status_topic, "offline", retain=True)
+
+        # Broker credentials. The shipped broker refuses anonymous clients (see
+        # server/mosquitto/mosquitto.conf); run server/setup-mqtt-auth.sh to mint them.
+        # Unset is only correct against the anonymous dev broker.
+        _u = os.environ.get("MQTT_USER", "")
+        if _u:
+            client.username_pw_set(_u, os.environ.get("MQTT_PASS", ""))
         
         def safe_on_connect(*args, **kwargs):
             print(f"Connected to broker at {MQTT_BROKER}:{MQTT_PORT}")

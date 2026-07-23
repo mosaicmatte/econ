@@ -16,7 +16,34 @@ Prerequisites: Docker, Go 1.21+, Node 18+, Python 3.10+. For hardware, PlatformI
 
 ---
 
-## 0. Fast path — software only, no hardware
+## 0. Credentials — do this first
+
+`econ/commands/<zone>` carries the message that closes a relay on a 220 V circuit. The
+broker refuses anonymous clients by default and the engine refuses unauthenticated
+commands, so both need credentials before anything starts.
+
+```bash
+cd econ/server && ./setup-mqtt-auth.sh
+```
+
+This mints three broker identities (`econ-engine`, `econ-node`, `econ-gateway`), an admin
+token for the operator, and writes `mosquitto/passwd` and `.env`. Both files are chmod 600
+and gitignored. **It prints the node and gateway passwords exactly once** — copy them
+somewhere before you close the terminal; you will need them when flashing firmware (§6.1)
+and starting the gateway (§6.4).
+
+**Pass:** `mosquitto/passwd` has three lines and `.env` contains `ECON_ADMIN_TOKEN`.
+**Fail:** "need either mosquitto_passwd or docker" → install mosquitto-clients, or start
+Docker Desktop so the script can borrow the broker image's own hashing tool.
+
+> **Bench testing with no hardware?** You can skip this and swap the broker to the
+> anonymous config — in `docker-compose.yml`, replace the three `mosquitto/*` volume lines
+> with `- ./mosquitto/mosquitto.dev.conf:/mosquitto/config/mosquitto.conf`. Do that only
+> on a network you own, and never with a relay wired to a real circuit.
+
+---
+
+## 0.5 Fast path — software only, no hardware
 
 If you only need the twin running:
 
@@ -25,10 +52,13 @@ cd econ/server && docker compose up -d && go run .
 ```
 
 ```bash
-cd econ/dashboard && npm install --legacy-peer-deps && npm run dev
+cd econ/dashboard && npm ci && npm run dev
 ```
 
-Open http://localhost:5188. Then jump to §7 to verify. Everything below is the full path.
+Open http://localhost:5188. Paste the admin token from §0 into the dashboard when it asks —
+telemetry streams without it, but every command is refused until you do.
+
+Then jump to §7 to verify. Everything below is the full path.
 
 ---
 
@@ -40,20 +70,32 @@ Everything edge-side depends on this, so it goes first.
 cd econ/server && docker compose up -d mqtt
 ```
 
-**Test** — publish and subscribe to yourself:
+**Test** — publish and subscribe to yourself, authenticating as the engine:
 
 ```bash
-docker exec -it server-mqtt-1 mosquitto_sub -t 'econ/#' -v
+docker exec -it server-mqtt-1 mosquitto_sub -u econ-engine -P "$(grep MQTT_PASSWORD .env | cut -d= -f2)" -t 'econ/#' -v
 ```
 
 In a second terminal:
 
 ```bash
-docker exec -it server-mqtt-1 mosquitto_pub -t 'econ/test' -m 'hello'
+docker exec -it server-mqtt-1 mosquitto_pub -u econ-engine -P "$(grep MQTT_PASSWORD econ/server/.env | cut -d= -f2)" -t 'econ/commands/test' -m 'hello'
 ```
 
-**Pass:** `econ/test hello` appears in the first terminal.
-**Fail:** nothing appears → the container is not up, or port 1883 is taken (`lsof -i :1883`).
+**Pass:** `econ/commands/test hello` appears in the first terminal.
+**Fail, "Connection Refused: not authorised":** §0 was skipped, or you are using the wrong
+identity — `econ-node` is deliberately forbidden from publishing commands (that is the ACL
+working, not a bug).
+**Fail, nothing appears:** the container is not up, or port 1883 is taken (`lsof -i :1883`).
+
+**Test the ACL actually bites** — a sensor node must not be able to command a relay:
+
+```bash
+docker exec -it server-mqtt-1 mosquitto_pub -u econ-node -P '<node password>' -t 'econ/commands/zone_1' -m 'LIGHTS_OFF'
+```
+
+**Pass:** the publish is rejected or silently dropped and nothing reaches the subscriber.
+**Fail:** `LIGHTS_OFF` appears → the ACL file is not mounted; check the `acl` volume line.
 
 Leave the subscriber running. It is the single most useful diagnostic window for everything
 that follows.
@@ -133,7 +175,7 @@ untrained — the engine degrades to its own statistical forecast and says so.
 ## 5. Dashboard
 
 ```bash
-cd econ/dashboard && npm install --legacy-peer-deps && npm run dev
+cd econ/dashboard && npm ci && npm run dev
 ```
 
 **Test:** open http://localhost:5188.

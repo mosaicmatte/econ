@@ -1,0 +1,31 @@
+# Who may publish what.
+#
+# The engine is the only party permitted to write econ/commands/#. Nodes report and
+# listen; they do not command each other. This is what stops one compromised ceiling box
+# from switching every relay on the floor — authentication alone would not.
+
+# The Go engine: reads all telemetry and status, issues all commands.
+user econ-engine
+topic read econ/telemetry/#
+topic read econ/status/#
+topic write econ/commands/#
+
+# Edge nodes (ESP32, Pico, Raspberry Pi gateway, CV occupancy nodes) share this identity.
+# They publish their own telemetry and liveness, and subscribe to commands.
+#
+# Per-node identities are the next step and are the right answer for a real install: give
+# every board its own user and narrow these wildcards to its own topic. That work is
+# gated on provisioning (see ROADMAP: firmware identity is baked into build flags today),
+# so this file grants the node role as a whole for now — which is still strictly better
+# than the anonymous broker it replaces.
+user econ-node
+topic write econ/telemetry/#
+topic write econ/status/#
+topic read econ/commands/#
+
+# The failsafe gateway additionally needs to SEE commands to detect engine liveness, and
+# to publish its own setbacks when the engine goes silent.
+user econ-gateway
+topic read econ/telemetry/#
+topic read econ/status/#
+topic readwrite econ/commands/#

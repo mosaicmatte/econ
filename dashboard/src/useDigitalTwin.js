@@ -3,7 +3,7 @@ import * as flatbuffers from 'flatbuffers';
 import { SimState } from './telemetry';
 import { getBuilding } from './buildingStore';
 const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
-import { API_BASE, WS_URL } from './api';
+import { API_BASE, WS_URL, getAdminToken } from './api';
 
 const INTEGRATION_BY_TYPE = {
   'server-room': 1.05,
@@ -95,6 +95,10 @@ export function useDigitalTwin(onUpdate) {
   const activeScenarioRef = useRef(activeScenario);
   const lastHistUpdateRef = useRef(0);
   const wsRef = useRef(null);
+  // Whether this connection may issue commands. Starts true so a demo engine (no token
+  // configured) behaves exactly as before; a real engine flips it false the moment it
+  // rejects a token, and the UI can then say so instead of silently dropping commands.
+  const [wsAuthorized, setWsAuthorized] = useState(true);
 
   // Every value here is real: streamed straight from the Go physics engine's GlobalData
   // (buildingLoadMw, coolingOutputMw, plantCop, energySavedMw, totalOccupants) or computed
@@ -185,6 +189,14 @@ export function useDigitalTwin(onUpdate) {
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
 
+      ws.onopen = () => {
+        // Authorize for control before anything can be sent. Telemetry streams either
+        // way, so a viewer with no token still sees the building — it just cannot
+        // change it. An engine in demo mode ignores this entirely.
+        const token = getAdminToken();
+        if (token) ws.send(JSON.stringify({ action: 'auth', token }));
+      };
+
       ws.onclose = () => {
         if (!alive) return;
         wsRef.current = null;
@@ -192,6 +204,23 @@ export function useDigitalTwin(onUpdate) {
       };
 
       ws.onmessage = (event) => {
+      // Telemetry arrives as binary FlatBuffers; the engine's control replies (auth
+      // result, refusals) are text. Feeding a string to ByteBuffer throws inside the
+      // stream handler, so the two are separated before any parsing happens.
+      if (typeof event.data === 'string') {
+        try {
+          const ctl = JSON.parse(event.data);
+          if (ctl.type === 'auth') {
+            setWsAuthorized(!!ctl.ok);
+            if (!ctl.ok) console.warn('[econ] control token rejected — commands will be refused');
+          } else if (ctl.type === 'error') {
+            console.warn('[econ] engine refused a command:', ctl.error);
+          }
+        } catch {
+          console.warn('[econ] unparseable text frame from engine:', event.data);
+        }
+        return;
+      }
       const buf = new flatbuffers.ByteBuffer(new Uint8Array(event.data));
       const state = SimState.getRootAsSimState(buf);
       
@@ -350,6 +379,7 @@ export function useDigitalTwin(onUpdate) {
     globalMetrics,
     loadScenario,
     sendManualOverride,
-    aiForecast
+    aiForecast,
+    wsAuthorized
   };
 }

@@ -117,6 +117,13 @@ def health_loop():
 
 def main():
     client = mqtt.Client(client_id="econ-rpi-gateway")
+
+    # Broker credentials. The shipped broker refuses anonymous clients (see
+    # server/mosquitto/mosquitto.conf); run server/setup-mqtt-auth.sh to mint them.
+    # Unset is only correct against the anonymous dev broker.
+    _u = os.environ.get("MQTT_USER", "")
+    if _u:
+        client.username_pw_set(_u, os.environ.get("MQTT_PASS", ""))
     client.on_connect = on_connect
     client.on_message = on_message
     client.will_set("econ/status/gateway", "offline", retain=True)
