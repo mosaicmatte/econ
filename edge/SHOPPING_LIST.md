@@ -28,9 +28,9 @@ aspirational. Pin assignments and circuits are in [WIRING.md](WIRING.md).
 | Build | What it demonstrates | Parts | ≈ VND / node |
 |---|---|---|---|
 | **A. Bare demo** | The full software loop with zero wiring — capacitive touch presence on GPIO32, simulated temperature (honestly flagged `tempReal:false`) | ESP32 + cable | ~220k |
-| **B. Standard office node** | Real temperature, real presence including people sitting still, real AC control | A + SHT30 + Rd-03 + IR emitter + relay board + breadboard/jumpers | ~590k |
-| **C. Fully instrumented** | Everything in B plus measured CO₂ and ventilation identification | B + ACD1200 + level shifter | ~845k |
-| **D. Plug-load node (APLC)** | Adds the load a conventional BMS neither meters nor controls | C + SCT-013 clamp + analog front end (2nd relay channel already on the board) | ~990k |
+| **B. Standard office node** | Real temperature, real presence including people sitting still, real AC control | A + SHT30 + Rd-03 + IR emitter + SSR + breadboard/jumpers | ~615k |
+| **C. Fully instrumented** | Everything in B plus measured CO₂ and ventilation identification | B + ACD1200 + level shifter | ~870k |
+| **D. Plug-load node (APLC)** | Adds the load a conventional BMS neither meters nor controls | C + SCT-013 clamp + analog front end (2nd SSR channel already on the board) | ~1.01M |
 
 Build **B** is the recommended starting point for a real pilot: it is the cheapest
 configuration where every number on the dashboard is measured and every command reaches a
@@ -69,7 +69,8 @@ machine. Build **D** is what the plug-load case study (26.4% of office energy) n
 
 | # | Part | Qty | Firmware flag | Notes | ≈ VND |
 |---|---|---|---|---|---|
-| 11 | [**2-channel opto relay, 5 V**](https://hshop.vn/module-2-relay-voi-opto-coch-ly-koch-h-l-5vdc) `HS0998C` | 1 | default + `-DUSE_PLUG=1` | **One board covers both actuators.** `IN1 → GPIO23` switches the zone lights, `IN2 → GPIO25` switches the non-critical socket circuit for the after-hours sweep. Set the board's jumper to **high-level trigger** to match the firmware, and power the coils from 5 V | ✓ **35.000₫** |
+| 11 | [**2-channel SSR, 5 V (G3MB-202P)**](https://hshop.vn/module-2-relay-ran-ssr-5vdc) `HS0996` | 1 | default + `-DUSE_PLUG=1` | **In stock — buy this.** One board, both actuators: `CH1 → GPIO23` lights, `CH2 → GPIO25` socket. Trigger input is TTL 3.3–5 V (drives straight from the ESP32), high-level trigger (matches the firmware), DC+ on 5 V. **AC-only, 0.1–2 A** — a lamp needs ≥ ~25 W to clear the SSR's minimum, and a real socket circuit needs a contactor. Full wiring + specs in [WIRING §4 Option B](WIRING.md). | ✓ **59.000₫** |
+| 11b | *(mechanical, out of stock)* [2-ch opto relay High/Low](https://hshop.vn/module-2-relay-voi-opto-coch-ly-koch-h-l-5vdc) `HS0998C` | 1 | same | Dry contacts (COM/NO/NC), 10 A, switches AC **or** DC. Cheaper and no minimum-load quirk — buy it instead **when the 5 VDC variant restocks** (both it and `HS0997` were *Hết hàng* on 23 Jul 2026). Jumper to HIGH, coils on 5 V. | ✓ 35.000₫ |
 | 12 | **IR LED 940 nm, 5 mm** | 1–2 | `-DUSE_IR_AC=1` | Drives the split unit. Two in series widens coverage in a large room | 5–10k |
 | 13 | **NPN transistor** 2N2222 / S8050 / PN2222 | 1 | with #12 | **Required.** A GPIO sources ~12 mA; an IR LED wants ~100 mA of pulse current for useful range. Straight off the pin you get about a metre | 3–5k |
 | 14 | Resistors: **1 kΩ** (transistor base), **10 Ω** ¼ W (LED current) | 1 ea | with #12 | See the driver circuit in WIRING.md | ~1k ea |
@@ -185,24 +186,24 @@ One instrumented floor: three standard office nodes plus one plug-load node, on 
 | Micro-USB 1 m + 5 V 2 A PSU @99k | 4 | 396k |
 | SHT30-IIC @135k | 4 | 540k |
 | Rd-03 mmWave radar @70k | 4 | 280k |
-| 2-channel opto relay @35k | 4 | 140k |
+| 2-channel SSR @59k *(mechanical relay out of stock)* | 4 | 236k |
 | IR LED + transistor + resistors (off-site) | 4 | ~60k |
 | Breadboard + jumper ribbon @65k | 4 | 260k |
 | ACD1200 + level shifter @253k | 2 | 506k |
 | SCT-013 + capacitor kit + passives | 1 | ~147k |
 | Pi 5 2 GB + 64 GB SD + 27 W PSU | 1 | 3.024k |
-| **Total** | | **≈ 6.1M VND** |
+| **Total** | | **≈ 6.21M VND** |
 
-**Value variant, ≈ 3.85M.** Swap the node board for the Mtiny ESP32 (125k), the cable for
+**Value variant, ≈ 3.95M.** Swap the node board for the Mtiny ESP32 (125k), the cable for
 the 30 cm one (27k), and the gateway for a Pi Zero 2 W + 64 GB SD + 5 V 2 A brick (1.125k).
 Nothing measured changes — every sensor, actuator and firmware flag is identical, and the
 twin cannot tell the difference. The saving is entirely in the two parts that only host
 software.
 
-The earlier ≈5.2M figure was optimistic by about 900k, and **all of the gap is in the two
-lines that were estimates rather than looked-up prices**: the gateway (3.02M against a
-2.30M guess) and the node board + cable + PSU (1.16M against 980k). Every part that was
-actually priced on 21 Jul came in at exactly the same figure today.
+The actuator line rose 140k → 236k because the 35k mechanical relay is out of stock and the
+in-stock swap is the 59k SSR (§4 Option B). When the mechanical board restocks it drops back
+to 140k, taking both totals down ~96k (≈ 6.11M / ≈ 3.85M). Every other line was priced on
+hshop on 22–23 Jul and is unchanged.
 
 CO₂ is still the expensive sensing line. Fit the ACD1200 in the rooms where ventilation is
 actually in question — meeting rooms and dense open-plan — and leave it out of corridors

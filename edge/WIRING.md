@@ -183,7 +183,21 @@ GPIO sources ~12 mA, and an IR LED needs ~100 mA of pulse current to reach acros
 
 ## 4. Relays — lighting and sockets
 
-A single **2-channel** opto-isolated board covers both actuators:
+A single **2-channel** board covers both actuators — the lighting relay on GPIO23 and the
+switchable socket on GPIO25. Both channels are driven **active HIGH** by the firmware
+(`setLights()` / `setPlug()`), and the plug channel is driven HIGH in `setup()` before
+anything else: **fail-energized**, so a rebooting node never dark-kills a live socket while
+powered (how a BMS behaves, and how the after-hours sweep stays safe).
+
+Two board types fit this footprint, and they wire **differently**, so pick your section
+below. **Buy the SSR (Option B) — the mechanical 5 VDC boards are out of stock:** `HS0998C`
+(the 5 VDC variant of the high/low board) and `HS0997` are both *Hết hàng* at hshop, and the
+equivalent at caka is out too, as of 23 Jul 2026.
+
+### Option A — mechanical relay (currently out of stock)
+
+Dry contacts (COM / NO / NC), typically 10 A, and switch **AC or DC**. Restocks under
+`HS0998C` — check the 5 VDC variant shows *Còn hàng* before ordering.
 
 ```
    ESP32 GPIO23 ──────► IN1  ┌──────────────────┐  CH1 COM ── mains live in
@@ -193,15 +207,45 @@ A single **2-channel** opto-isolated board covers both actuators:
                              └──────────────────┘  CH2 NO  ── to socket circuit
 ```
 
-- Both channels are **active HIGH** in firmware. Most of these boards carry a
-  **high/low trigger jumper — set it to HIGH.** If your lights come on inverted, that jumper
-  is the first thing to check; failing that, invert `setLights()`.
+- Set the board's **high/low trigger jumper to HIGH**. If lights come on inverted, that
+  jumper is the first thing to check; failing that, invert `setLights()`.
 - Wire to **NO** (normally open) so a dead node leaves the circuit in its unpowered state.
-- The plug relay is driven HIGH in `setup()` before anything else: **fail-energized**. A
-  rebooting node must never dark-kill a live socket, which is how a BMS behaves and how the
-  after-hours sweep stays safe.
 
-> ⚠️ **Mains.** 220 V AC kills. Use an enclosed, opto-isolated relay board rated for the
+### Option B — solid-state relay (SSR) — the in-stock choice ✅
+
+**hshop `HS0996`, 59.000₫, Còn hàng — OMRON G3MB-202P × 2, zero-cross, photo-triac isolated.**
+Every spec below was read off the datasheet/listing and checked against this node:
+
+| Spec | Value | Compatible because |
+|---|---|---|
+| Trigger input | **TTL 3.3–5 VDC** | ESP32 GPIO is 3.3 V — drives CH1/CH2 **directly**, no level shifter, no transistor |
+| Trigger polarity | **High-level** ("High Level Trigger") | Matches the firmware's active-HIGH `setLights()`/`setPlug()` — **no inversion needed** |
+| Supply (DC+) | **5 VDC**, 20 mA/channel | From **VIN (5 V)**; 40 mA for both is trivial — and with no coil, the "node reboots when the relay clicks" failure (§1) goes away |
+| Output | **75–240 VAC, 0.1–2 A, AC only** | 220 VAC lighting + socket are in range. **Cannot switch DC**, nor AC below 75 V |
+| Isolation | Photo-triac | Mains side stays optically isolated from the ESP32 — same intent as the opto relay |
+
+```
+   INPUT  (→ ESP32)              OUTPUT (mains — each pair in SERIES with the LIVE wire)
+   GPIO23 ──► CH1                CH1:  L ──[ A1 ─ B1 ]── luminaire ── N
+   GPIO25 ──► CH2                CH2:  L ──[ A2 ─ B2 ]── socket    ── N
+   5 V VIN ─► DC+
+   GND     ─► DC-                no COM/NO/NC — the pair IS the switch; neutral stays common
+```
+
+- **The output pair goes in series with the LIVE conductor and the load** — not a COM/NO
+  contact. This is the one wiring change from Option A.
+- ⚠️ **0.1 A minimum load.** A small LED lamp (≲ 25 W ≈ 0.1 A at 230 V) can sit *below* the
+  triac's holding current: it may switch unreliably or glow faintly when "off" (leakage).
+  Drive the lighting channel with a ≥ ~25 W load, or put the SSR on the socket circuit and a
+  mechanical relay on the lights once it restocks. This is the SSR's only behavioural
+  difference from a dry contact.
+- ⚠️ **2 A ceiling (≈ 460 W/channel).** Fine for a lamp or a single desk. A real switchable
+  **socket circuit** (a cluster of PCs + monitors) exceeds this — there the SSR **pilots a
+  contactor** rather than carrying the load itself (see §8, "Controller → SSR input").
+- **Zero-cross switching** suits resistive / lamp / socket loads; do **not** use it on a
+  phase-cut dimmer.
+
+> ⚠️ **Mains.** 220 V AC kills. Use an enclosed, isolated relay/SSR board rated for the
 > load, keep mains wiring inside an enclosure, and **have a licensed electrician do the
 > mains side.** Bench-test the whole system on a lamp before it goes near a distribution board.
 
@@ -412,6 +456,8 @@ Work down this list; each step proves the one below it is worth attempting.
 | `plugW` ≈ 0 with a load running | Clamp around both conductors instead of the live only |
 | `plugW` wrong by a constant factor | Wrong `PLUG_CAL_A_PER_V` for the CT variant (60.6 for -000 + burden, 30.0 for -030) |
 | AC ignores every setpoint | Wrong `IR_AC_PROTOCOL`; or no driver transistor (range < 1 m); or `acReal:false`, meaning `USE_IR_AC` was never set |
-| Lights inverted | Active-LOW relay board |
+| Lights inverted | Active-LOW mechanical board (Option A) — set its jumper to HIGH, or invert `setLights()`. The SSR (Option B) is high-level trigger and never inverts |
+| LED lamp flickers or glows when switched "off" | SSR below its **0.1 A minimum** load — use a ≥ 25 W load on that channel, or a mechanical relay for the lights |
+| SSR does nothing / no click and no switching | Expected — an SSR is silent (no click). Check the channel LED and that DC+ is on 5 V, not 3V3; and that the load is AC ≥ 75 V, never DC |
 | Two zones flickering between each other's readings | Both boards flashed with the same `ZONE_TOPIC` |
 | Occupancy drops on people sitting still | PIR only — fit the radar |
