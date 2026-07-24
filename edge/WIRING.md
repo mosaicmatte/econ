@@ -67,16 +67,122 @@ flowchart LR
   subgraph N["ESP32 Edge Node"]
     E["ESP32 WROOM-32<br/>NodeMCU-32S / DevKit v1"]
   end
-  SHT["SHT30<br/>temp + RH<br/>0x44"] -- "I²C 3.3V" --> E
-  LS["Level shifter<br/>BSS138 ×4"] -- "I²C 3.3V" --> E
-  CO2["ACD1200 NDIR<br/>CO₂ 0x2A<br/>5V pull-ups"] -- "I²C 5V" --> LS
-  RAD["Rd-03 radar<br/>presence 3.3V"] -- "GPIO18" --> E
-  CT["SCT-013 clamp<br/>+ burden + bias"] -- "GPIO34 ADC1" --> E
-  E -- "GPIO23 → IN1" --> RL["2-ch opto relay<br/>lighting + sockets"]
-  E -- "GPIO25 → IN2" --> RL
-  E -- "GPIO19" --> IR["IR driver<br/>→ split AC"]
-  E -- "WiFi / MQTT" --> BR["Mosquitto on the Pi<br/>→ Go engine"]
+  SHT["SHT30<br/>temp + RH · 0x44"] -- "I²C 3.3V" --> E
+  LS["Level shifter<br/>BSS138"] -- "I²C 3.3V" --> E
+  CO2["ACD1200 NDIR<br/>CO₂ · 0x2A · 5V"] -- "I²C 5V" --> LS
+  LUX["BH1750 lux<br/>0x23 · optional"] -- "I²C 3.3V" --> E
+  RAD["Rd-03 radar<br/>presence · 3.3V"] -- "GPIO18" --> E
+  DS["DS18B20 supply T<br/>optional"] -- "GPIO26 1-Wire" --> E
+  CT["SCT-013 plug clamp<br/>33R burden + bias"] -- "GPIO34 ADC1" --> E
+  E -- "GPIO23 → CH1" --> SSR["2-ch SSR G3MB-202P<br/>lights + socket"]
+  E -- "GPIO25 → CH2" --> SSR
+  E -- "GPIO19 → 1kΩ → 2N2222" --> IR["IR LED 940nm<br/>→ split AC"]
+  E -- "WiFi / MQTT" --> BR["Mosquitto broker<br/>→ Go engine"]
 ```
+
+---
+
+## Bill of connections — every terminal
+
+The full Build D node, device by device, matched to the parts actually bought
+([SHOPPING_LIST.md](SHOPPING_LIST.md)). Rails: **5 V** = USB PSU → ESP32 VIN; **3V3** = the
+ESP32's onboard regulator; **GND** is common to everything. A build flag in `[brackets]`
+means the row is present only with that flag; unflagged rows are always there. Every GPIO is
+a **number**, identical on the 30-pin DevKit and the 38-pin NodeMCU-32S.
+
+### ESP32 WROOM-32 (NodeMCU-32S) — every pin used
+
+| ESP32 pin | Dir | Net | Wires to | Flag |
+|---|---|---|---|---|
+| VIN / 5V | pwr in | 5V | PSU +5 V; SSR DC+; level-shifter HV; (PIR VCC) | — |
+| 3V3 | pwr out | 3V3 | SHT30, Rd-03, BH1750, DS18B20 VCC; shifter LV; both bias dividers; IR-LED anode via R2 | — |
+| GND | pwr | GND | PSU −, SSR DC−, every sensor GND, both bias dividers | — |
+| GPIO21 | I²C SDA | SDA | SHT30 SDA · BH1750 SDA · shifter LV1 | `USE_SHT30`/`USE_CO2`/`USE_LUX` |
+| GPIO22 | I²C SCL | SCL | SHT30 SCL · BH1750 SCL · shifter LV2 | same |
+| GPIO23 | out | — | SSR **CH1** (lighting) | *(default)* |
+| GPIO25 | out | — | SSR **CH2** (plug socket), boots HIGH | `USE_PLUG` |
+| GPIO19 | out | — | **R1 1 kΩ** → 2N2222 base | `USE_IR_AC` |
+| GPIO18 | in | — | Rd-03 **OT2** (pin 5) | `USE_MMWAVE` |
+| GPIO34 | ADC1 in | — | plug CT tip / bias node (input-only) | `USE_PLUG` |
+| GPIO35 | ADC1 in | — | AC-clamp CT tip / bias node (input-only) | `USE_AC_CLAMP` |
+| GPIO26 | 1-Wire | — | DS18B20 DATA (+ **R6 4.7 kΩ** to 3V3) | `USE_SUPPLY_TEMP` |
+| GPIO4 | in/out | — | DHT22/11 DATA (+ **R7 10 kΩ** to 3V3) | `USE_DHT` (fallback) |
+| GPIO5 | in | — | PIR HC-SR501 OUT | `USE_PIR` (optional) |
+| GPIO32 | touch T9 | — | bare jumper wire — zero-wiring presence demo | *(demo)* |
+| GPIO2 | out | — | onboard LED (MQTT link status) | *(always)* |
+
+> ADC note: GPIO34 and GPIO35 are **input-only** and both on **ADC1** — deliberate, because
+> ADC2 is dead whenever WiFi is up. Never move a clamp to an ADC2 pin (0, 2, 4, 12–15, 25–27).
+
+### Sensors & modules — pin by pin
+
+- **SHT30-IIC** (temp+RH, `0x44`): VCC→3V3 · GND→GND · SDA→GPIO21 · SCL→GPIO22. 3.3 V native, **no shifter**.
+- **ACD1200 NDIR CO₂** (`0x2A`) `[USE_CO2]`: VCC→**5 V** · GND→GND · SDA→shifter **HV1** · SCL→shifter **HV2** · **Pin 5 (SET) → leave FLOATING** (floating = I²C; low = 1200-baud UART, which the firmware doesn't speak).
+- **BSS138 level shifter** (with ACD1200): LV→3V3 · HV→**5 V** · GND→GND · LV1←GPIO21 · LV2←GPIO22 · HV1→ACD1200 SDA · HV2→ACD1200 SCL. This is the only thing on the bus that is 5 V — the ACD1200 pulls I²C to 5 V and the ESP32 is not 5 V tolerant.
+- **Rd-03 radar** `[USE_MMWAVE]`: VCC→3V3 · GND→GND · **OT2 (pin 5)→GPIO18**. 3.3 V throughout, no shifter; its UART pins are unused here.
+- **BH1750 lux** (`0x23`) `[USE_LUX]`: VCC→3V3 · GND→GND · SDA→GPIO21 · SCL→GPIO22 · ADDR→GND. Shares the I²C bus, 3.3 V, no shifter.
+- **DS18B20 (MKE-S15)** `[USE_SUPPLY_TEMP]`: VCC→3V3 · GND→GND · **DATA→GPIO26** with **R6 4.7 kΩ** DATA→3V3. Probe sits in the AC's discharge louvre.
+- **PIR HC-SR501** `[USE_PIR]`: VCC→**5 V** · GND→GND · OUT→GPIO5 (3.3 V logic out, no shifter).
+
+### Actuator — SSR G3MB-202P (HS0996)
+
+- **Input (low-voltage → ESP32):** DC+→**5 V** · DC−→GND · CH1←GPIO23 · CH2←GPIO25. Inputs are **TTL 3.3–5 V, high-level** — driven directly, no shifter, no transistor.
+- **Output (mains, each pair in SERIES with LIVE):** A1–B1 → live ↔ luminaire; A2–B2 → live ↔ socket. **No COM/NO/NC.** Neutral stays common to both loads. Full detail and the 0.1–2 A / AC-only caveats are in [§4 Option B](#4-relays--lighting-and-sockets).
+
+### IR AC driver `[USE_IR_AC]`
+
+```
+   GPIO19 ──[ R1 1 kΩ ]──► B (base)
+                                2N2222 (NPN, TO-92)
+   3V3 ──[ R2 10 Ω ]──►|IR LED 940nm|──► C (collector)
+                        (anode)  (cathode)
+   GND ───────────────────────────────► E (emitter)
+```
+
+IR LED is the caka **"Led Phát"** 940 nm emitter (buy 2 to widen coverage; if in series, raise R2 to ~4.7 Ω or drive from 5 V). Aim at the indoor unit's receiver window.
+
+### Plug CT front end — SCT-013-000 `[USE_PLUG]`
+
+```
+   3V3 ──[ R4 10 kΩ ]──┬── bias node (≈1.65 V) ──[ R5 10 kΩ ]── GND
+                       │
+                       ├──[ C1 0.1 µF ]── GND
+                       │
+   CT sleeve ──────────┘
+   CT tip ─────────────────────────────────────────► GPIO34
+   R3 33 Ω burden ─── across CT tip ↔ CT sleeve
+```
+
+Clamp around the **live conductor only**. Build `-DUSE_PLUG=1 -DPLUG_CAL_A_PER_V=60.6 -DPLUG_MAINS_V=230`. For the **SCT-013-030** (1 V voltage-output) variant, **omit R3** and build `-DPLUG_CAL_A_PER_V=30.0`.
+
+### AC-clamp front end — 2nd SCT-013 `[USE_AC_CLAMP]`
+
+Electrically **identical** to the plug front end but read on **GPIO35**, with its own copies: R3′ 33 Ω, R4′/R5′ 10 kΩ, C1′ 0.1 µF. Clamp around the AC indoor unit's own supply live.
+
+---
+
+## Passive components — the resistors and capacitor to buy
+
+All resistors **1/4 W** (5 % is fine), from the caka *"Điện Trở Vạch 1/4W"* value list; the
+0.1 µF caps come from the hshop ceramic kit. Per node:
+
+| Ref | Value | Qty | Where it goes | Purpose | Flag |
+|---|---|---|---|---|---|
+| **R1** | **1 kΩ** | 1 | GPIO19 → 2N2222 base | Limits transistor base current | `USE_IR_AC` |
+| **R2** | **10 Ω** | 1 | 3V3 → IR-LED anode | IR-LED current limit (~100 mA pulse) | `USE_IR_AC` |
+| **R3** | **33 Ω** | 1 | across SCT-013 (plug) | Burden: current → voltage; sets the 60.6 A/V scale | `USE_PLUG` |
+| **R4, R5** | **10 kΩ** | 2 | 3V3–node–GND divider (plug) | 1.65 V ADC mid-rail bias | `USE_PLUG` |
+| **C1** | **0.1 µF** | 1 | bias node → GND (plug) | Steadies the mid-rail | `USE_PLUG` |
+| R6 | 4.7 kΩ | 1 | DS18B20 DATA → 3V3 | 1-Wire pull-up | `USE_SUPPLY_TEMP` |
+| R3′ | 33 Ω | 1 | across 2nd SCT-013 | Burden | `USE_AC_CLAMP` |
+| R4′, R5′ | 10 kΩ | 2 | 2nd bias divider | mid-rail bias | `USE_AC_CLAMP` |
+| C1′ | 0.1 µF | 1 | 2nd bias node → GND | Steadies the mid-rail | `USE_AC_CLAMP` |
+| R7 | 10 kΩ | 1 | DHT DATA → 3V3 | DHT pull-up | `USE_DHT` (fallback) |
+
+**Minimum resistor buy for Build D (plug + IR, no 2nd clamp):**
+**1 × 1 kΩ, 1 × 10 Ω, 1 × 33 Ω, 2 × 10 kΩ** — plus one 0.1 µF from the ceramic kit.
+Buy each value once (caka sells ~a bag per value at ~3.000₫), which leaves spares. The I²C
+and most sensor breakouts already carry their own 4.7 kΩ pull-ups — don't add more.
 
 ---
 
