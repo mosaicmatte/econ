@@ -334,10 +334,28 @@ the software is already waiting.
 | A second [SCT-013](https://hshop.vn/cam-bien-dong-dien-hall-100a-yhdc) on the AC supply | `HS0186` | ✓ **102.000₫** | `-DUSE_AC_CLAMP=1` → **GPIO35** | `flow`, today the twin's own simulated VAV. The compressor's power draw *is* the cooling drive term. ADC1, input-only, same front end as the plug clamp |
 | [BH1750 ambient light](https://hshop.vn/cam-bien-cuong-do-onh-song-lux-bh1750) | `HS0159V` | ✓ **35.000₫** | `-DUSE_LUX=1` → I²C `0x23` | Solar gain, today a static per-zone multiplier with no time-of-day or cloud response. A lux reading is a real irradiance proxy and the precondition for daylight-linked dimming. Shares the existing I²C bus, 3.3 V, no shifter |
 
-**212.000₫ for all three.** The node publishes `supplyC`, `acW` and `lux`; the engine
-ingests all three and already uses `supplyC` in place of the design constant wherever a
-probe reports. Fields are **omitted, never defaulted**, when a sensor is absent or fails —
-a fabricated zero on the AC clamp would tell the twin the compressor is off.
+**212.000₫ for all three.** Fields are **omitted, never defaulted**, when a sensor is absent
+or fails — a fabricated zero on the AC clamp would tell the twin the compressor is off.
+
+#### ⚠️ Only one of the three currently changes what the engine does
+
+The heading above says the software is waiting. That is true of the *firmware*, and it was
+written before anyone checked the engine end. Grepping every reference settles it:
+
+| Part | Field | What the engine does with it |
+|---|---|---|
+| **DS18B20** | `supplyC` | **Read.** `simulation/dynamics.go` — `if c.SupplyC > 0 { return c.SupplyC }`, otherwise `Phys().SupplyAirDesignC` (**12.0**). A probe changes what every room's cooling authority is *fitted against*, so it propagates into the identified model, the recommendations and the fault residual |
+| 2nd SCT-013 | `acW` | **Write-only.** `engine.go:515` assigns `z.HwAcW`; nothing anywhere reads it |
+| BH1750 | `lux` | **Write-only.** `engine.go:519` assigns `z.HwLux`/`HwLuxAt`; nothing anywhere reads it |
+
+So the DS18B20 moves a number today and the other two do not. Buy them anyway only if you
+want the data **banked**: since readings are now persisted with `device_id` and
+`quality='measured'` (see the hardware inspector), a clamp or lux cell fitted now builds a
+labelled series that the daylight-dimming and cooling-drive code can later be fitted
+against, instead of that work starting from zero history.
+
+This is the same rule the repo applies to savings claims, turned on hardware: a sensor that
+is wired, publishing and stored is still not a sensor the twin *uses*.
 
 ### Also worth a look, not yet in firmware
 
@@ -400,3 +418,31 @@ Buying is only worth it if the twin does something with it:
 | IR LED + driver | The control loop actually closing. Without it the twin computes setpoints that reach nothing (`acReal:false` in telemetry says so) |
 | SCT-013 | Measured plug load, the APLC after-hours sweep, and the avoided-energy counter |
 | Relay ×2 | Lighting and socket actuation — the two things the optimizer can physically change |
+
+### Every telemetry field, and what has to exist for it to arrive
+
+The same table read from the data side. Use it to answer "what am I still missing" without
+inferring it from a parts list — and check it against a live node with the **hardware
+inspector** (`?inspector`), which shows each field's arrival rate and, for anything absent,
+the build flag it needs.
+
+| Field | Needs (hardware) | Needs (build flag) | Consumed by the engine? |
+|---|---|---|---|
+| `temperature`, `humidity` | SHT30 on I²C | `USE_SHT30` | **Yes** — pins the physics, enables room identification |
+| `occupancy` | Rd-03 (or PIR) | `USE_MMWAVE` / `USE_PIR` | **Yes** — setback, lighting, per-occupant gain |
+| `co2` | ACD1200 **+ level shifter** | `USE_CO2` | **Yes** — CO₂ balance, measured air-change rate |
+| `plugW` | SCT-013 + burden + bias divider | `USE_PLUG` | **Yes** — APLC sweep, avoided-energy counter |
+| `acReal` | IR LED + NPN + R1/R2 | `USE_IR_AC` | **Yes** — gates whether a setback is booked as a saving |
+| lights / socket state | **SSR** (the actuator) | *(default)* / `USE_PLUG` | **Yes** — the only parts that change the building |
+| `supplyC` | DS18B20 in the louvre | `USE_SUPPLY_TEMP` | **Yes** — supersedes the 12 °C constant in the cooling fit |
+| `acW` | 2nd SCT-013 + 2nd front end | `USE_AC_CLAMP` | **No** — stored, never read |
+| `lux` | BH1750 on I²C | `USE_LUX` | **No** — stored, never read |
+
+Two failure modes this table exists to separate, because they look identical from the
+dashboard and are not the same problem:
+
+- **Flag not set.** The sensor is wired and fine; the firmware was not built to read it. The
+  inspector lists the field as *never reported* with the flag it wants.
+- **Sensor failing.** The flag is set and the field is *omitted* on some messages. The
+  inspector's `omitted` count rises against a node that is otherwise healthy — which is the
+  only way a single dying sensor is visible, since firmware never substitutes a placeholder.

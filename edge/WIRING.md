@@ -224,8 +224,13 @@ the bare sensor — and three of them do — the module wins, because that is wh
   I²C; low = 1200-baud UART, which the firmware doesn't speak). Average draw < 45 mA,
   120 s warm-up, refreshes every 2 s. **Its real range is 400–5000 ppm** — narrower than the
   firmware's 300–10000 ppm sanity window, so the sensor, not the filter, is the limit.
-- **BSS138 level shifter** (with ACD1200) — **the silkscreen does not say LV/HV.** The two
-  sides are lettered **B (low, 3.3 V)** and **A (high, 5 V)**:
+- **BSS138 level shifter** (with ACD1200) — ⚠️ **ships with its headers loose in the bag,
+  not soldered.** The board is bare through-holes; two 4-pin strips come with it and must be
+  soldered on before it connects to anything. Solder them **pointing down** so the board
+  plugs straight into the breadboard — it is 4 pins a side, so it straddles the centre
+  channel with the B side in one half and the A side in the other, which saves eight jumper
+  wires. **The silkscreen does not say LV/HV**; the two sides are lettered **B (low, 3.3 V)**
+  and **A (high, 5 V)**:
 
   | Low side → ESP32 | High side → ACD1200 |
   |---|---|
@@ -255,11 +260,15 @@ the bare sensor — and three of them do — the module wins, because that is wh
   out, no shifter). Draws **≤ 50 µA** — negligible, not the tens of mA often assumed. 360°
   cone, up to 6 m, with on-board trim pots for hold time and sensitivity.
 - **SCT-013 / STC013 100 A** `[USE_PLUG]`: split core, **max conductor diameter 13 mm**,
-  1.5 m lead. The listing does not state whether it is the `-000` (current output, needs the
-  burden) or `-030` (voltage output, no burden) — at 100 A it is the `-000`. **Confirm before
-  trusting a reading:** measure resistance across the two leads with nothing clamped. Open
-  circuit / very high = no internal burden, fit R3 as drawn. A few tens of ohms = it already
-  has one, in which case **omit R3** and calibrate from there.
+  1.5 m lead, terminated in a **3.5 mm TRS jack**. The listing does not state the variant,
+  but **the body is printed `100A/50mA`** — that is the `-000`, the current-output part, so
+  **the burden is required**. (A `-030` would read `30A/1V`.) Still worth confirming there is
+  no burden already inside: measure across the leads with nothing clamped — open circuit
+  means fit R3 as drawn, a few tens of ohms means one is fitted and you should **omit R3**.
+  - **The jack:** snip it off and land the two bare leads, which is one less part to source.
+    If you would rather keep the clamp detachable, buy a 3.5 mm socket breakout. Either way
+    **meter which contacts are live first** — usually tip and sleeve with the ring unused,
+    but confirm rather than assume, because a silent wrong contact reads as a dead clamp.
 
 ### Actuator — SSR G3MB-202P (HS0996)
 
@@ -781,8 +790,33 @@ responds at 3 m, you are done, and there is nothing to gain by pushing it.
    E ─────────────────────── to sockets
 ```
 
-⚠️ Around both conductors the fields cancel and you read ~0 A. This requires opening the
-circuit's enclosure — **electrician territory.**
+⚠️ Around both conductors the fields cancel and you read ~0 A. On a **distribution board**
+this means opening the enclosure — **electrician territory.**
+
+#### Bench-testing without an electrician
+
+You do not need a distribution board to prove the front end, and you do not need to expose
+a conductor either. Most lamps and small appliances use **zip cord** — the flat figure-8
+cable moulded from two conductors joined along a thin web.
+
+```
+   zip cord, as supplied            gently pulled apart, ~5 cm
+   ┌────────┐                       ┌────────┐
+   │ ●    ● │  ← two conductors     │ ●      │ ─── clamp goes around THIS one
+   └────────┘    joined by a web    └───┐    │
+                                        │ ●  │ ─── the other stays outside
+                                    ────┘────┘
+```
+
+Separate the two halves by hand for a few centimetres — **without cutting, stripping or
+nicking anything**. The insulation is never breached, so nothing conductive is exposed, and
+you can clamp one conductor for a genuine measurement under real load. Unplug it while you
+separate the cord and while you fit the clamp.
+
+This is the right way to do stage 8 of the bring-up table: a kettle or an incandescent lamp
+on a zip cord gives you a known resistive load to calibrate against, with no enclosure
+opened and no permit involved. Round sheathed cable (three cores inside an outer jacket)
+cannot be split this way — that one really does wait for the distribution board.
 
 ### How the firmware turns that voltage into watts
 
