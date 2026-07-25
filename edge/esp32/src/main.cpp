@@ -197,7 +197,10 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #endif
 #endif
 
-#if USE_SHT30 || USE_CO2
+// USE_LUX belongs here too: the BH1750 is an I2C part and shares this bus. Leaving it out
+// compiled a LUX-only node against a Wire.begin() that had no <Wire.h> behind it, and also
+// skipped the pin-collision guards below for that build.
+#if USE_SHT30 || USE_CO2 || USE_LUX
   #include <Wire.h>
   #ifndef I2C_SDA
     #define I2C_SDA 21
