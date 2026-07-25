@@ -4,12 +4,30 @@ CREATE TABLE sensor_readings (
   time        TIMESTAMPTZ NOT NULL,
   zone_id     TEXT NOT NULL,
   sensor_type TEXT NOT NULL,
-  value       DOUBLE PRECISION
+  value       DOUBLE PRECISION,
+  -- Provenance. device_id is the MQTT topic suffix of the node that reported the value,
+  -- NULL when the engine computed it. quality is 'measured' | 'modelled' | 'derived'.
+  -- Without these two columns a modelled temperature and one off a real SHT30 are the
+  -- same row, which makes any historical chart unable to say which curve is evidence.
+  device_id   TEXT,
+  quality     TEXT
 );
 
 SELECT create_hypertable('sensor_readings', 'time');
 
 CREATE INDEX ON sensor_readings (zone_id, time DESC);
+CREATE INDEX ON sensor_readings (device_id, time DESC);
+
+-- Node lifecycle, kept apart from the sample stream: a dropout has no value to average,
+-- and "this board fell off the bus at 14:02" is the question troubleshooting actually asks.
+CREATE TABLE device_events (
+  time      TIMESTAMPTZ NOT NULL,
+  device_id TEXT NOT NULL,
+  event     TEXT NOT NULL,
+  detail    TEXT
+);
+
+CREATE INDEX ON device_events (device_id, time DESC);
 
 -- [GEMINI] 5-minute downsampling for long-term trends
 CREATE MATERIALIZED VIEW sensor_readings_5m

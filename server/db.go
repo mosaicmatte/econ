@@ -20,12 +20,25 @@ import (
 
 var DB *sql.DB
 
+// Quality classifies where a persisted number came from. The live telemetry stream has
+// always drawn this line (tempReal, acReal, Co2Live) but history did not: every row went
+// into sensor_readings identically, so a modelled zone temperature and one measured by an
+// SHT30 were indistinguishable once written. That defeats the point of the distinction —
+// an operator reading a week-old chart could not tell which curve was evidence.
+const (
+	QualityMeasured = "measured" // a physical sensor reported this value
+	QualityModelled = "modelled" // the engine computed it (2R1C, occupancy schedule, ...)
+	QualityDerived  = "derived"  // aggregated or arithmetic over other series (GLOBAL rollups)
+)
+
 // reading is one buffered metric sample awaiting a batched insert.
 type reading struct {
-	t     time.Time
-	zone  string
-	stype string
-	value float64
+	t       time.Time
+	zone    string
+	stype   string
+	value   float64
+	device  string // MQTT topic suffix of the node that reported it; "" = engine-computed
+	quality string // one of the Quality* constants
 }
 
 // writeCh decouples the engine's broadcast goroutine (30 fps hot path) from the
@@ -55,23 +68,89 @@ func initDB() {
 	DB.SetMaxOpenConns(8)
 	DB.SetMaxIdleConns(4)
 
+	migrateSchema()
+
 	writeCh = make(chan reading, 8192)
 	go writeLoop()
 	log.Println("[db] Connected to TimescaleDB.")
+}
+
+// migrateSchema brings an existing database up to the current shape. Every statement is
+// idempotent, because this runs on every boot against databases created by any earlier
+// version — db/init.sql only ever runs on a *fresh* volume, so it cannot be the only
+// place the schema is defined.
+func migrateSchema() {
+	stmts := []string{
+		// Provenance for every row: which physical node reported it, and whether it was
+		// measured or modelled. Nullable and unindexed-by-default so old rows stay valid;
+		// they simply carry NULL, which reads as "written before provenance was tracked".
+		`ALTER TABLE sensor_readings ADD COLUMN IF NOT EXISTS device_id TEXT`,
+		`ALTER TABLE sensor_readings ADD COLUMN IF NOT EXISTS quality   TEXT`,
+		`CREATE INDEX IF NOT EXISTS idx_readings_device ON sensor_readings (device_id, time DESC)`,
+
+		// Node lifecycle, separate from the sample stream. A dropout is an event, not a
+		// reading: it has no value, and averaging it would be meaningless. Keeping it in
+		// its own table is what lets "this board fell off the bus at 14:02" be answerable.
+		`CREATE TABLE IF NOT EXISTS device_events (
+		   time      TIMESTAMPTZ NOT NULL,
+		   device_id TEXT NOT NULL,
+		   event     TEXT NOT NULL,
+		   detail    TEXT
+		 )`,
+		`CREATE INDEX IF NOT EXISTS idx_device_events ON device_events (device_id, time DESC)`,
+	}
+	for _, s := range stmts {
+		if _, err := DB.Exec(s); err != nil {
+			log.Printf("[db] migration step failed (continuing): %v", err)
+		}
+	}
 }
 
 // persistReading is called once per metric per zone from the engine. It must never
 // block the broadcast goroutine, so it only enqueues; if the buffer is saturated the
 // sample is dropped (history is best-effort, the live stream is the source of truth).
 func persistReading(zoneId, sensorType string, value float64) {
+	q := QualityModelled
+	if zoneId == "GLOBAL" {
+		q = QualityDerived // building rollups are arithmetic over zones, not observations
+	}
+	enqueue(reading{t: time.Now(), zone: zoneId, stype: sensorType, value: value, quality: q})
+}
+
+// persistMeasured records a value that came off a physical sensor, attributed to the node
+// that reported it. This is the counterpart to persistReading: same table, same batching,
+// but the row carries provenance so a later reader can separate evidence from simulation.
+func persistMeasured(deviceId, zoneId, sensorType string, value float64) {
+	enqueue(reading{t: time.Now(), zone: zoneId, stype: sensorType, value: value,
+		device: deviceId, quality: QualityMeasured})
+}
+
+func enqueue(r reading) {
 	if writeCh == nil {
 		return
 	}
 	select {
-	case writeCh <- reading{time.Now(), zoneId, sensorType, value}:
+	case writeCh <- r:
 	default:
 		// buffer full — drop rather than stall the engine.
 	}
+}
+
+// persistDeviceEvent records a node lifecycle transition. Unlike a reading this is written
+// directly rather than batched: events are rare, and one that is lost to a full buffer is
+// exactly the one being investigated.
+func persistDeviceEvent(deviceId, event, detail string) {
+	if DB == nil {
+		return
+	}
+	go func() {
+		_, err := DB.Exec(
+			`INSERT INTO device_events (time, device_id, event, detail) VALUES ($1,$2,$3,$4)`,
+			time.Now(), deviceId, event, detail)
+		if err != nil {
+			log.Printf("[db] device event insert failed: %v", err)
+		}
+	}()
 }
 
 // writeLoop drains writeCh and flushes batched multi-row inserts, either when a batch
@@ -89,15 +168,19 @@ func writeLoop() {
 			return
 		}
 		var sb strings.Builder
-		sb.WriteString("INSERT INTO sensor_readings (time, zone_id, sensor_type, value) VALUES ")
-		args := make([]interface{}, 0, len(buf)*4)
+		sb.WriteString("INSERT INTO sensor_readings (time, zone_id, sensor_type, value, device_id, quality) VALUES ")
+		args := make([]interface{}, 0, len(buf)*6)
 		for i, r := range buf {
 			if i > 0 {
 				sb.WriteByte(',')
 			}
-			n := i * 4
-			fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d)", n+1, n+2, n+3, n+4)
-			args = append(args, r.t, r.zone, r.stype, r.value)
+			n := i * 6
+			fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d)", n+1, n+2, n+3, n+4, n+5, n+6)
+			var dev interface{} // NULL rather than "" so "no device" is unambiguous in SQL
+			if r.device != "" {
+				dev = r.device
+			}
+			args = append(args, r.t, r.zone, r.stype, r.value, dev, r.quality)
 		}
 		if _, err := DB.Exec(sb.String(), args...); err != nil {
 			log.Printf("[db] batch insert failed (%d rows): %v", len(buf), err)

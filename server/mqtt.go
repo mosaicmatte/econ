@@ -106,9 +106,15 @@ func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 	var msg telemetryMsg
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		log.Printf("[mqtt] bad telemetry payload on %s: %v", topic, err)
+		registry.observeMalformed(topicSuffix(topic), err)
 		return
 	}
 	suffix := topicSuffix(topic)
+
+	// Hardware inspector (TEMPORARY, devices.go). Observed before the engine binds the
+	// message, so a node publishing to a topic no zone matches still shows up — that
+	// case is invisible downstream and is a common bring-up mistake.
+	registry.observe(suffix, msg, payload)
 	// Prefer an explicit zone id/name in the payload; fall back to the topic suffix.
 	ref := msg.Zone
 	if ref == "" {

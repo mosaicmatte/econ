@@ -66,6 +66,18 @@ func main() {
 		json.NewEncoder(w).Encode(engine.HardwareStatus())
 	})
 
+	// 4b. TEMPORARY bring-up module (devices.go): the raw MQTT view one level below
+	// /api/hardware — every node seen, per-field freshness, dropout log, and the
+	// measured/modelled split of stored history. Delete this line and devices.go to
+	// remove it once the hardware is stable.
+	registerDeviceRoutes(func() map[string]string {
+		bound := map[string]string{}
+		for _, n := range engine.HardwareStatus() {
+			bound[topicSuffixOf(n.Topic)] = n.ZoneId
+		}
+		return bound
+	})
+
 	// 5. Forecast-driven pre-cooling: GET = window status, POST = open a window now.
 	// The background poller (precool.go) opens windows automatically off the LSTM.
 	http.HandleFunc("/api/precool", precoolHandler(engine))

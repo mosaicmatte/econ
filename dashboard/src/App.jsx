@@ -834,6 +834,16 @@ function App() {
         >
           + BLUEPRINT
         </button>
+        {/* TEMPORARY bring-up module (HardwareInspector.jsx). A plain link, not a panel:
+            it opens a separate page so debugging a wire does not also load the 3D scene,
+            and removing the module is deleting this button plus three lines in Root.jsx. */}
+        <a
+          href="?inspector"
+          title="TEMPORARY: raw MQTT view of every node — live fields, dropouts, history"
+          style={{ padding: '6px 12px', fontSize: '11px', borderRadius: '4px', cursor: 'pointer', background: 'transparent', color: 'var(--accent-yellow, #f59e0b)', fontWeight: 'bold', borderLeft: '1px solid var(--border-glass)', textDecoration: 'none', display: 'inline-block' }}
+        >
+          ⚙ HARDWARE
+        </a>
       </div>
 
       {showImport && <BlueprintImportPanel onClose={() => setShowImport(false)} />}

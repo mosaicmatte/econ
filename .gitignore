@@ -46,3 +46,8 @@ node_modules/
 server/mosquitto/passwd
 server/.env
 .env
+
+# Local bench overrides (e.g. anonymous broker). Never commit: the committed
+# compose file is authenticated by default and must stay that way.
+server/docker-compose.override.yml
+docker-compose.override.yml
