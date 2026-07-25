@@ -9,7 +9,11 @@
 //
 // To remove: delete this file and the three lines in Root.jsx that reference it.
 
-import { useState, useEffect, useCallback } from 'react';
+// React is imported by name as well as by hook: the project's other entry components
+// (Root.jsx) do the same, and it keeps this file working under the classic JSX transform
+// as well as the automatic one. Without it a stale Vite dep cache surfaces as
+// "ReferenceError: React is not defined" from this file rather than from the cache.
+import React, { useState, useEffect, useCallback } from 'react';
 import { API_BASE } from './api';
 
 const POLL_MS = 2000;
