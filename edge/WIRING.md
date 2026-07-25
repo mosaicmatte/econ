@@ -67,12 +67,12 @@ flowchart LR
   subgraph N["ESP32 Edge Node"]
     E["ESP32 WROOM-32<br/>NodeMCU-32S / DevKit v1"]
   end
-  SHT["SHT30<br/>temp + RH · 0x44"] -- "I²C 3.3V" --> E
+  SHT["SHT30-IIC probe<br/>temp + RH · 0x44<br/>brown/black/yellow/blue"] -- "I²C 3.3V" --> E
   LS["Level shifter<br/>BSS138"] -- "I²C 3.3V" --> E
   CO2["ACD1200 NDIR<br/>CO₂ · 0x2A · 5V"] -- "I²C 5V" --> LS
   LUX["BH1750 lux<br/>0x23 · optional"] -- "I²C 3.3V" --> E
   RAD["Rd-03 radar<br/>presence · 3.3V"] -- "GPIO18" --> E
-  DS["DS18B20 supply T<br/>optional"] -- "GPIO26 1-Wire" --> E
+  DS["DS18B20 MKE-S15<br/>supply T · 5V · optional"] -- "GPIO26 1-Wire" --> E
   CT["SCT-013 plug clamp<br/>33R burden + bias"] -- "GPIO34 ADC1" --> E
   E -- "GPIO23 → CH1" --> SSR["2-ch SSR G3MB-202P<br/>lights + socket"]
   E -- "GPIO25 → CH2" --> SSR
@@ -98,7 +98,7 @@ device that is only present when that build flag is set.
       ▼                                                                ▼
  ═══╦═╩═══════╦══════════════╦═══════════════╦════════════ 5V RAIL   ══╧══ GND RAIL ══╗
     ║         ║              ║               ║                                        ║
- ESP32 VIN  SSR DC+   shifter HV      ACD1200 VCC [USE_CO2]                           ║
+ ESP32 VIN  SSR DC+   shifter AVCC    ACD1200 VCC [USE_CO2]  DS18B20 (MKE-S15)                           ║
     ║                                  (+ PIR VCC [USE_PIR])                          ║
     ▼                                                                                 ║
  ┌──────────┐   the narrow part of the whole design — see the budget in §1             ║
@@ -108,7 +108,7 @@ device that is only present when that build flag is set.
       ▼                                                                                ║
  ═══╦═╩═══╦═══════╦═══════════╦═══════════╦═══════════╦═══════════ 3V3 RAIL           ║
     ║     ║       ║           ║           ║           ║                                ║
-  SHT30 Rd-03  BH1750     DS18B20     shifter LV   R4 (bias)   R2 → IR LED anode       ║
+  SHT30 Rd-03  BH1750    shifter BVCC   R4 (bias)   R2 → IR LED anode                  ║
    VCC   VCC    VCC          VCC                      R6, R7 pull-ups                  ║
     ║     ║       ║           ║           ║           ║           ║                    ║
     ╚═════╩═══════╩═══════════╩═══════════╩═══════════╩═══════════╩═══ all GND ════════╝
@@ -121,10 +121,10 @@ device that is only present when that build flag is set.
    ── I²C bus (3.3 V) ──────────────────────────────────────────────────────────────
    GPIO21 SDA ●──┬── SHT30 SDA (0x44)
                  ├── BH1750 SDA (0x23)          [USE_LUX]
-                 └── shifter LV1 ══► HV1 ══► ACD1200 SDA (0x2A, 5 V)   [USE_CO2]
+                 └── shifter BSDA ═► ASDA ═► ACD1200 SDA (0x2A, 5 V)   [USE_CO2]
    GPIO22 SCL ●──┬── SHT30 SCL
                  ├── BH1750 SCL                 [USE_LUX]
-                 └── shifter LV2 ══► HV2 ══► ACD1200 SCL
+                 └── shifter BSCL ═► ASCL ═► ACD1200 SCL
                                               ACD1200 pin 5 (SET) ─── FLOATING = I²C
 
    ── Actuator outputs (active HIGH) ───────────────────────────────────────────────
@@ -176,11 +176,11 @@ a **number**, identical on the 30-pin DevKit and the 38-pin NodeMCU-32S.
 
 | ESP32 pin | Dir | Net | Wires to | Flag |
 |---|---|---|---|---|
-| VIN / 5V | pwr in | 5V | PSU +5 V; SSR DC+; level-shifter HV; (PIR VCC) | — |
-| 3V3 | pwr out | 3V3 | SHT30, Rd-03, BH1750, DS18B20 VCC; shifter LV; both bias dividers; IR-LED anode via R2 | — |
+| VIN / 5V | pwr in | 5V | PSU +5 V; SSR DC+; shifter **AVCC**; ACD1200; **DS18B20 (MKE-S15)**; (PIR VCC) | — |
+| 3V3 | pwr out | 3V3 | SHT30 (brown), Rd-03, BH1750; shifter **BVCC**; both bias dividers; IR-LED anode via R2 | — |
 | GND | pwr | GND | PSU −, SSR DC−, every sensor GND, both bias dividers | — |
-| GPIO21 | I²C SDA | SDA | SHT30 SDA · BH1750 SDA · shifter LV1 | `USE_SHT30`/`USE_CO2`/`USE_LUX` |
-| GPIO22 | I²C SCL | SCL | SHT30 SCL · BH1750 SCL · shifter LV2 | same |
+| GPIO21 | I²C SDA | SDA | SHT30 SDA (**yellow**) · BH1750 SDA · shifter **BSDA** | `USE_SHT30`/`USE_CO2`/`USE_LUX` |
+| GPIO22 | I²C SCL | SCL | SHT30 SCL (**blue**) · BH1750 SCL · shifter **BSCL** | same |
 | GPIO23 | out | — | SSR **CH1** (lighting) | *(default)* |
 | GPIO25 | out | — | SSR **CH2** (plug socket), boots HIGH | `USE_PLUG` |
 | GPIO19 | out | — | **R1 1 kΩ** → 2N2222 base | `USE_IR_AC` |
@@ -198,13 +198,68 @@ a **number**, identical on the 30-pin DevKit and the 38-pin NodeMCU-32S.
 
 ### Sensors & modules — pin by pin
 
-- **SHT30-IIC** (temp+RH, `0x44`): VCC→3V3 · GND→GND · SDA→GPIO21 · SCL→GPIO22. 3.3 V native, **no shifter**.
-- **ACD1200 NDIR CO₂** (`0x2A`) `[USE_CO2]`: VCC→**5 V** · GND→GND · SDA→shifter **HV1** · SCL→shifter **HV2** · **Pin 5 (SET) → leave FLOATING** (floating = I²C; low = 1200-baud UART, which the firmware doesn't speak).
-- **BSS138 level shifter** (with ACD1200): LV→3V3 · HV→**5 V** · GND→GND · LV1←GPIO21 · LV2←GPIO22 · HV1→ACD1200 SDA · HV2→ACD1200 SCL. This is the only thing on the bus that is 5 V — the ACD1200 pulls I²C to 5 V and the ESP32 is not 5 V tolerant.
-- **Rd-03 radar** `[USE_MMWAVE]`: VCC→3V3 · GND→GND · **OT2 (pin 5)→GPIO18**. 3.3 V throughout, no shifter; its UART pins are unused here.
-- **BH1750 lux** (`0x23`) `[USE_LUX]`: VCC→3V3 · GND→GND · SDA→GPIO21 · SCL→GPIO22 · ADDR→GND. Shares the I²C bus, 3.3 V, no shifter.
-- **DS18B20 (MKE-S15)** `[USE_SUPPLY_TEMP]`: VCC→3V3 · GND→GND · **DATA→GPIO26** with **R6 4.7 kΩ** DATA→3V3. Probe sits in the AC's discharge louvre.
-- **PIR HC-SR501** `[USE_PIR]`: VCC→**5 V** · GND→GND · OUT→GPIO5 (3.3 V logic out, no shifter).
+Every row below was checked against the **actual product listing** for the part in the
+shopping list, not against a generic datasheet for the chip. Where the module disagrees with
+the bare sensor — and three of them do — the module wins, because that is what is in the box.
+
+- **SHT30-IIC** (temp+RH, `0x44`): sold as a metal-tube probe on a **50 cm 4-wire flying
+  lead** — there are no header pins. **Wire by colour, not by position** (the cable order is
+  GND, VCC, SCL, SDA, which is not the functional order):
+
+  | Wire | Function | Goes to |
+  |---|---|---|
+  | **Brown** (Nâu) | VCC 2.4–5.5 V | **3V3** ⚠️ not 5 V |
+  | **Black** (Đen) | GND | GND |
+  | **Yellow** (Vàng) | SDA | GPIO21 |
+  | **Blue** (Xanh dương) | SCL | GPIO22 |
+
+  ⚠️ **Power it from 3V3 even though it accepts 5 V.** The module has **built-in 10 kΩ
+  pull-ups and a filter cap**, and pull-ups go to whatever VCC you give it — on 5 V it drags
+  SDA/SCL to 5 V into an ESP32 that is not 5 V tolerant. The wide 2.4–5.5 V input is what
+  makes this an easy and expensive mistake. Those built-in pull-ups also mean **do not add
+  your own**. Response time is **8 s** (τ, 63 %), so a hand-warming test climbs over ~10–20 s
+  rather than instantly — that is the probe's thermal mass, not a bus fault.
+- **ACD1200 NDIR CO₂** (`0x2A`) `[USE_CO2]`: VCC→**5 V** (4.75–5.25 V, tight) · GND→GND ·
+  SDA→shifter **ASDA** · SCL→shifter **ASCL** · **Pin 5 (SET) → leave FLOATING** (floating =
+  I²C; low = 1200-baud UART, which the firmware doesn't speak). Average draw < 45 mA,
+  120 s warm-up, refreshes every 2 s. **Its real range is 400–5000 ppm** — narrower than the
+  firmware's 300–10000 ppm sanity window, so the sensor, not the filter, is the limit.
+- **BSS138 level shifter** (with ACD1200) — **the silkscreen does not say LV/HV.** The two
+  sides are lettered **B (low, 3.3 V)** and **A (high, 5 V)**:
+
+  | Low side → ESP32 | High side → ACD1200 |
+  |---|---|
+  | **BVCC** → 3V3 | **AVCC** → 5 V |
+  | **BGND** → GND | **AGND** → GND |
+  | **BSDA** → GPIO21 | **ASDA** → ACD1200 SDA |
+  | **BSCL** → GPIO22 | **ASCL** → ACD1200 SCL |
+
+  Two BSS138 FETs with their own 10 kΩ pull-ups — two channels, exactly enough for SDA+SCL.
+  This is the only thing on the bus that is 5 V: the ACD1200 pulls I²C to 5 V and the ESP32
+  is not 5 V tolerant.
+- **Rd-03 radar** `[USE_MMWAVE]`: VCC→3.0–3.6 V · GND→GND · **OT2 (pin 5)→GPIO18**. DIP-5,
+  on-board antenna, ±60°, up to 5 m. 3.3 V throughout, no shifter; its UART (115200 default)
+  is only for tuning gates and is unused here. ⚠️ **Ai-Thinker specify a supply able to
+  deliver ≥ 200 mA** — see the power budget in §1, because that figure does not fit
+  comfortably on the ESP32's onboard regulator.
+- **BH1750 lux** (`0x23`) `[USE_LUX]`: VCC→3V3 (module takes 3.3–5 V; use 3V3 for the same
+  pull-up reason as the SHT30) · GND→GND · SDA→GPIO21 · SCL→GPIO22 · ADDR→GND. Returns lux
+  directly — no conversion maths. Shares the I²C bus, no shifter.
+- **DS18B20 (MKE-S15)** `[USE_SUPPLY_TEMP]`: ⚠️ **this module wants 5 VDC**, not 3V3 — the
+  bare DS18B20 chip runs on 3.3 V but the MKE-S15 breakout around it is specified at 5 V,
+  with TTL 3.3/5 V signalling, so `DATA→GPIO26` is still safe for the ESP32. Ships with a
+  3-pin Domino connector and an XH2.54-to-Dupont cable, 1 m probe lead. The breakout carries
+  its own conditioning, so **check for an onboard pull-up before adding R6 4.7 kΩ** —
+  MKE S-series boards normally include it. Probe sits in the AC's discharge louvre.
+- **PIR HC-SR501** `[USE_PIR]`: VCC→**5 V** (3.8–5 V) · GND→GND · OUT→GPIO5 (3.3 V logic
+  out, no shifter). Draws **≤ 50 µA** — negligible, not the tens of mA often assumed. 360°
+  cone, up to 6 m, with on-board trim pots for hold time and sensitivity.
+- **SCT-013 / STC013 100 A** `[USE_PLUG]`: split core, **max conductor diameter 13 mm**,
+  1.5 m lead. The listing does not state whether it is the `-000` (current output, needs the
+  burden) or `-030` (voltage output, no burden) — at 100 A it is the `-000`. **Confirm before
+  trusting a reading:** measure resistance across the two leads with nothing clamped. Open
+  circuit / very high = no internal burden, fit R3 as drawn. A few tens of ohms = it already
+  has one, in which case **omit R3** and calibrate from there.
 
 ### Actuator — SSR G3MB-202P (HS0996)
 
@@ -369,8 +424,8 @@ Three placement rules worth following exactly:
 
 3V3 rail ─────┬── SHT30 VCC
               ├── Rd-03 VCC          (3.0–3.6 V part)
-              └── Level shifter LV
-5 V   ────────── Level shifter HV + ACD1200 VCC
+              └── Level shifter BVCC
+5 V   ────────── Level shifter AVCC + ACD1200 VCC + DS18B20 (MKE-S15)
 
 ALL grounds common — ESP32 GND, relay board, radar, sensors, PSU.
 ```
@@ -386,31 +441,59 @@ that actually bites).
 | Load | Current | Note |
 |---|---|---|
 | ESP32 module itself | **~250 mA** | Peak, during WiFi transmit bursts. Idle is ~40 mA |
-| Rd-03 radar | ~70 mA | Continuous — the largest sensor on this rail |
-| DS18B20 | ~1.5 mA | Only while converting |
+| **Rd-03 radar** | **≥ 200 mA** | ⚠️ Ai-Thinker's own figure — see the warning below |
+| DS18B20 | — | On the **5 V** rail (MKE-S15 module), not this one |
 | SHT30 | ~1.5 mA | Peak while measuring; ~0.2 µA idle |
 | BH1750 | ~0.12 mA | |
 | 2 × bias dividers | ~0.33 mA | 3.3 V across 20 kΩ, each |
 | IR LED pulse | ~100 mA | **Bursty**, tens of ms per command, not continuous |
-| **Continuous total** | **≈ 325 mA** | ~65 % of the regulator |
-| **Worst-case coincident** | **≈ 425 mA** | WiFi TX *and* an IR burst at once |
+| **Continuous total** | **≈ 452 mA** | ~90 % of the regulator |
+| **Worst-case coincident** | **≈ 552 mA** | WiFi TX *and* an IR burst at once — **over budget** |
 
-That leaves roughly 75 mA of headroom at the worst instant — real, but not generous. It is
-the entire reason for the rule below.
+> ⚠️ **This is the one budget that does not close, and the Rd-03 is why.** Ai-Thinker
+> specify "power supply current ≥ 200 mA" for the Rd-03. Read strictly that is a requirement
+> on the *source* — headroom for its transmit peaks rather than a continuous draw, and
+> measured averages are commonly well below it — but it is the only figure the manufacturer
+> publishes, and designing under it is guessing. Taken at face value, a node with the radar
+> **and** the IR emitter fitted asks for ~552 mA from a regulator good for about 500 mA.
+>
+> **What to do about it, cheapest first:**
+> 1. **Test for it.** Build the node, then watch the serial monitor during an IR command with
+>    the radar attached. A brownout reboot mid-command is the symptom; if it never happens,
+>    the radar's real average is comfortably under spec and you are fine.
+> 2. **Give the radar its own regulator.** A ~10.000₫ AMS1117-3.3 module fed from the **5 V**
+>    rail takes the radar off the ESP32's regulator entirely and ends the question. Grounds
+>    stay common. This is the fix if step 1 shows any instability.
+> 3. **Don't fit both on one node.** Radar on one board, IR on another; the engine merges
+>    two boards on the same zone (§8) without any change.
+>
+> The earlier version of this table put the Rd-03 at ~70 mA and concluded the rail had
+> comfortable headroom. That figure came from a generic 24 GHz-radar estimate, not from
+> Ai-Thinker, and it was wrong to present it as settled.
 
-**5 V rail — supplied by the USB PSU, budget 2 A:**
+**5 V rail — supplied by the 5 V 2 A adaptor, budget 2 A:**
 
 | Load | Current |
 |---|---|
-| ESP32 + everything on its 3V3 rail (drawn through the regulator) | ~425 mA |
+| ESP32 + everything on its 3V3 rail (drawn through the regulator) | ~552 mA |
 | SSR, 2 channels × 20 mA | 40 mA |
-| ACD1200 NDIR (averaged; the IR lamp pulses higher) | ~30 mA |
-| PIR HC-SR501, if fitted | ~50 mA |
+| ACD1200 NDIR (manufacturer: average < 45 mA) | ~45 mA |
+| DS18B20 MKE-S15 module | ~2 mA |
+| PIR HC-SR501, if fitted | **≤ 0.05 mA** |
 | Level shifter | negligible |
-| **Total** | **≈ 545 mA** |
+| **Total** | **≈ 640 mA** |
 
-A **5 V 2 A** supply therefore runs at about a quarter of its rating — roughly 3.5× headroom,
-which is the margin you want when the load is bursty and the cable is thin.
+The adaptor is rated 2 A, but its own listing says to plan on **70 % for continuous use** —
+so treat the real budget as **1.4 A**. At ~640 mA the node sits at roughly **46 %** of that,
+which is still comfortable.
+
+> ⚠️ **The adaptor terminates in a 5.5 × 2.1 mm DC barrel jack, not a USB plug.** The
+> NodeMCU-32S is powered over Micro USB. To run the whole node off this one supply you need a
+> **barrel-jack-to-screw-terminal (or pigtail) adapter** — a part not otherwise on the list —
+> to land +5 V and GND on the breadboard rails, then feed ESP32 **VIN** from that rail.
+> The alternative is powering the ESP32 from Micro USB and the 5 V rail from the adaptor, in
+> which case **their grounds must still be tied together** or the SSR trigger has no return
+> path and behaves erratically.
 
 > **The rule that follows from the two tables:** every 5 V device hangs off **VIN, never
 > 3V3**. Not because the 5 V budget is tight (it isn't) but because the 3V3 budget is — and
@@ -438,9 +521,9 @@ The one circuit where getting it wrong costs hardware.
                                 │  │                      │  │
                           ┌─────┴──┴─────┐         ┌──────┴──┴───────┐
                           │    SHT30     │         │ Level shifter   │
-                          │  VCC → 3V3   │         │ LV=3V3  HV=5V   │
-                          │  GND → GND   │         │ LV1/LV2 ← ESP32 │
-                          │  addr 0x44   │         │ HV1/HV2 → ACD   │
+                          │ brown → 3V3  │         │ BVCC=3V3 AVCC=5V│
+                          │ black → GND  │         │ BSDA/BSCL ←ESP32│
+                          │  addr 0x44   │         │ ASDA/ASCL → ACD │
                           └──────────────┘         └────────┬────────┘
                                                             │
                                                    ┌────────┴────────┐
@@ -961,6 +1044,11 @@ Work down this list; each step proves the one below it is worth attempting.
 |---|---|
 | Node reboots when a relay clicks | Relay coils on 3V3. Move them to VIN (5 V) |
 | Node reboots on WiFi connect, or browns out randomly | 3V3 budget exceeded (§1), thin USB cable, or a 500 mA PC port. Try a proper 5 V 2 A PSU first |
+| Reboots specifically **during an IR command**, radar fitted | The Rd-03 + IR case in §1 — the two together exceed the onboard regulator. Give the radar its own AMS1117-3.3 off the 5 V rail |
+| SHT30 dead on first power-up, or takes the ESP32 with it | Brown wire on 5 V instead of 3V3. Its 10 kΩ pull-ups then drag the bus to 5 V |
+| SHT30 responds but temperature lags badly | Expected — the probe's τ is 8 s. Give it 10–20 s |
+| SSR triggers erratically when ESP32 is USB-powered and the rail is adaptor-powered | Grounds not tied together. The trigger has no return path (§1) |
+| `plugW` reads a plausible but wrong constant multiple | The CT may have an internal burden — measure across its leads (§ "Sensors & modules"); if a few tens of Ω, omit R3 |
 | `plugW` jitters with nothing plugged in | Bias node floating — R4/R5 missing or mis-seated. GPIO34/35 have **no internal pull-ups at all**; the divider is the only thing holding the pin |
 | `plugW` noisy but roughly right | C1 too far from the bias node, or the analog front end sitting next to the IR driver. See the layout section |
 | Occupancy stuck "occupied" in an empty room | `USE_MMWAVE` compiled with no radar attached — GPIO18 floats and self-triggers. Wire it, drop the flag, or pull GPIO18 down through 10 kΩ |
