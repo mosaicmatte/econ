@@ -627,9 +627,15 @@ the whole AC swing in the well-behaved middle.
 
 ### If you cannot get a 33 Ω burden
 
-Common — caka was out of both 10 Ω and 33 Ω when this node was sourced. The burden value is
-**free to choose**; it only has to be told to the firmware. The SCT-013-000 is 100 A : 50 mA,
-a **2000:1** turns ratio, so:
+Expect this. caka was out of both 10 Ω and 33 Ω on the first buy, and **its website cannot
+warn you** — the product JSON reports `inventory_management: null` and `available: true` on
+all 83 values of the ¼ W strip, so every value shows in stock whether or not it is. hshop
+sells no discrete resistors at all. Which SKU to try instead is in
+[SHOPPING_LIST §4a](SHOPPING_LIST.md#4a-resistors--which-caka-sku-actually-has-the-values);
+the electrical freedom you have is here.
+
+The burden value is **free to choose**; it only has to be told to the firmware. The
+SCT-013-000 is 100 A : 50 mA, a **2000:1** turns ratio, so:
 
 ```
 PLUG_CAL_A_PER_V  =  2000 ÷ R_burden        (33 Ω → 60.6, which is the firmware default)

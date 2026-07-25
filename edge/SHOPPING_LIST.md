@@ -73,7 +73,7 @@ machine. Build **D** is what the plug-load case study (26.4% of office energy) n
 | 11b | *(mechanical, out of stock)* [2-ch opto relay High/Low](https://hshop.vn/module-2-relay-voi-opto-coch-ly-koch-h-l-5vdc) `HS0998C` | 1 | same | Dry contacts (COM/NO/NC), 10 A, switches AC **or** DC. Cheaper and no minimum-load quirk — buy it instead **when the 5 VDC variant restocks** (both it and `HS0997` were *Hết hàng* on 23 Jul 2026). Jumper to HIGH, coils on 5 V. | ✓ 35.000₫ |
 | 12 | **IR LED 940 nm, 5 mm** | 1–2 | `-DUSE_IR_AC=1` | Drives the split unit. Two in series widens coverage in a large room | 5–10k |
 | 13 | **NPN transistor** 2N2222 / S8050 / PN2222 | 1 | with #12 | **Required.** A GPIO sources ~12 mA; an IR LED wants ~100 mA of pulse current for useful range. Straight off the pin you get about a metre | 3–5k |
-| 14 | Resistors: **1 kΩ** (transistor base), **10 Ω** ¼ W (LED current) | 1 ea | with #12 | See the driver circuit in WIRING.md | ~1k ea |
+| 14 | Resistors: **1 kΩ** (transistor base), **10 Ω** ¼ W (LED current) | 1 ea | with #12 | See the driver circuit in WIRING.md, and [§4a](#4a-resistors--which-caka-sku-actually-has-the-values) for which caka SKU to buy | ~1k ea |
 
 > ⚠️ **hshop does not stock items 12–14, and this pass confirmed it.** Searches for a 940 nm
 > emitter, a discrete NPN and a ¼ W resistor assortment all come back with nothing usable —
@@ -94,7 +94,7 @@ machine. Build **D** is what the plug-load case study (26.4% of office energy) n
 | 15 | [**SCT-013** split-core CT, 100 A](https://hshop.vn/cam-bien-dong-dien-hall-100a-yhdc) `HS0186` | 1 | **The credibility item.** Clips over insulation — no mains contact, no electrician, no permit. Reads true-RMS on GPIO34 and publishes `plugW`, replacing the modelled plug draw. Current-output, so it needs the burden below | ✓ **102.000₫** |
 | 15b | *(alt)* **SCT-013-030** (30 A : 1 V) | 1 | Voltage-output — **skip the burden** and build `-DPLUG_CAL_A_PER_V=30.0` | — |
 | 16 | [Ceramic capacitor assortment](https://hshop.vn/bo-23-loai-tu-gom-thong-dung-6pf-0-1uf-23-kind-ceramic-capacitor) `HS0093` | 1 | A **0.1 µF** from this kit ties the bias node to ground. (OpenEnergyMonitor specifies 10 µF; 0.1 µF is fine at the ESP32's sampling rate, and the kit is what hshop actually stocks. The listing now reads "22 loại" where it used to read 23 — same kit, same range, same price) | ✓ **40.000₫** |
-| 17 | **33 Ω** burden + 2× **10 kΩ** bias resistors, ¼ W | 1 set | The burden sets the scale (`-DPLUG_CAL_A_PER_V=60.6`); the 10 kΩ pair forms the 1.65 V mid-rail. Not stocked at hshop — same trip as items 12–14 | ~5k |
+| 17 | **33 Ω** burden + 2× **10 kΩ** bias resistors, ¼ W | 1 set | The burden sets the scale (`-DPLUG_CAL_A_PER_V=60.6`); the 10 kΩ pair forms the 1.65 V mid-rail. Not stocked at hshop — buy at caka, [§4a](#4a-resistors--which-caka-sku-actually-has-the-values). **If 33 Ω is unavailable, any value works** — the flag becomes `2000 ÷ R` | ~5k |
 
 > **No 3.5 mm jack needed.** Snip the SCT-013's plug and land its two bare leads directly on
 > the breadboard. One less part to source.
@@ -103,6 +103,81 @@ machine. Build **D** is what the plug-load case study (26.4% of office energy) n
 > two-core cord it reads ~zero, because the live and neutral currents cancel. This means
 > opening the circuit's enclosure. **In Vietnam, have a licensed electrician do the mains
 > side.** The CT itself is non-contact and safe; getting to the single conductor is not.
+
+## 4a. Resistors — which caka SKU actually has the values
+
+Written after the 10 Ω and 33 Ω came back unavailable at the counter on the first buy.
+
+### First, two facts that change how you shop
+
+**hshop sells no discrete resistors at all.** Re-checked 25 Jul 2026: searching `điện trở`,
+`resistor` and `điện trở 1/4w` returns only current shunts, potentiometers, photoresistors,
+NTC probes and flex sensors. There is no ¼ W value strip on the site. Every resistor on this
+list comes from caka or a Nhật Tảo counter.
+
+**caka's website cannot tell you what is in stock.** Its product JSON reports
+`inventory_management: null` and `available: true` on *every* variant — all 83 values of the
+5 % strip and all 33 of the 1 % strip, with an empty out-of-stock list. The site showed 10 Ω
+and 33 Ω as available on the same day the shop did not have them. **Treat every value below
+as "probably", never "confirmed", and expect to substitute at the counter.**
+
+That is why this section lists **four independent SKUs** rather than one. They are separate
+products with separate bins, so a value missing from one is often present in another.
+
+### The SKUs, and which of the values we need each one carries
+
+| SKU | Price | W | Tol. | Has 10 Ω | Has 33 Ω | Other useful values |
+|---|---|---|---|---|---|---|
+| [**Điện trở công suất ½ W (10 con)**](https://caka.vn/dien-tro-cong-suat-1-2w-10-con-nhieu-gia-tri) | 3.000₫ | 0.5 W | ~5 % | ✅ | ✅ | 1 kΩ, 10 kΩ, 100 Ω |
+| [Điện Trở Vạch ¼ W 5 % 1R–4.7M](https://caka.vn/dien-tro-vach-1-4w-sai-so-5-1r-4-7m-day-du-gia-tri-cho-moi-ung-dung) | 3.000₫ | 0.25 W | 5 % | ✅ | ✅ | **the widest list** — 8.2/15/22/27/39/47/68/100 Ω, 1 kΩ, 10 kΩ |
+| [Điện Trở Chính Xác 1 % ¼ W](https://caka.vn/dien-tro-chinh-xac-sai-so-1-1-4w-5-vong-mau) | 5.000₫ | 0.25 W | **1 %** | ✅ | ❌ | 22, **47**, 100 Ω, 1 kΩ, 10 kΩ |
+| [Điện trở công suất 1 W](https://caka.vn/dien-tro-cong-suat-1w-nhieu-gia-tri) | 1.000₫ | 1 W | ~5 % | ✅ | ❌ | 15, 22, **47**, 68, 100 Ω |
+| [Điện trở 2 W](https://caka.vn/dien-tro-cong-suat-2w-nhieu-gia-tri-thong-dung) | 1.000₫ | 2 W | ~5 % | ✅ | ❌ | 22, **47**, 56 Ω, 10 kΩ |
+
+**A higher wattage is always electrically safe here.** The burden dissipates ~0.17 W at its
+absolute peak and the IR limiter runs at a few mW average, so ¼ W is already 1.5× margin and
+½ W, 1 W or 2 W are simply bigger versions of the same part. They cost the same or less. The
+only thing you lose is board space — a 2 W body is chunkier but still axial through-hole and
+still seats in a breadboard.
+
+> ⚠️ **Do not buy the [Trở nhôm 50 W RX24](https://caka.vn/tro-nhom-50w-5r-10r-15r-20r-47r-50r-100r-rx24)** (21.000₫)
+> even though it lists 10 Ω and 47 Ω. It is a wirewound aluminium-clad power resistor with
+> M-series mounting tabs — it will not go in a breadboard, and it costs 7× the alternatives
+> for a part rated 200× the power actually needed.
+
+### What to actually order
+
+**Order 1 — one SKU covers everything (recommended):**
+the **¼ W 5 % strip** at 3.000₫ a value, buying `10 Ω · 33 Ω · 1 kΩ · 2 × 10 kΩ`
+plus `39 Ω` and `47 Ω` as burden fallbacks. Six values ≈ **21.000₫**, and you leave with a
+working node whichever of them the shop actually has.
+
+**Order 2 — if the ¼ W bin is empty for a value:** take that one value from the **½ W
+10-con** SKU (it has both 10 Ω and 33 Ω) or the **1 W / 2 W** SKUs (10 Ω and 47 Ω, 1.000₫).
+
+**Order 3 — the accuracy upgrade:** take the burden from the **1 % strip** as **47 Ω**, and
+build `-DPLUG_CAL_A_PER_V=42.6`. This is *better* than the nominal 33 Ω on both counts that
+matter: 1 % tolerance where the burden is the one part whose tolerance sets the power scale,
+and 34 mA per ADC count instead of 49 mA. Its 50 A ceiling is still 3× a 16 A socket circuit.
+
+### ⚠️ If you substitute the burden, the firmware flag must change with it
+
+This is the compatibility point. The burden value and `PLUG_CAL_A_PER_V` are **one setting in
+two places** — the SCT-013-000 is a 2000:1 CT, so:
+
+| Burden you bought | Build flag | Ceiling | Resolution |
+|---|---|---|---|
+| 22 Ω | `-DPLUG_CAL_A_PER_V=90.9` | 100 A | 73 mA |
+| 27 Ω | `-DPLUG_CAL_A_PER_V=74.1` | 86 A | 60 mA |
+| **33 Ω** (nominal) | `-DPLUG_CAL_A_PER_V=60.6` | 71 A | 49 mA |
+| **39 Ω** | `-DPLUG_CAL_A_PER_V=51.3` | 60 A | 41 mA |
+| **47 Ω** | `-DPLUG_CAL_A_PER_V=42.6` | 50 A | 34 mA |
+| 68 Ω | `-DPLUG_CAL_A_PER_V=29.4` | 34 A | 24 mA |
+| 100 Ω | `-DPLUG_CAL_A_PER_V=20.0` | 23 A | 16 mA |
+
+Or make 33 Ω from values you did get: **3 × 100 Ω in parallel = 33.3 Ω** (`=60.0`), or
+**10 Ω + 22 Ω in series = 32 Ω** (`=62.5`). Full derivation, plus the 8.2–22 Ω substitution
+range for the IR limiter, is in [WIRING §5](WIRING.md#if-you-cannot-get-a-33-ω-burden).
 
 ## 5. Gateway (one per site, not per node)
 
