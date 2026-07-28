@@ -1135,6 +1135,7 @@ Everything outside this diagram is in A.6 or A.7.
 | `/api/digitize`, `/api/building`, `/api/building/backups`, `/api/building/rollback` | `blueprint.go` | `BlueprintImportPanel` | **LIVE (opt-in)** |
 | `/api/rooms/models` | `dynamics.go` | **none** | **BUILT, UNWIRED** — the identification results have no UI |
 | `/api/forecast/load`, `/api/forecast/engines` | `forecast.go` (TimesFM) | **none** | **BUILT, UNWIRED** — zero-shot forecasting is reachable only by direct HTTP |
+| `/api/forecast/compare` | `forecast.go` (both engines) | **none** | **BUILT, UNWIRED** — runs the LSTM and TimesFM over the same instant and reports both peaks with the real-history count behind each |
 
 > The two unwired endpoints are the paper's clearest instance of its own thesis. The
 > identification layer of §7.8 is the system's differentiator, and while the dashboard shows
@@ -1189,14 +1190,27 @@ clamp tells the twin the compressor is off.
 | `USE_MMWAVE` | HLK-LD2410C | `occupancy` incl. stationary | occupancy | **LIVE (opt-in)** |
 | `USE_CO2` | ASAIR ACD1200 NDIR | `co2` | CO₂ identification (§7.8), σ-scoring | **LIVE (opt-in)** |
 | `USE_PLUG` | SCT-013 clamp | `plugW` | replaces the plug model (§7.6) | **LIVE (opt-in)** |
-| `USE_SUPPLY_TEMP` | DS18B20 | `supplyC` | supersedes design $T\_s$ in the RLS regressor | **LIVE (opt-in)** |
-| `USE_AC_CLAMP` | 2nd SCT-013 | `acW` | stored as `HwAcW`; **no consumer** | **INGESTED ONLY** |
-| `USE_LUX` | BH1750 | `lux` | stored as `HwLux`; **no consumer** | **INGESTED ONLY** |
+| `USE_SUPPLY_TEMP` | DS18B20 | `supplyC` | supersedes design $T\_s$ in BOTH the cooling law and the RLS regressor | **LIVE (opt-in)** |
+| `USE_AC_CLAMP` | 2nd SCT-013 | `acW` | measured cooling electrical, displacing the modelled COP for that zone | **LIVE (opt-in)** |
+| `USE_LUX` | BH1750 | `lux` | scales that zone's solar gain (lights-off only) | **LIVE (opt-in)** |
 
-Two sensors are honest dead ends today. `acW` is the real cooling-drive term and would let the
-identifier regress against measured compressor power instead of commanded damper position;
-`lux` is a real irradiance proxy that would close §9.1.9's static-solar-gain gap. Both arrive,
-both are stored, neither changes a single output — and saying so is the point of this table.
+**Corrected 2026-07-25.** The three rows above previously read differently, and two of the
+three corrections are unflattering. `acW` and `lux` were listed **INGESTED ONLY**, which was
+accurate; they are now wired — `acW` replaces the inferred `coolingOutputMW / plantCop` for the
+portion of the building actually on a clamp (and yields a *measured* COP alongside the modelled
+one), `lux` scales the zone's solar term against a library reference. `supplyC` was listed
+**LIVE (opt-in)** and was **not**: `RoomCondition.SupplyC` was declared, documented and
+accessed, but never once populated by `roomConditions()`, so the regressor read the library
+constant 100% of the time. That is precisely the drift this appendix exists to catch, and the
+table was wrong about it for the same reason the body of the paper was wrong about §3.1 and
+§4.1 — a documented intention was read as an implemented one.
+
+Because cooling authority is only interpretable against the discharge temperature it was fitted
+to, `RoomModel` now reports `supplyMeasuredSamples` and `supplyMeasuredFrac`, so a room
+identified against a probe is distinguishable from one identified against the design value.
+
+One field remains genuinely ingested-only: `humidity`. It is stored, streamed and charted, but
+the heat balance carries no latent term for it to drive (§9.1.4), so nothing consumes it.
 
 | Other node | Role | Status |
 |---|---|---|
@@ -1235,7 +1249,8 @@ Consolidated from §9.1 so that one list answers "what does ECON not do":
 |---|---|---|
 | Reinforcement-learning supervisory control | §5.5 | Deterministic physics-gated control is what runs; RL was never started |
 | CO₂ demand-controlled ventilation | §9.1.5 | Sensing precedes actuation — CO₂ is measured, scored and identified against, but no ventilation loop acts on it |
-| Irradiance-driven solar gain | §9.1.9 | `lux` is ingested but drives nothing |
+| Area-scaled solar gain | §9.1.9 | `lux` now scales a clamped zone's solar term, but the *reference* it scales is `solarGainMultiplier × 10000 W` with no area term — the library's own contract says it should be `× solarPeakWPerM2 × area`. Recorded in `solarGainReferenceNote`; re-scaling is a recalibration, not a refactor |
+| Latent (humidity) load in the zone balance | §9.1.4 | `humidity` is measured and stored, but the heat balance is sensible-only, so nothing consumes it |
 | On-site PV / generation | §9.1.3 | No model of any kind |
 | BESS cycle ageing and round-trip loss | §9.1.3 | SoC integrates against capacity and inverter limits only |
 | Tariff-scheduled pre-cool and peak setback | §9.1.2 | Pre-cool is forecast-triggered; setback is vacancy-driven |

@@ -91,13 +91,30 @@ machine. Build **D** is what the plug-load case study (26.4% of office energy) n
 
 | # | Part | Qty | Notes | ≈ VND |
 |---|---|---|---|---|
-| 15 | [**SCT-013** split-core CT, 100 A](https://hshop.vn/cam-bien-dong-dien-hall-100a-yhdc) `HS0186` | 1 | **The credibility item.** Clips over insulation — no mains contact, no electrician, no permit. Reads true-RMS on GPIO34 and publishes `plugW`, replacing the modelled plug draw. Current-output, so it needs the burden below | ✓ **102.000₫** |
-| 15b | *(alt)* **SCT-013-030** (30 A : 1 V) | 1 | Voltage-output — **skip the burden** and build `-DPLUG_CAL_A_PER_V=30.0` | — |
+| 15 | [**SCT-013** split-core CT, 100 A](https://hshop.vn/cam-bien-dong-dien-hall-100a-yhdc) `HS0186` | 1 | **The credibility item.** Clips over insulation — no mains contact, no electrician, no permit. Reads true-RMS on GPIO34 and publishes `plugW`, replacing the modelled plug draw. Current-output, so it needs the burden below — and see the ⚠️ open-circuit warning in [WIRING.md §5](WIRING.md). ⚠️ **hshop lists it as `STC013`, not `SCT-013`** — searching the correct part number returns *nothing at all*, which is why this sat on the "still to buy" list longer than it needed to. The product slug also says `hall`, which it is not; it is a current transformer (YHDC) | ✓ **102.000₫** |
+| 15b | *(alt)* **SCT-013-030** (30 A : 1 V) | 1 | Voltage-output — **skip the burden**, and it has no open-circuit hazard. Build `-DPLUG_CAL_A_PER_V=30.0`. **Not found at hshop or caka (checked 2026-07-25)** — searched both for `SCT-013`, `STC013`, `cảm biến dòng`, `biến dòng`. Plan around the `-000` | — |
+| 15c | **CH-2 spring wire clamp**, [caka](https://caka.vn/kep-noi-day-dien-ch-2-domino-2p-dang-lo-xo) | 2 | Joins the CT's stranded lead to a solid-core jumper **off the board** — no solder, no breadboard holes. See the note below | **2.000₫** ea |
+| 15d | **SYB-170 mini breadboard**, [caka](https://caka.vn/breadboard-syb-170-de-cam-mach-mini-170-lo) | 1 | Carry the whole CT front end (burden + bias divider + cap) on its own board; three jumpers back to 3V3/GND/GPIO34. Costs zero space on the main boards, and keeps a high-impedance 1.65 V divider away from the ESP32's switching and the SSR line | **6.000₫** |
+| 15e | *(alt clamp)* [**5 A ring CT**, hshop](https://hshop.vn/cam-bien-dong-dien-ac-current-transformer-sensor-5a) `HS1275` | 1 | **Better instrument for per-appliance work than a 100 A jaw.** 1000:1, linear to 10 A on a 100 Ω burden ⇒ ~2.2 kW headroom on a domestic socket, with far better resolution on a 60 W fan. Solid ring, so the conductor threads through — the same zip-cord split you were doing anyway. Calibration 10 A/V | ✓ **18.000₫** |
 | 16 | [Ceramic capacitor assortment](https://hshop.vn/bo-23-loai-tu-gom-thong-dung-6pf-0-1uf-23-kind-ceramic-capacitor) `HS0093` | 1 | A **0.1 µF** from this kit ties the bias node to ground. (OpenEnergyMonitor specifies 10 µF; 0.1 µF is fine at the ESP32's sampling rate, and the kit is what hshop actually stocks. The listing now reads "22 loại" where it used to read 23 — same kit, same range, same price) | ✓ **40.000₫** |
 | 17 | **33 Ω** burden + 2× **10 kΩ** bias resistors, ¼ W | 1 set | The burden sets the scale (`-DPLUG_CAL_A_PER_V=60.6`); the 10 kΩ pair forms the 1.65 V mid-rail. Not stocked at hshop — buy at caka, [§4a](#4a-resistors--which-caka-sku-actually-has-the-values). **If 33 Ω is unavailable, any value works** — the flag becomes `2000 ÷ R` | ~5k |
 
-> **No 3.5 mm jack needed.** Snip the SCT-013's plug and land its two bare leads directly on
-> the breadboard. One less part to source.
+> **Do not land the CT's bare leads in the breadboard.** *(Reversed 2026-07-25 — this list
+> previously said to snip the plug and push the leads straight in.)* The CT's lead is
+> **stranded**, and stranded wire in a breadboard clip is an unreliable contact. This project
+> has already paid for that lesson: the SHT30 sat at 82.7 % arrival through four wrong
+> diagnoses before the cause turned out to be bare stranded leads in breadboard clips. On the
+> CT the same intermittency does not read as a broken sensor — it reads as *the appliance
+> switched off*.
+>
+> Use a **CH-2 spring clamp** (item 15c) to join the CT's stranded lead to a solid-core
+> jumper, and put only the solid jumper in the breadboard. It is wire-to-wire, so it costs
+> **zero breadboard holes** — which matters, because an ESP32 DevKit leaves at most one or
+> two free rows on one side of a board and none on the other.
+>
+> A KF301-2P screw terminal (5.08 mm = exactly 2 hole pitches) does fit, but its flat pins
+> are thicker than the 0.6 mm round pins breadboard clips expect and splay them permanently.
+> Considered and rejected on a two-breadboard bench. Full reasoning: [WIRING.md §5](WIRING.md).
 
 > ⚠️ **The clamp goes around ONE conductor — the live wire only.** Clamped around a whole
 > two-core cord it reads ~zero, because the live and neutral currents cancel. This means
