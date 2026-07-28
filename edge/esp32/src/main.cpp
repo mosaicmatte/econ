@@ -52,13 +52,24 @@ const int   MQTT_PORT = 1883;
 #ifndef ZONE_LABEL_OVERRIDE
   #define ZONE_LABEL_OVERRIDE "Level 4"
 #endif
-const char* ZONE_LABEL    = ZONE_LABEL_OVERRIDE;   // human label sent in telemetry
 const char* ZONE_TOPIC    = ZONE_TOPIC_OVERRIDE;   // topic suffix; engine maps this to a zoneId
 // Derived topics
 char TELEMETRY_TOPIC[48];                   // econ/telemetry/<ZONE_TOPIC>
 char COMMAND_TOPIC[48];                     // econ/commands/<ZONE_TOPIC>
 char STATUS_TOPIC[48];                      // econ/status/<ZONE_TOPIC>  (LWT online/offline)
+char CONFIG_TOPIC[48];                      // econ/config/<ZONE_TOPIC>        (inbound)
+char CONFIG_STATE_TOPIC[56];                // econ/config/<ZONE_TOPIC>/state  (retained)
 char CLIENT_ID[32];                         // econ-esp32-<ZONE_TOPIC>
+
+// Runtime configuration (node_config.h). Everything that is a property of the
+// INSTALLATION rather than of the wiring — clamp calibration, mains voltage, publish
+// cadence, touch sensitivity, the label — is settable over MQTT and persisted to NVS,
+// with the compile-time flags above as its defaults. ZONE_TOPIC deliberately stays
+// compile-time: it is this node's identity on the bus, the thing its retained LWT and
+// its command subscription are keyed on, so changing it at runtime would orphan both.
+#include "node_config.h"
+// ZONE_LABEL is now gCfg.zoneLabel; this alias keeps the telemetry call site readable.
+#define ZONE_LABEL (gCfg.zoneLabel)
 
 // ---------------- HARDWARE PINS ----------------
 const int RELAY_PIN  = 23;  // lighting relay (active HIGH)
@@ -375,7 +386,7 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 #define USE_TOUCH_PRESENCE 1
 #if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
   const int TOUCH_PIN = T9;      // GPIO32
-  const int TOUCH_OCCUPANTS = 3; // headcount reported while touched
+  #define TOUCH_OCCUPANTS (gCfg.touchOccupants) // headcount reported while touched
   int touchBaseline = 0;         // calibrated in setup()
   bool touchState = false;       // debounced presence state
   // A single threshold flaps when a bare-finger reading hovers right at the line
@@ -385,8 +396,11 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   bool touchOccupied() {
     static int agree = 0;
     int v = touchRead(TOUCH_PIN);
-    bool raw = touchState ? (v < touchBaseline * 82 / 100)   // stay until clearly released
-                          : (v < touchBaseline * 62 / 100);  // enter only on a firm touch
+    // Thresholds are runtime-configurable: a bare pin, a jumper wire and a taped-down
+    // foil pad all sit at different fractions of baseline, and that is a property of how
+    // this particular node was installed rather than of the firmware.
+    bool raw = touchState ? (v < touchBaseline * gCfg.touchExitPct / 100)   // stay until clearly released
+                          : (v < touchBaseline * gCfg.touchEnterPct / 100); // enter only on a firm touch
     if (raw == touchState) { agree = 0; return touchState; }
     if (++agree >= 3) { agree = 0; touchState = raw; }
     return touchState;
@@ -397,7 +411,6 @@ WiFiClient   espClient;
 PubSubClient client(espClient);
 
 unsigned long lastPublish = 0;
-const long PUBLISH_INTERVAL_MS = 5000;
 unsigned long lastReconnectAttempt = 0;
 
 // actuated state (echoed back in telemetry for diagnostics)
@@ -461,9 +474,15 @@ void setupWifi() {
 // every split unit accepts, and clamping is safer than refusing (a refused command leaves
 // the room uncontrolled, a clamped one is merely conservative).
 void applyHvacSetpoint(float celsius) {
-  if (isnan(celsius) || celsius < 16.0f || celsius > 30.0f) {
-    Serial.printf("[hvac] setpoint %.1f C out of range -> clamped\n", celsius);
-    celsius = celsius < 16.0f ? 16.0f : (celsius > 30.0f ? 30.0f : 24.0f);
+  // The safe band is configurable per installation: a server room and an open-plan floor
+  // do not share a sensible floor, and this is the last check before a command reaches a
+  // real compressor. Clamped rather than refused, deliberately — unlike a calibration, a
+  // setpoint the engine wanted is better served at the nearest safe value than ignored.
+  const float lo = gCfg.setpointMinC, hi = gCfg.setpointMaxC;
+  if (isnan(celsius) || celsius < lo || celsius > hi) {
+    Serial.printf("[hvac] setpoint %.1f C outside %.1f..%.1f -> clamped\n",
+                  celsius, (double)lo, (double)hi);
+    celsius = isnan(celsius) ? (lo + hi) / 2.0f : (celsius < lo ? lo : hi);
   }
   hvacSetpointC = celsius;
 
@@ -536,7 +555,7 @@ float readPlugAmps() {
   if (n < 100) return -1;
   double mean = sum / n;
   double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
-  float amps = (float)(rmsCounts * (3.3 / 4095.0) * PLUG_CAL_A_PER_V);
+  float amps = (float)(rmsCounts * (3.3 / 4095.0) * gCfg.plugCalAPerV);
   return amps < 0.10 ? 0.0f : amps;  // below the clamp's noise floor = genuinely off
 }
 #endif
@@ -558,7 +577,7 @@ float readAcAmps() {
   if (n < 100) return -1;
   double mean = sum / n;
   double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
-  float amps = (float)(rmsCounts * (3.3 / 4095.0) * AC_CAL_A_PER_V);
+  float amps = (float)(rmsCounts * (3.3 / 4095.0) * gCfg.acCalAPerV);
   return amps < 0.10 ? 0.0f : amps;
 }
 #endif
@@ -618,12 +637,51 @@ void handleCommand(const String& msg) {
   }
 }
 
+void readAndPublish();   // defined below; handleConfig republishes on an accepted change
+
+// publishConfigState publishes the effective configuration, RETAINED, so the current
+// calibration of every node on the bus is readable with one subscribe rather than by
+// interrogating boards one at a time.
+void publishConfigState() {
+  StaticJsonDocument<640> doc;
+  cfgSerializeState(doc);
+  char buf[640];
+  size_t n = serializeJson(doc, buf, sizeof(buf));
+  client.publish(CONFIG_STATE_TOPIC, (const uint8_t*)buf, n, true);
+}
+
+// handleConfig applies an inbound configuration message and always answers on /state —
+// including when it rejected the message. A config push that vanishes silently is
+// indistinguishable, from the operator's side, from one that was applied.
+void handleConfig(const String& msg) {
+  StaticJsonDocument<512> doc;
+  DeserializationError err = deserializeJson(doc, msg);
+  if (err) {
+    snprintf(gCfgLastError, sizeof(gCfgLastError), "malformed JSON: %s", err.c_str());
+    Serial.printf("[config] REJECTED: %s\n", gCfgLastError);
+    publishConfigState();
+    return;
+  }
+  bool wasReset = false;
+  bool changed  = cfgApplyJson(doc, wasReset);
+  publishConfigState();
+  if (changed) {
+    // Republish immediately rather than waiting out the interval: the operator who just
+    // changed a calibration wants to see the corrected watts now, and the new cfgRev is
+    // what marks where the old series stopped being comparable.
+    lastPublish = millis();
+    readAndPublish();
+  }
+}
+
 void onMessage(char* topic, byte* payload, unsigned int len) {
   String msg;
   msg.reserve(len);
   for (unsigned int i = 0; i < len; i++) msg += (char)payload[i];
   Serial.printf("[mqtt] %s -> %s\n", topic, msg.c_str());
-  if (String(topic) == COMMAND_TOPIC) handleCommand(msg);
+  String t(topic);
+  if (t == COMMAND_TOPIC)     handleCommand(msg);
+  else if (t == CONFIG_TOPIC) handleConfig(msg);
 }
 
 // ---------------- TELEMETRY ----------------
@@ -634,6 +692,11 @@ void readAndPublish() {
   StaticJsonDocument<256> doc;
   doc["zone"]   = ZONE_LABEL;
   doc["source"] = "esp32";
+  // Configuration revision. A calibration change alters the MEANING of plugW/acW, so a
+  // step in those series caused by recalibrating is otherwise indistinguishable from a
+  // step caused by the load itself. Publishing the revision lets the engine mark exactly
+  // where the series stopped being comparable to itself (devices.go records the change).
+  doc["cfgRev"] = gCfg.cfgRev;
 
   // --- temperature + humidity ---
   bool tempReal = false;
@@ -704,7 +767,7 @@ void readAndPublish() {
 #if USE_PLUG
   float amps = readPlugAmps();
   if (amps >= 0) {
-    doc["plugW"] = round(amps * PLUG_MAINS_V * 10) / 10.0;  // measured, engine-side model yields
+    doc["plugW"] = round(amps * gCfg.plugMainsV * 10) / 10.0;  // measured, engine-side model yields
   } else {
     Serial.println("[plug] ADC window starved -> omitted (engine keeps modelling)");
   }
@@ -721,7 +784,7 @@ void readAndPublish() {
 #endif
 #if USE_AC_CLAMP
   float acAmps = readAcAmps();
-  if (acAmps >= 0) doc["acW"] = round(acAmps * AC_MAINS_V * 10) / 10.0;
+  if (acAmps >= 0) doc["acW"] = round(acAmps * gCfg.acMainsV * 10) / 10.0;
   else Serial.println("[ac] ADC window starved -> omitted");
 #endif
 #if USE_LUX
@@ -766,6 +829,12 @@ bool mqttConnect() {
     Serial.println(" connected");
     client.publish(STATUS_TOPIC, "online", true);
     client.subscribe(COMMAND_TOPIC);
+    // Runtime config. A RETAINED message on this topic is redelivered on every reconnect,
+    // so a node that is reflashed or power-cycled picks its site calibration back up from
+    // the broker even if its NVS was erased — and cfgApplyJson no-ops when the retained
+    // message matches what is already running, so the replay costs nothing.
+    client.subscribe(CONFIG_TOPIC);
+    publishConfigState();
     digitalWrite(STATUS_LED, HIGH);
   } else {
     // rc=5 is "not authorized" — almost always a missing or wrong MQTT_USER/MQTT_PASS in
@@ -780,6 +849,10 @@ bool mqttConnect() {
 
 void setup() {
   Serial.begin(115200);
+  // Load the persisted configuration FIRST: every announcement printed below (clamp
+  // calibration, touch threshold, publish cadence) must report what this node will
+  // actually run with, not the compiled default it may already have been told to replace.
+  cfgLoad();
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(IR_PIN, OUTPUT);
 #if USE_IR_AC
@@ -842,7 +915,7 @@ void setup() {
   setPlug(true);  // fail-energized: sockets live from boot until the engine sheds them
   analogReadResolution(12);
   Serial.printf("[plug] SCT-013 on GPIO%d (cal %.1f A/V), relay on GPIO%d\n",
-                PLUG_ADC_PIN, (double)PLUG_CAL_A_PER_V, PLUG_RELAY_PIN);
+                PLUG_ADC_PIN, (double)gCfg.plugCalAPerV, PLUG_RELAY_PIN);
 #endif
 #if USE_SUPPLY_TEMP
   supplyProbe.begin();
@@ -860,7 +933,7 @@ void setup() {
   analogReadResolution(12);
   Serial.printf("[ac] SCT-013 on the AC supply, GPIO%d (cal %.1f A/V) — measured compressor "
                 "power replaces the twin's simulated VAV flow for this zone\n",
-                AC_CLAMP_PIN, (double)AC_CAL_A_PER_V);
+                AC_CLAMP_PIN, (double)gCfg.acCalAPerV);
 #endif
 #if USE_LUX
   {
@@ -876,13 +949,19 @@ void setup() {
   long acc = 0;
   for (int i = 0; i < 16; i++) { acc += touchRead(TOUCH_PIN); delay(10); }
   touchBaseline = acc / 16;
-  Serial.printf("[touch] baseline=%d threshold=%d (GPIO32)\n", touchBaseline, touchBaseline * 6 / 10);
+  Serial.printf("[touch] baseline=%d enter<%d exit<%d (GPIO32, cfg %u/%u%%)\n",
+                touchBaseline,
+                touchBaseline * gCfg.touchEnterPct / 100,
+                touchBaseline * gCfg.touchExitPct / 100,
+                gCfg.touchEnterPct, gCfg.touchExitPct);
 #endif
 
-  snprintf(TELEMETRY_TOPIC, sizeof(TELEMETRY_TOPIC), "econ/telemetry/%s", ZONE_TOPIC);
-  snprintf(COMMAND_TOPIC,   sizeof(COMMAND_TOPIC),   "econ/commands/%s",  ZONE_TOPIC);
-  snprintf(STATUS_TOPIC,    sizeof(STATUS_TOPIC),    "econ/status/%s",    ZONE_TOPIC);
-  snprintf(CLIENT_ID,       sizeof(CLIENT_ID),       "econ-esp32-%s",     ZONE_TOPIC);
+  snprintf(TELEMETRY_TOPIC,    sizeof(TELEMETRY_TOPIC),    "econ/telemetry/%s",   ZONE_TOPIC);
+  snprintf(COMMAND_TOPIC,      sizeof(COMMAND_TOPIC),      "econ/commands/%s",    ZONE_TOPIC);
+  snprintf(STATUS_TOPIC,       sizeof(STATUS_TOPIC),       "econ/status/%s",      ZONE_TOPIC);
+  snprintf(CONFIG_TOPIC,       sizeof(CONFIG_TOPIC),       "econ/config/%s",      ZONE_TOPIC);
+  snprintf(CONFIG_STATE_TOPIC, sizeof(CONFIG_STATE_TOPIC), "econ/config/%s/state", ZONE_TOPIC);
+  snprintf(CLIENT_ID,          sizeof(CLIENT_ID),          "econ-esp32-%s",       ZONE_TOPIC);
 
   setupWifi();
   client.setServer(MQTT_HOST, MQTT_PORT);
@@ -916,7 +995,7 @@ void loop() {
       }
     }
 #endif
-    if (now - lastPublish > PUBLISH_INTERVAL_MS) {
+    if (now - lastPublish > gCfg.publishIntervalMs) {
       lastPublish = now;
       readAndPublish();
     }
