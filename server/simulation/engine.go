@@ -88,14 +88,14 @@ type ZoneSim struct {
 	HwHumAt  time.Time // when HwHum arrived; zero = no humidity sensor has ever reported
 	HwCo2    float64   // last measured CO2 (ppm), valid while HwCo2At is fresh
 	// Measured replacements for values the model otherwise assumes.
-	HwSupplyC  float64   // AC discharge temperature (DS18B20) — supersedes supplyAirDesignC
+	HwSupplyC  float64 // AC discharge temperature (DS18B20) — supersedes supplyAirDesignC
 	HwSupplyAt time.Time
-	HwAcW      float64   // air-conditioner power (SCT-013) — the real cooling drive term
+	HwAcW      float64 // air-conditioner power (SCT-013) — the real cooling drive term
 	HwAcAt     time.Time
-	HwLux      float64   // ambient illuminance (BH1750) — a real irradiance proxy
+	HwLux      float64 // ambient illuminance (BH1750) — a real irradiance proxy
 	HwLuxAt    time.Time
-	HwCo2At  time.Time // when HwCo2 arrived; zero = no NDIR sensor has ever reported
-	HwOnline bool      // broker LWT verdict from econ/status/<topic>
+	HwCo2At    time.Time // when HwCo2 arrived; zero = no NDIR sensor has ever reported
+	HwOnline   bool      // broker LWT verdict from econ/status/<topic>
 	// Automated Plug Load Control (see plugs.go). PlugStandbyW is sized from the zone's
 	// real floor area at build time; PlugShed flips when the after-hours sweep cuts the
 	// zone's switchable sockets. HwPlugW/HwPlugAt carry a live SCT-013 clamp reading,
@@ -247,10 +247,17 @@ func NewEngine() *Engine {
 		dynamics:   NewDynamics(),
 	}
 
-	data, err := os.ReadFile("./data/building-data.json")
+	// Local-first (datapath.go): a deployment that has imported its own blueprint reads
+	// its own building, which git neither tracks nor can overwrite on a pull. A fresh
+	// clone falls back to the fixture the repository ships.
+	path := DataPath(BuildingDataFile)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("Failed to load building data: %v", err)
 		return e
+	}
+	if IsLocal(BuildingDataFile) {
+		log.Printf("[building] running THIS DEPLOYMENT's building from %s (not the repository default)", path)
 	}
 	if err := e.buildFromJSON(data); err != nil {
 		log.Printf("Failed to parse building data: %v", err)
@@ -312,8 +319,8 @@ func (e *Engine) buildFromJSON(data []byte) error {
 				// unrealistically small air capacitance that makes the explicit-Euler thermal
 				// integration unstable (runaway temps). A modest floor keeps it stable; steady
 				// state is unaffected since it depends on the heat balance, not CAir.
-				CAir:                math.Max(z.ThermalProperties.CAir, Phys().MinZoneCapacitanceJPerK),
-				CWall:               4000000.0,
+				CAir:  math.Max(z.ThermalProperties.CAir, Phys().MinZoneCapacitanceJPerK),
+				CWall: 4000000.0,
 				// Split the zone's derived envelope resistance into inside-surface and
 				// outside-surface halves. The old form added a fixed 0.1 K/W to ROut,
 				// which is fine against the raw fixture's flat 0.2 but swamps a real
@@ -544,6 +551,29 @@ func (e *Engine) resolveZone(ref string) *ZoneSim {
 	return e.assignDemoZone(ref)
 }
 
+// neverAutoBind is a SAFETY FLOOR under IsCritical, not a replacement for it.
+//
+// Criticality properly lives in the programme library (rule: coefficients belong in data),
+// and IsCritical is the authority. But IsCritical answers false for every type when the
+// library cannot be read — a stripped deployment, a container missing its data mount, a
+// unit test — because the fallback library ships no programmes at all. That turns a missing
+// file into "auto-bind a bring-up node into the comms room", which is precisely the room
+// this must never choose. So the name is checked too: it costs nothing when the library is
+// present and agrees, and it holds the line when the library is absent.
+//
+// Matching on substrings of a GENERATED type name is exactly the brittleness that caused
+// the bug this function was fixed for, so it is used only to EXCLUDE (a false positive
+// merely picks a different room) and never to include.
+func neverAutoBind(zoneType string) bool {
+	t := strings.ToLower(zoneType)
+	for _, bad := range []string{"comms", "server", "plant", "mechanical", "switch", "riser", "ups"} {
+		if strings.Contains(t, bad) {
+			return true
+		}
+	}
+	return false
+}
+
 // assignDemoZone gives an unrecognized edge-node identifier a stable, distinct office
 // zone: the first unknown node gets the lexicographically-smallest office, the second
 // the next one, and so on (deterministic despite Go's randomized map iteration; wraps
@@ -552,19 +582,46 @@ func (e *Engine) assignDemoZone(ref string) *ZoneSim {
 	if id, ok := e.demoAssign[ref]; ok {
 		return e.Zones[id]
 	}
-	offices := make([]string, 0, 16)
+	// Match office-LIKE types, not the literal string "office".
+	//
+	// This used to test `z.Type == "office"` and return nil when nothing matched, which
+	// silently discarded every sample a physical node sent. The digitizer emits
+	// `cellular-office` (285 zones) and `open-office` (103) — no zone in the shipped
+	// fixture is typed exactly "office" — so a real ESP32 publishing measured temperature,
+	// humidity and occupancy had all of it dropped at the door, while the hardware
+	// inspector (which watches the raw MQTT stream one level below this) went on showing
+	// the node as healthy. That is exactly the failure the inspector exists to expose, and
+	// exactly the one a literal string comparison against generated type names invites.
+	//
+	// The fallback matters as much as the match: a node that reaches the engine must land
+	// SOMEWHERE rather than have its measurements thrown away over a naming mismatch. A
+	// wrongly-placed measurement is visible and correctable; a dropped one is neither.
+	// Critical spaces are excluded because binding a bring-up node to a comms room would
+	// hand it a space the optimizer must never set back.
+	preferred := make([]string, 0, 16)
+	fallback := make([]string, 0, 16)
 	for id, z := range e.Zones {
-		if z.Type == "office" {
-			offices = append(offices, id)
+		if IsCritical(z.Type) || neverAutoBind(z.Type) {
+			continue
+		}
+		if strings.Contains(strings.ToLower(z.Type), "office") {
+			preferred = append(preferred, id)
+		} else {
+			fallback = append(fallback, id)
 		}
 	}
-	if len(offices) == 0 {
-		return nil // building without offices: nothing sensible to bind a demo node to
+	pool, why := preferred, "office"
+	if len(pool) == 0 {
+		pool, why = fallback, "non-critical (no office-like zone in this building)"
 	}
-	sort.Strings(offices)
-	id := offices[len(e.demoAssign)%len(offices)]
+	if len(pool) == 0 {
+		log.Printf("[edge] node %q cannot be bound: this building has no non-critical zone", ref)
+		return nil
+	}
+	sort.Strings(pool)
+	id := pool[len(e.demoAssign)%len(pool)]
 	e.demoAssign[ref] = id
-	log.Printf("[edge] node %q bound to zone %s", ref, id)
+	log.Printf("[edge] node %q bound to zone %s (%s, type %q)", ref, id, why, e.Zones[id].Type)
 	return e.Zones[id]
 }
 
@@ -776,6 +833,64 @@ func (z *ZoneSim) co2Fresh() bool {
 	return !z.HwCo2At.IsZero() && time.Since(z.HwCo2At) < hwStaleAfter
 }
 
+// The three sensors WIRING.md calls "the ones that replace an assumption with a
+// measurement". Each has the same shape: the engine evaluates a term against a coefficient
+// from the programme library, and a fresh reading from the corresponding probe displaces
+// that coefficient for that zone only. Same per-field freshness rule as everything else —
+// a probe that falls out of the louvre stops being believed without taking the node with it.
+func (z *ZoneSim) supplyFresh() bool {
+	return !z.HwSupplyAt.IsZero() && time.Since(z.HwSupplyAt) < hwStaleAfter
+}
+
+func (z *ZoneSim) acFresh() bool {
+	return !z.HwAcAt.IsZero() && time.Since(z.HwAcAt) < hwStaleAfter
+}
+
+func (z *ZoneSim) luxFresh() bool {
+	return !z.HwLuxAt.IsZero() && time.Since(z.HwLuxAt) < hwStaleAfter
+}
+
+// supplyC is the discharge temperature the cooling law is evaluated against: a DS18B20 in
+// the louvre when one is reporting, the library's design value otherwise. The cooling law
+// divides by (setpoint − supply), so a probe reading at or above setpoint is rejected as
+// implausible rather than allowed to produce a division by ~0 — a sensor that has come
+// loose and is reading room air must not be able to blow up the physics.
+func (z *ZoneSim) supplyC(setpoint float64) float64 {
+	design := Phys().SupplyAirDesignC
+	if z.supplyFresh() && z.HwSupplyC > 0 && z.HwSupplyC < setpoint-minSupplyLiftC {
+		return z.HwSupplyC
+	}
+	return math.Min(design, setpoint-minSupplyLiftC)
+}
+
+// solarGainW is the zone's solar heat gain. The reference figure is a library coefficient
+// scaled by the zone's own digitized aperture multiplier (0 for the 690 of 735 zones with
+// no facade). A fresh BH1750 then scales that by how much daylight is ACTUALLY arriving,
+// relative to the library's reference level.
+//
+// Gated on the lights being off, which is not fussiness: a BH1750 indoors reads total
+// illuminance, so with the luminaires on it is measuring the electric lighting too — and
+// that heat is already counted in BaseHeatGain. Using a contaminated reading here would
+// double-count it, which is the same class of error as fabricating a measurement.
+func (z *ZoneSim) solarGainW() float64 {
+	ph := Phys()
+	w := z.SolarGainMult * ph.SolarGainReferenceW
+	if z.luxFresh() && z.HwLux > 0 && !z.LightsOn && ph.DaylightReferenceLux > 0 {
+		ratio := z.HwLux / ph.DaylightReferenceLux
+		w *= math.Max(0, math.Min(maxDaylightRatio, ratio))
+	}
+	return w
+}
+
+const (
+	// minSupplyLiftC is the smallest (setpoint − supply air) the cooling law will evaluate.
+	minSupplyLiftC = 1.0
+	// maxDaylightRatio caps how far a measured illuminance may amplify the reference solar
+	// gain. A sensor in direct sun reads far above any diffuse reference, and an unbounded
+	// multiplier would let one badly-placed probe drive a zone's heat balance on its own.
+	maxDaylightRatio = 4.0
+)
+
 // avgCo2 is the building CO2 figure, and it prefers reality: the average of whatever
 // fresh NDIR sensors are actually reporting, falling back to a modelled estimate only
 // when nothing is measuring. One function feeds both the TimescaleDB history and the
@@ -974,6 +1089,13 @@ func (e *Engine) roomConditions() []RoomCondition {
 			Zone: id, Label: strings.TrimPrefix(id, "zone-"),
 			Temp: z.Temp, Setpoint: z.Setpoint, OutdoorC: tOut,
 			FlowRatio: flow[id], Occupancy: z.Occupancy,
+		}
+		// A measured discharge temperature is what the cooling regressor is referenced to,
+		// so the identified cooling authority describes the machine that is actually
+		// running rather than the design value it was specified with. Left zero when no
+		// probe is reporting, which RoomCondition.supplyC() reads as "use the library".
+		if z.supplyFresh() && z.HwSupplyC > 0 {
+			c.SupplyC = z.HwSupplyC
 		}
 		// Only a live NDIR reading may teach or be scored by the CO2 balance — a modelled
 		// estimate would train the model on the twin's own guess.
@@ -1256,8 +1378,10 @@ func (e *Engine) tick(dt float64) {
 			continue
 		}
 
-		// Nominal (non-fault) internal load: base equipment + people + solar.
-		qSolar := z.SolarGainMult * 10000.0
+		// Nominal (non-fault) internal load: base equipment + people + solar. Solar comes
+		// from the zone's own aperture and, where a BH1750 reports, the daylight actually
+		// arriving rather than the library's reference level (solarGainW).
+		qSolar := z.solarGainW()
 		qInternalNominal := z.BaseHeatGain + (float64(z.Occupancy) * 100.0) + qSolar
 
 		qInternal := qInternalNominal
@@ -1287,7 +1411,12 @@ func (e *Engine) tick(dt float64) {
 		}
 		flowRatio := v.Flow / nominalFlow
 
-		qCooling := flowRatio * qNominalTotal * ((z.Temp - 12.0) / (sp - 12.0))
+		// Discharge temperature: a DS18B20 in the louvre when one is reporting, the
+		// library's design value otherwise. This is the difference between sizing the
+		// cooling law against what the AC is actually delivering and against a nameplate.
+		tSupply := z.supplyC(sp)
+
+		qCooling := flowRatio * qNominalTotal * ((z.Temp - tSupply) / (sp - tSupply))
 		if qCooling < 0 {
 			qCooling = 0
 		} // Cannot heat with cold air
@@ -1310,7 +1439,7 @@ func (e *Engine) tick(dt float64) {
 		// measurement (applyHardware skips it). Divergence between the measured
 		// room and this twin is the fault signal.
 		if z.ShadowTemp != 0 {
-			qCoolShadow := flowRatio * qNominalTotal * ((z.ShadowTemp - 12.0) / (sp - 12.0))
+			qCoolShadow := flowRatio * qNominalTotal * ((z.ShadowTemp - tSupply) / (sp - tSupply))
 			if qCoolShadow < 0 {
 				qCoolShadow = 0
 			}
@@ -1461,17 +1590,23 @@ func (e *Engine) broadcast() {
 	plugTotalW := 0.0     // live plug draw (measured where clamped, modelled otherwise)
 	// Outdoor air is what a setback actually saves against — no lift, no saving.
 	tOutside, _ := e.outdoorNow()
-	ventW := 0.0     // fresh-air load, the dominant cooling term in a tropical office
-	condFloorM2 := 0.0 // conditioned floor area, for the area-scaled electrical baseline
-	plugStandbyW := 0.0   // the always-on phantom portion of plugTotalW
-	plugShedW := 0.0      // switchable watts currently swept off by the APLC
+	ventW := 0.0        // fresh-air load, the dominant cooling term in a tropical office
+	condFloorM2 := 0.0  // conditioned floor area, for the area-scaled electrical baseline
+	plugStandbyW := 0.0 // the always-on phantom portion of plugTotalW
+	plugShedW := 0.0    // switchable watts currently swept off by the APLC
+	// Air-conditioner power measured by a real clamp, and the thermal load / occupancy of
+	// the zones it covers. Zero unless an SCT-013 is fitted, in which case that slice of
+	// the building's cooling electrical stops being inferred from a COP curve.
+	meteredAcW := 0.0
+	meteredHeatW := 0.0
+	meteredOccupants := 0
 	// Half-comfort point: a zone this many °C *beyond* its deadband scores 0.5 comfort.
 	const sigmaComfort2 = 2.5 * 2.5
 	// °C past the deadband before a zone is "critical". Matches the dashboard's own
 	// CRITICAL_MARGIN so the health number and the red banner never disagree.
 	const criticalMargin = 5.0
 	for id, z := range e.Zones {
-		qSolar := z.SolarGainMult * 10000.0
+		qSolar := z.solarGainW()
 		qi := z.BaseHeatGain + float64(z.Occupancy)*100.0 + qSolar
 		if e.Scenario == "fault" && id == e.FaultTarget {
 			qi *= 5.0
@@ -1479,6 +1614,15 @@ func (e *Engine) broadcast() {
 		totalHeatW += qi
 		totalOccupants += z.Occupancy
 		condFloorM2 += z.AreaM2
+		// A zone with a live AC clamp reports the electrical power its air conditioner is
+		// actually drawing. Its thermal load and occupancy are tracked alongside so the
+		// modelled COP can be lifted off exactly the portion of the building that is
+		// measured, and so the achieved COP can be computed as evidence.
+		if z.acFresh() && z.HwAcW > 0 {
+			meteredAcW += z.HwAcW
+			meteredHeatW += qi
+			meteredOccupants += z.Occupancy
+		}
 		sp := z.Setpoint
 		if sp == 0 {
 			sp = 24.0
@@ -1536,20 +1680,43 @@ func (e *Engine) broadcast() {
 	if len(e.Zones) > 0 {
 		avgStrain = strainSum / float64(len(e.Zones))
 	}
-	plantCop := math.Max(2.2, math.Min(3.8, 3.6-0.35*avgStrain))
+	ph := Phys()
+	plantCop := math.Max(ph.CopMin, math.Min(ph.CopMax, ph.DesignCop-ph.CopStrainSlope*avgStrain))
 
 	// Fresh air. In Ho Chi Minh City, dehumidifying outdoor air to a supply condition is
 	// the LARGEST single cooling term in an office and it is mostly latent — omitting it
 	// is why a twin calibrated on internal gains alone under-reports a Vietnamese
 	// building by roughly a third. Scales with the people actually present, so it falls
 	// away out of hours exactly as a real demand-controlled AHU would let it.
-	ph := Phys()
 	ventW = float64(totalOccupants) * (ph.OutdoorAirLPerSPerPerson / 1000.0) *
 		ph.AirDensityKgPerM3 * ph.VentilationEnthalpyKjPerKg * 1000.0
 	totalHeatW += ventW
 
 	coolingOutputMW := totalHeatW / 1e6 // thermal cooling delivered (MW)
-	coolingElectricalMW := coolingOutputMW / plantCop
+
+	// Cooling electrical. Where a zone's air conditioner is on a real clamp its draw is a
+	// MEASUREMENT and is used as one; only the unmetered remainder of the building goes
+	// through the modelled COP curve. The metered zones' share of the fresh-air load is
+	// attributed by occupancy, because ventW is itself occupancy-driven.
+	//
+	// With no clamp fitted anywhere, meteredAcW is 0 and this reduces exactly to the
+	// previous coolingOutputMW/plantCop.
+	meteredVentW := 0.0
+	if totalOccupants > 0 {
+		meteredVentW = ventW * float64(meteredOccupants) / float64(totalOccupants)
+	}
+	meteredCoolingW := meteredHeatW + meteredVentW
+	unmeteredCoolingW := math.Max(0, totalHeatW-meteredCoolingW)
+	coolingElectricalMW := (unmeteredCoolingW/plantCop + meteredAcW) / 1e6
+
+	// The COP the metered zones are ACTUALLY achieving — thermal delivered over electrical
+	// drawn. Unlike plantCop this is not a curve; it is the plant measured against itself,
+	// and a persistent gap between the two is a commissioning finding. Zero when nothing is
+	// clamped, so it is never confused with a modelled figure.
+	measuredCop := 0.0
+	if meteredAcW > 0 {
+		measuredCop = meteredCoolingW / meteredAcW
+	}
 	// Non-HVAC electrical: lighting, fans, lifts and pumps, scaled by the building's own
 	// conditioned floor area rather than a fixed 1.15 MW that was sized for the
 	// mis-digitized fixture and did not move when the building did. Plus the LIVE plug
@@ -1588,6 +1755,14 @@ func (e *Engine) broadcast() {
 		e.Persist("GLOBAL", "systemHealth", systemHealth)
 		e.Persist("GLOBAL", "avgCo2", e.avgCo2(totalOccupants))
 		e.Persist("GLOBAL", "plugKw", plugTotalW/1000)
+		// The plant's modelled COP and, when anything is clamped, the one it is actually
+		// achieving. Two series rather than one: the divergence between them over time is
+		// the evidence, and it is only readable if both are stored.
+		e.Persist("GLOBAL", "plantCop", plantCop)
+		if measuredCop > 0 {
+			e.Persist("GLOBAL", "measuredCop", measuredCop)
+			e.Persist("GLOBAL", "meteredAcKw", meteredAcW/1000)
+		}
 		// Feature series for OFFLINE LSTM retraining (backend/forecasting/train.py):
 		// the SAME building-average [temp, airflow] the live forecaster consumes, plus
 		// the outdoor conditions the envelope integrates against. Persisting them is

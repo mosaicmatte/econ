@@ -284,6 +284,9 @@ var seriesAllowed = map[string]bool{
 	"temp": true, "occupancy": true, "humidity": true, "co2": true,
 	"afddResidual": true, "buildingLoadMw": true, "coolingOutputMw": true,
 	"systemHealth": true, "avgCo2": true, "plugKw": true,
+	// Plant efficiency: the modelled curve and, where an AC clamp is fitted, the COP the
+	// plant is actually achieving. Charting them together is how a drifting chiller shows up.
+	"plantCop": true, "measuredCop": true, "meteredAcKw": true,
 	// Feature series persisted for offline LSTM retraining (see engine.go); also
 	// chartable through this read path.
 	"avgTemp": true, "avgAirflow": true, "outdoorTemp": true, "outdoorHum": true,

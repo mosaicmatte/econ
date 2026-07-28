@@ -45,15 +45,25 @@ type Physics struct {
 	SolarPeakWPerM2            float64 `json:"solarPeakWPerM2"`
 	DesignCop                  float64 `json:"designCop"`
 	SupplyAirDesignC           float64 `json:"supplyAirDesignC"`
-	NonHvacBaseWPerM2          float64 `json:"nonHvacBaseWPerM2"`
-	MinZoneCapacitanceJPerK    float64 `json:"minZoneCapacitanceJPerK"`
-	RInFraction                float64 `json:"rInFraction"`
+	// SolarGainReferenceW is the solar gain a zone with an aperture multiplier of 1.0
+	// receives. It is the coefficient a measured illuminance scales; DaylightReferenceLux
+	// is the indoor illuminance that corresponds to it, so lux/reference is a pure ratio.
+	SolarGainReferenceW  float64 `json:"solarGainReferenceW"`
+	DaylightReferenceLux float64 `json:"daylightReferenceLux"`
+	// CopStrainSlope is how far the plant's COP falls per °C of average zone strain, and
+	// CopMin/CopMax bound the resulting curve. Previously literals in broadcast().
+	CopStrainSlope          float64 `json:"copStrainSlope"`
+	CopMin                  float64 `json:"copMin"`
+	CopMax                  float64 `json:"copMax"`
+	NonHvacBaseWPerM2       float64 `json:"nonHvacBaseWPerM2"`
+	MinZoneCapacitanceJPerK float64 `json:"minZoneCapacitanceJPerK"`
+	RInFraction             float64 `json:"rInFraction"`
 }
 
 type libraryDoc struct {
-	Version    int                  `json:"version"`
-	Physics    Physics              `json:"physics"`
-	Programmes map[string]Programme `json:"programmes"`
+	Version     int                  `json:"version"`
+	Physics     Physics              `json:"physics"`
+	Programmes  map[string]Programme `json:"programmes"`
 	Calibration struct {
 		GridEmissionFactor float64 `json:"gridEmissionFactorTCo2PerMwh"`
 	} `json:"calibration"`
@@ -82,6 +92,11 @@ func defaultLibrary() libraryDoc {
 		NonHvacBaseWPerM2:          9.0,
 		MinZoneCapacitanceJPerK:    5e4,
 		RInFraction:                0.4,
+		SolarGainReferenceW:        10000.0,
+		DaylightReferenceLux:       1000.0,
+		CopStrainSlope:             0.35,
+		CopMin:                     2.2,
+		CopMax:                     3.8,
 	}
 	d.Programmes = map[string]Programme{}
 	d.Calibration.GridEmissionFactor = 0.6766
@@ -94,7 +109,10 @@ func libraryPath() string {
 	if p := os.Getenv("ECON_PROGRAMME_LIBRARY"); p != "" {
 		return p
 	}
-	return "./data/programme-library.json"
+	// Local-first (datapath.go). Site calibration is the documented purpose of this file,
+	// so a deployment that has calibrated it keeps its own copy in programme-library.local.json
+	// — gitignored, and therefore safe from a pull that updates the shipped defaults.
+	return DataPath(ProgrammeLibraryFile)
 }
 
 func loadLibrary() {
@@ -127,6 +145,11 @@ func loadLibrary() {
 	mergeF(&p.NonHvacBaseWPerM2, base.NonHvacBaseWPerM2)
 	mergeF(&p.MinZoneCapacitanceJPerK, base.MinZoneCapacitanceJPerK)
 	mergeF(&p.RInFraction, base.RInFraction)
+	mergeF(&p.SolarGainReferenceW, base.SolarGainReferenceW)
+	mergeF(&p.DaylightReferenceLux, base.DaylightReferenceLux)
+	mergeF(&p.CopStrainSlope, base.CopStrainSlope)
+	mergeF(&p.CopMin, base.CopMin)
+	mergeF(&p.CopMax, base.CopMax)
 	doc.Physics = p
 	if doc.Calibration.GridEmissionFactor == 0 {
 		doc.Calibration.GridEmissionFactor = 0.6766
