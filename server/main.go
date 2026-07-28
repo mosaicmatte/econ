@@ -20,7 +20,7 @@ func main() {
 	http.HandleFunc("/api/building-data", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		data, err := os.ReadFile("./data/building-data.json")
+		data, err := os.ReadFile(simulation.DataPath(simulation.BuildingDataFile))
 		if err != nil {
 			http.Error(w, "Failed to read building data", http.StatusInternalServerError)
 			return
@@ -32,7 +32,7 @@ func main() {
 	http.HandleFunc("/api/ontology", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		data, err := os.ReadFile("./data/brick-ontology.json")
+		data, err := os.ReadFile(simulation.DataPath(simulation.OntologyFile))
 		if err != nil {
 			http.Error(w, "Failed to read ontology data", http.StatusInternalServerError)
 			return
@@ -132,6 +132,12 @@ func main() {
 	// where it has nothing to offer until train.py has real accumulated history.
 	http.HandleFunc("/api/forecast/load", loadForecastHandler(engine))
 	http.HandleFunc("/api/forecast/engines", forecastEnginesHandler())
+
+	// 11b. Both forecasters over the same instant, side by side. The supervised LSTM and
+	// the zero-shot foundation model answer the same question with opposite trade-offs,
+	// and until this endpoint nothing in the system ever put their answers next to each
+	// other — which is the only way to decide which one this building should trust.
+	http.HandleFunc("/api/forecast/compare", compareForecastHandler(engine))
 
 	// Connect to the MQTT broker: ingest real occupancy from the CV/edge layer and
 	// publish actuation commands to the ESP32. Non-blocking; the sim runs regardless.

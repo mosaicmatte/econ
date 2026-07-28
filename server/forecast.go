@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"econ/simulation"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -125,6 +128,208 @@ func loadForecastHandler(engine *simulation.Engine) http.HandlerFunc {
 // histIntervalMinutes is the engine's history cadence in minutes — the unit every horizon
 // in the forecast response is expressed in.
 const histIntervalMinutes = 5
+
+// engineResult is one forecaster's answer, or the reason it has none. Both engines are
+// always reported: "the LSTM is not trained" and "TimesFM could not download its
+// checkpoint" are findings about the twin, not errors to swallow.
+type engineResult struct {
+	Available bool      `json:"available"`
+	PeakMw    *float64  `json:"peakMw"`           // the comparable number: predicted peak load
+	Series    []float64 `json:"series,omitempty"` // TimesFM only — the full horizon
+	Error     string    `json:"error,omitempty"`
+	// Provenance: how much real history backed this answer. The two engines consume
+	// different windows, so neither figure is meaningful without saying which it is.
+	RealSamples int    `json:"realSamples"`
+	WindowLen   int    `json:"windowLen,omitempty"`
+	Basis       string `json:"basis"`
+}
+
+// compareForecastHandler runs BOTH forecasters over the same instant and returns both
+// answers side by side.
+//
+//	GET /api/forecast/compare[?horizon=N]
+//
+// The two are not redundant and not interchangeable: the LSTM is supervised and only knows
+// this building once train.py has had real history to learn from, while TimesFM is
+// pretrained and forecasts a series it has never seen. Until now they were reachable only
+// through separate endpoints, so nothing in the system ever put their answers next to each
+// other — which is the only way to find out which one to trust for THIS building.
+//
+// Both are reduced to one comparable scalar: the predicted peak load in MW. For the LSTM
+// that is what it emits directly; for TimesFM it is the maximum of the forecast horizon,
+// which is the same quantity the pre-cool decision actually turns on.
+//
+// Neither engine being reachable is a 200 with two unavailable results, not a 503: the
+// endpoint's job is to report the state of the forecasting layer, and "both are down" is a
+// perfectly good report.
+func compareForecastHandler(engine *simulation.Engine) http.HandlerFunc {
+	// The LSTM answers in milliseconds; TimesFM may be downloading a multi-gigabyte
+	// checkpoint on its first call, so it gets the generous timeout.
+	lstmClient := &http.Client{Timeout: 8 * time.Second}
+	tfmClient := &http.Client{Timeout: 180 * time.Second}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if corsPreflight(w, r) {
+			return
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+
+		base := os.Getenv("FORECAST_URL")
+		if base == "" {
+			base = "http://localhost:8000"
+		}
+		horizon := 12
+		if q := r.URL.Query().Get("horizon"); q != "" {
+			if n, err := strconv.Atoi(q); err == nil && n >= 1 && n <= 256 {
+				horizon = n
+			}
+		}
+
+		// Both calls go out concurrently: they hit the same service but are independent,
+		// and serializing them would make the response wait out TimesFM's cold start
+		// before it could report the LSTM's answer.
+		type pair struct {
+			name string
+			res  engineResult
+		}
+		ch := make(chan pair, 2)
+
+		go func() { ch <- pair{"lstm", queryLSTM(engine, lstmClient, base)} }()
+		go func() { ch <- pair{"timesfm", queryTimesFM(engine, tfmClient, base, horizon)} }()
+
+		out := map[string]interface{}{}
+		for i := 0; i < 2; i++ {
+			p := <-ch
+			out[p.name] = p.res
+		}
+
+		lstm := out["lstm"].(engineResult)
+		tfm := out["timesfm"].(engineResult)
+		out["stepMinutes"] = histIntervalMinutes
+		out["horizonMinutes"] = horizon * histIntervalMinutes
+		out["agreement"] = forecastAgreement(lstm, tfm)
+		json.NewEncoder(w).Encode(out)
+	}
+}
+
+// queryLSTM asks the supervised forecaster for its predicted peak over the sampled window.
+func queryLSTM(engine *simulation.Engine, client *http.Client, base string) engineResult {
+	req, realSamples := buildForecastRequest(engine)
+	res := engineResult{
+		RealSamples: realSamples,
+		WindowLen:   forecastWindowLen,
+		Basis:       "supervised LSTM over a 12-step [avgTemp, airflow] window",
+	}
+	body, _ := json.Marshal(req)
+	resp, err := client.Post(base+"/predict", "application/json", bytes.NewReader(body))
+	if err != nil {
+		res.Error = "forecasting service unreachable: " + err.Error()
+		return res
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		// 503 here means train.py has not been run — the honest and common case.
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		res.Error = fmt.Sprintf("forecaster returned %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return res
+	}
+	var decoded struct {
+		PredictedPeakLoad float64 `json:"predicted_peak_load"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&decoded) != nil {
+		res.Error = "forecaster returned malformed JSON"
+		return res
+	}
+	res.Available = true
+	peak := decoded.PredictedPeakLoad
+	res.PeakMw = &peak
+	return res
+}
+
+// queryTimesFM asks the zero-shot foundation model for the coming horizon, reduced to the
+// peak it contains. The engine's own minimum-history rule is applied here rather than
+// letting the service reject it, so the reason reads as a property of the twin.
+func queryTimesFM(engine *simulation.Engine, client *http.Client, base string, horizon int) engineResult {
+	history := engine.LoadHistory()
+	res := engineResult{
+		RealSamples: len(history),
+		Basis:       "zero-shot TimesFM over the recorded building-load series",
+	}
+	if len(history) < timesfmMinHistory {
+		res.Error = fmt.Sprintf("not enough load history yet: %d of %d samples "+
+			"(the engine records one every %d minutes)", len(history), timesfmMinHistory, histIntervalMinutes)
+		return res
+	}
+
+	body, _ := json.Marshal(loadForecastRequest{History: history, Horizon: horizon})
+	resp, err := client.Post(base+"/forecast/load", "application/json", bytes.NewReader(body))
+	if err != nil {
+		res.Error = "forecasting service unreachable: " + err.Error()
+		return res
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		res.Error = fmt.Sprintf("forecaster returned %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return res
+	}
+	var decoded struct {
+		Forecast []float64 `json:"forecast"`
+		Point    []float64 `json:"point"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&decoded) != nil {
+		res.Error = "forecaster returned malformed JSON"
+		return res
+	}
+	series := decoded.Forecast
+	if len(series) == 0 {
+		series = decoded.Point
+	}
+	if len(series) == 0 {
+		res.Error = "forecaster returned an empty horizon"
+		return res
+	}
+	peak := series[0]
+	for _, v := range series[1:] {
+		if v > peak {
+			peak = v
+		}
+	}
+	res.Available = true
+	res.PeakMw = &peak
+	res.Series = series
+	return res
+}
+
+// forecastAgreement describes how far apart the two engines are, when both answered. It is
+// deliberately a description rather than a verdict: with one supervised model possibly
+// trained on synthetic data and one zero-shot model, a disagreement says "these need
+// comparing against outturn", not "this one is wrong".
+func forecastAgreement(lstm, tfm engineResult) map[string]interface{} {
+	if !lstm.Available || !tfm.Available || lstm.PeakMw == nil || tfm.PeakMw == nil {
+		return map[string]interface{}{
+			"comparable": false,
+			"note":       "both engines must answer before their forecasts can be compared",
+		}
+	}
+	a, b := *lstm.PeakMw, *tfm.PeakMw
+	diff := a - b
+	rel := 0.0
+	if denom := math.Max(math.Abs(a), math.Abs(b)); denom > 0 {
+		rel = math.Abs(diff) / denom
+	}
+	return map[string]interface{}{
+		"comparable":   true,
+		"deltaMw":      diff,
+		"relativeDiff": rel,
+		"higher":       map[bool]string{true: "lstm", false: "timesfm"}[a >= b],
+		"note": "peak MW from each engine over the same instant; neither is ground truth " +
+			"until compared against measured outturn",
+	}
+}
 
 // forecastEnginesHandler surfaces which forecasting engines the Python service can serve
 // (GET /model/info there), so the dashboard can show whether the twin is running the
