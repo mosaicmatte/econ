@@ -23,6 +23,7 @@ package simulation
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"sync"
 	"time"
 )
@@ -323,6 +324,56 @@ func (b *Baselines) LoadState(data []byte) error {
 	}
 	b.Restore(snap)
 	return nil
+}
+
+// DropGlobal removes every learned bucket for the pseudo-zone "GLOBAL" and reports how
+// many it dropped.
+//
+// Per-zone keys are the zone's own id, so a different building simply mints different keys
+// and its predecessor's buckets sit inert. The GLOBAL keys — buildingLoadMw, plugKw — are
+// the exception: they are the same string for every building, so a restored model tells a
+// 72 m2 house that it "normally" draws the 0.6 MW the 39,776 m2 tower drew. That figure is
+// not merely displayed; it is the learned trigger the pre-cool automation actuates on, so
+// a stale GLOBAL baseline opens real pre-cool windows on a building it never described.
+func (b *Baselines) DropGlobal() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := 0
+	for key := range b.stats {
+		if strings.HasPrefix(key, "GLOBAL") || key == "GLOBAL" {
+			n += len(b.stats[key])
+			delete(b.stats, key)
+		}
+	}
+	return n
+}
+
+// RetainZones drops every per-zone bucket whose zone is not in `keep`, and reports how many
+// buckets it removed. "GLOBAL" is never touched here — it is handled by DropGlobal, which
+// answers a different question.
+//
+// Stale zone keys are harmless to the model, because nothing ever looks them up again. They
+// are not harmless to the OPERATOR: Coverage() counts every bucket it holds, so a five-room
+// house that had once run a 735-zone fixture reported "53,878 signals established", which
+// reads as a twin that knows this building extremely well and is in fact a twin that knows
+// a building which no longer exists. It also means the state file grows without bound
+// across re-digitizations.
+func (b *Baselines) RetainZones(keep map[string]bool) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	dropped := 0
+	for key := range b.stats {
+		zone := key
+		if i := strings.IndexByte(key, '\x1f'); i >= 0 {
+			zone = key[:i]
+		}
+		if zone == "GLOBAL" || keep[zone] {
+			continue
+		}
+		dropped += len(b.stats[key])
+		delete(b.stats, key)
+	}
+	return dropped
 }
 
 // Restore loads a persisted snapshot at boot, replacing the (empty) model. Concurrency-safe.

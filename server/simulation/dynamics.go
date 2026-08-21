@@ -693,6 +693,23 @@ func (d *Dynamics) RoomModels(labels map[string]string) []RoomModel {
 
 // Coverage reports how many rooms have an identified (trusted) model vs. how many are
 // still being identified — the honest maturity readout, matching Baselines.Coverage.
+// RetainZones drops identified models for rooms the current building does not contain, and
+// reports how many it removed. Same reasoning as Baselines.RetainZones: a model for a room
+// that is gone is never consulted, but it is counted, and "4 rooms identified" in a
+// five-room house should mean four of THOSE rooms.
+func (d *Dynamics) RetainZones(keep map[string]bool) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	dropped := 0
+	for zone := range d.rooms {
+		if !keep[zone] {
+			delete(d.rooms, zone)
+			dropped++
+		}
+	}
+	return dropped
+}
+
 func (d *Dynamics) Coverage() (identified, learning int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

@@ -44,11 +44,20 @@ type ZoneData struct {
 }
 
 type FloorData struct {
-	Zones []ZoneData `json:"zones"`
+	// Height is the floor-to-floor height in metres. It is what turns a digitized floor
+	// AREA into the air VOLUME each VAV is sized against, so a building with 4 m floors
+	// gets proportionally more supply air than one with 2.8 m floors.
+	Height float64    `json:"height"`
+	Zones  []ZoneData `json:"zones"`
 }
 
 type BuildingData struct {
-	Floors []FloorData `json:"floors"`
+	// BuildingId identifies WHICH building a fixture describes. The engine keeps it so
+	// state that belongs to one specific building — the recorded load series the zero-shot
+	// forecaster reads from — can be recognised as belonging to a different one and
+	// discarded, rather than being stitched onto the current building's history.
+	BuildingId string      `json:"buildingId"`
+	Floors     []FloorData `json:"floors"`
 }
 
 // Sim Structs
@@ -121,8 +130,21 @@ type ZoneSim struct {
 }
 
 type VavSim struct {
-	TargetZone        string
-	Resistance        float64
+	TargetZone string
+	Resistance float64
+	// DesignResistance is what the box is SIZED at — fixed for the life of the building,
+	// derived from the zone's own volume at the library's design air-change rate.
+	// Resistance is that value times Damper, and Damper is what the control modulates.
+	//
+	// Splitting the two is what lets a box be sized physically at all. When the control
+	// moved Resistance directly, its step (±0.05) and its limits (0.01…100) only made
+	// sense on the scale it was initialised at — 1.0 for every box in every building — and
+	// a physically-derived resistance of ~30,000 was clamped straight back down to 100.
+	DesignResistance float64
+	// Damper is the relative restriction: 1.0 is the design position, below 1 is opened
+	// past design, above 1 is throttled. Dimensionless, so it means the same thing in a
+	// house and a tower.
+	Damper            float64
 	Flow              float64
 	NominalFlow       float64 // flow at default resistance; cooling is sized against this
 	LastBroadcastFlow float64
@@ -187,6 +209,12 @@ type Engine struct {
 	// series as we can give it. loadHistKeep spans ~42 h, which covers the daily cycle the
 	// forecast is really about.
 	loadHist []float64
+	// buildingId of the fixture currently loaded, from BuildingData.BuildingId.
+	buildingId string
+	// Running min/max of the building's electrical load and how many samples back them,
+	// accumulated at the baseline cadence. See ObservedLoadRange.
+	loadMinMw, loadMaxMw float64
+	loadSeen             int
 	// Learned operating baselines (baselines.go): the online per-(zone,metric,hour) model
 	// that turns the telemetry stream into "normal for this room at this hour", replacing
 	// hardcoded thresholds. Feeds both /api/recommendations and the data-driven pre-cool
@@ -226,6 +254,19 @@ const (
 	// loadHistKeep is how many load samples to retain for the foundation-model forecaster:
 	// 512 × 5 min ≈ 42 hours, enough context for it to see the building's daily shape.
 	loadHistKeep = 512
+
+	// Damper travel, as a multiple of a box's DESIGN resistance. Dimensionless on purpose:
+	// the control that used these as absolute resistances only worked while every box in
+	// every building was initialised to 1.0.
+	damperStep = 0.05
+	damperMin  = 0.25 // opened past design
+	damperMax  = 50.0 // effectively shut
+
+	// Airflow telemetry noise and broadcast dedupe, as fractions of a box's NOMINAL flow.
+	// 1.5% is a realistic flow-station accuracy; the dedupe sits above it so ordinary
+	// noise does not by itself count as a change worth streaming.
+	flowNoiseFrac  = 0.015
+	flowDedupeFrac = 0.04
 )
 
 func NewEngine() *Engine {
@@ -273,14 +314,27 @@ func (e *Engine) buildFromJSON(data []byte) error {
 	if err := json.Unmarshal(data, &bd); err != nil {
 		return err
 	}
+	e.buildingId = bd.BuildingId
 
 	for _, f := range bd.Floors {
 		for _, z := range f.Zones {
 			if z.HvacMapping.VavId != "" {
+				// Each VAV is sized for the room it serves, via its design airflow.
+				//
+				// Every box used to be created with Resistance 1.0, which made the network
+				// solve share a FIXED fan capacity equally among however many boxes the
+				// building happened to have. Per-box flow was therefore a function of the
+				// zone COUNT and nothing else: 735 boxes each got a plausible trickle, and
+				// the same fan through a house's two boxes gave 21.9 m3/s each — about
+				// 150,000 m3/h into 72 m2. Resistance now comes from the zone's own volume
+				// at the library's design air-change rate, so flow follows the room.
+				dr := vavResistanceFor(z, f.Height)
 				e.Vavs[z.HvacMapping.VavId] = &VavSim{
-					TargetZone: z.ZoneId,
-					Resistance: 1.0,
-					Flow:       0,
+					TargetZone:       z.ZoneId,
+					DesignResistance: dr,
+					Damper:           1.0,
+					Resistance:       dr,
+					Flow:             0,
 				}
 			}
 
@@ -341,12 +395,26 @@ func (e *Engine) buildFromJSON(data []byte) error {
 		}
 	}
 
+	// Learned state for rooms this building does not contain is dropped now that the new
+	// zone set is known. (Per-zone keys never collide the way GLOBAL does, so these are
+	// inert — but they are counted, and a five-room house reporting 53,878 established
+	// signals is a true statement about the file and a false impression of the building.)
+	e.pruneStaleZoneState()
+
+	// Order matters: the fan curve has to be scaled to this building's network BEFORE the
+	// network is solved, or the nominal flows below are captured against the previous
+	// building's fan. (They were: sizeFanToBuilding was appended after this block, so
+	// NominalFlow — the figure the cooling model normalises against — was solved with the
+	// unscaled PMax.)
+	e.sizeFanToBuilding()
 	e.doHardyCross()
-	// Capture each VAV's nominal flow (at default resistance) so the cooling
-	// model can be normalized to it regardless of how many VAVs share the AHU.
+	// Capture each VAV's nominal flow (at the design damper position) so the cooling
+	// model can be normalized to it regardless of how many VAVs share the AHU. It is also
+	// the scale this box's telemetry noise and broadcast dedupe are expressed against.
 	for _, v := range e.Vavs {
 		v.NominalFlow = v.Flow
 	}
+
 	return nil
 }
 
@@ -399,11 +467,98 @@ func (e *Engine) ReloadBuilding(data []byte) error {
 	e.FaultTarget = ""
 	e.Scenario = "peak"
 	e.PreCoolUntil = time.Time{}
+	// The recorded building-load series belongs to the building that produced it. Carrying
+	// it across a redeploy hands the zero-shot forecaster one series stitched from two
+	// different buildings and tells it that is one building's history — a 39,776 m2 tower
+	// at 1.6 MW followed by a 72 m2 house at 0.01 MW, with no discontinuity marked. The
+	// forecast that comes back is then anchored on a building that is no longer there.
+	// Identification and baselines are keyed per zone and per (zone, metric, hour), so they
+	// survive a redeploy correctly; this one is a single global series and does not.
+	if n := len(e.loadHist); n > 0 {
+		log.Printf("[forecast] building replaced — discarding %d recorded load samples "+
+			"from the previous building; the zero-shot forecaster restarts its context", n)
+		e.loadHist = e.loadHist[:0]
+	}
+	// The observed range describes the previous building too, and it is what forecasts are
+	// judged against — keeping it would judge this building's forecasts against another
+	// building's megawatts.
+	e.loadMinMw, e.loadMaxMw, e.loadSeen = 0, 0, 0
+	// Whole-building learned baselines are keyed "GLOBAL", the one key that is identical
+	// across buildings. Per-zone buckets are keyed by zoneId and are simply never looked up
+	// again, but GLOBAL/buildingLoadMw is read by the pre-cool automation as this
+	// building's normal load — so leaving it in place hands the new building the previous
+	// one's megawatts as its own trigger.
+	if e.baselines != nil {
+		if n := e.baselines.DropGlobal(); n > 0 {
+			log.Printf("[baselines] building replaced — dropped %d whole-building buckets "+
+				"learned from the previous building", n)
+		}
+	}
 	if err := e.buildFromJSON(data); err != nil {
 		return err // unreachable in practice: scratch already parsed this payload
 	}
 	log.Printf("[building] reloaded: %d zones, %d VAVs", len(e.Zones), len(e.Vavs))
 	return nil
+}
+
+// zoneVolumeM3 recovers a zone's air volume from whatever the fixture carries: an explicit
+// volume, else the digitized polygon area at the floor height. Zero when neither is known,
+// and the caller falls back rather than inventing a room.
+func zoneVolumeM3(z ZoneData, floorHeightM float64) float64 {
+	if z.Volume > 0 {
+		return z.Volume
+	}
+	area := polygonAreaM2(z.Polygon)
+	h := floorHeightM
+	if h <= 0 {
+		h = 2.8
+	}
+	if area > 0 {
+		return area * h
+	}
+	return 0
+}
+
+// vavResistanceFor turns a zone's design airflow into the box resistance the network solve
+// needs: at the design static, Flow = sqrt(P/R), so R = P / V̇².
+func vavResistanceFor(z ZoneData, floorHeightM float64) float64 {
+	ph := Phys()
+	vol := zoneVolumeM3(z, floorHeightM)
+	if vol <= 0 {
+		return 1.0 // nothing to size from — the historical default
+	}
+	design := vol * ph.SupplyAirDesignAch / 3600.0 // m³/s
+	if design <= 0 {
+		return 1.0
+	}
+	// R = P / V̇² at the design static. Deliberately NOT clamped to the damper's range:
+	// that range is relative to this value, not a bound on it.
+	r := ph.AhuDesignPressurePa / (design * design)
+	if !(r > 0) || math.IsInf(r, 0) {
+		return 1.0
+	}
+	return r
+}
+
+// sizeFanToBuilding scales the fan curve so the network settles at the design static for
+// THIS building. PMax was a constant (600) chosen for one tower; with per-zone resistances
+// it has to follow the network, or a small building would sit far off its design point.
+//
+//	P = R_sys · PMax / (KFan + R_sys)  ⟹  PMax = P_design · (KFan/R_sys + 1)
+func (e *Engine) sizeFanToBuilding() {
+	if len(e.Vavs) == 0 {
+		return
+	}
+	sumInvSqrtR := 0.0
+	for _, v := range e.Vavs {
+		sumInvSqrtR += 1.0 / math.Sqrt(v.Resistance)
+	}
+	if sumInvSqrtR <= 0 {
+		return
+	}
+	rSys := 1.0 / (sumInvSqrtR * sumInvSqrtR)
+	pDesign := Phys().AhuDesignPressurePa
+	e.PMax = pDesign * (e.KFan/rSys + 1.0)
 }
 
 func (e *Engine) doHardyCross() {
@@ -914,10 +1069,14 @@ func (e *Engine) avgCo2(totalOccupants int) float64 {
 	if n > 0 {
 		return sum / float64(n)
 	}
+	// Modelled fallback: outdoor ambient plus the steady-state rise per occupant, spread
+	// over the building's zones. Both coefficients come from the programme library — they
+	// describe the building's ventilation, not the physics, so they do not belong here.
+	ph := Phys()
 	if len(e.Zones) == 0 {
-		return 400.0
+		return ph.OutdoorCo2Ppm
 	}
-	return 400.0 + 15.0*float64(totalOccupants)/float64(len(e.Zones))
+	return ph.OutdoorCo2Ppm + ph.Co2PpmPerOccupantSteady*float64(totalOccupants)/float64(len(e.Zones))
 }
 
 // applyHardware pulls every hardware-bound zone's air temperature toward the physical
@@ -1044,18 +1203,93 @@ func (e *Engine) LoadForecastThreshold(k float64, lead time.Duration) (threshold
 // (recommendapi.go), exactly like the plug savings counter — a model that forgets
 // everything it learned on every redeploy would be re-learning "normal" forever. Bytes,
 // not the internal map type, so the persistence lives cleanly in package main.
+// baselineDoc wraps the learned buckets with the building they were learned from.
+//
+// Zone buckets are keyed by zoneId, so a different building simply mints different keys.
+// The whole-building buckets are keyed "GLOBAL" — the same string in every building — and
+// GLOBAL/buildingLoadMw is not merely displayed: it IS the learned trigger the pre-cool
+// automation actuates on. Restoring a previous building's version of it told a 72 m2 house
+// that it normally draws 0.6 MW, and the automation duly opened real pre-cool windows.
+type baselineDoc struct {
+	BuildingId string                           `json:"buildingId"`
+	Stats      map[string]map[int]*baselineStat `json:"stats"`
+}
+
 func (e *Engine) MarshalBaselines() ([]byte, error) {
 	if e.baselines == nil {
 		return []byte("{}"), nil
 	}
-	return e.baselines.MarshalState()
+	e.mu.Lock()
+	id := e.buildingId
+	e.mu.Unlock()
+	return json.Marshal(baselineDoc{BuildingId: id, Stats: e.baselines.Snapshot()})
 }
 
 func (e *Engine) LoadBaselines(data []byte) error {
 	if e.baselines == nil {
 		return nil
 	}
-	return e.baselines.LoadState(data)
+	var doc baselineDoc
+	if err := json.Unmarshal(data, &doc); err != nil || doc.Stats == nil {
+		// Legacy form: the bare bucket map, from before the model recorded which building
+		// it learned from. Restore it, then drop the whole-building buckets, because they
+		// are the ones that cannot be shown to describe this building.
+		if err2 := e.baselines.LoadState(data); err2 != nil {
+			if err != nil {
+				return err
+			}
+			return err2
+		}
+		if n := e.baselines.DropGlobal(); n > 0 {
+			log.Printf("[baselines] restored a model with no building recorded — dropped %d "+
+				"whole-building buckets rather than assume they describe this building", n)
+		}
+		e.pruneStaleZoneState()
+		return nil
+	}
+	e.baselines.Restore(doc.Stats)
+	e.pruneStaleZoneState()
+	e.mu.Lock()
+	id := e.buildingId
+	e.mu.Unlock()
+	if doc.BuildingId != id {
+		if n := e.baselines.DropGlobal(); n > 0 {
+			log.Printf("[baselines] learned model belongs to %q but the loaded building is %q — "+
+				"dropped %d whole-building buckets; per-zone buckets are keyed by zone and are harmless",
+				doc.BuildingId, id, n)
+		}
+	}
+	return nil
+}
+
+// pruneStaleZoneState drops learned state for zones the CURRENT building does not have.
+//
+// Per-zone keys never collide the way GLOBAL does, so stale ones are inert — nothing looks
+// them up again. They are not inert in the REPORT: coverage counts every bucket the model
+// holds, so a five-room house that had once run a 735-zone fixture told its operator it had
+// 53,878 established signals. That is a true statement about the file and a false
+// impression of the building. It also lets the state files grow without bound across
+// re-digitizations.
+func (e *Engine) pruneStaleZoneState() {
+	e.mu.Lock()
+	keep := make(map[string]bool, len(e.Zones))
+	for id := range e.Zones {
+		keep[id] = true
+	}
+	e.mu.Unlock()
+	if len(keep) == 0 {
+		return // no building loaded yet: nothing to judge against
+	}
+	if e.baselines != nil {
+		if n := e.baselines.RetainZones(keep); n > 0 {
+			log.Printf("[baselines] dropped %d buckets for zones not in this building", n)
+		}
+	}
+	if e.dynamics != nil {
+		if n := e.dynamics.RetainZones(keep); n > 0 {
+			log.Printf("[dynamics] dropped %d room models for zones not in this building", n)
+		}
+	}
 }
 
 // BaselineCoverage reports the model's maturity (established vs still-learning buckets) —
@@ -1143,18 +1377,72 @@ func (e *Engine) DynamicsCoverage() (identified, learning int) {
 // MarshalDynamics / LoadDynamics persist the identified room models across restarts, the
 // same way the baselines are persisted — re-identifying every room from scratch on each
 // redeploy would throw away days of learning.
+// dynamicsDoc wraps the identified room models with the building they were identified in.
+//
+// Unlike the baselines, whose GLOBAL keys were the only colliding ones, EVERY key here can
+// collide: zone ids are minted from the room's name and level, so `zone-office-lvl1` and
+// `zone-bathroom-lvl1` are what ANY house scanned by housify_fixture.py produces. Restoring
+// across a building change therefore applies one physical room's identified time constant,
+// cooling authority and air-change rate to a different physical room — and these are not
+// display figures: they drive the predictions, the "this room cannot hold setpoint at full
+// flow, dispatch maintenance" finding, and the setback gate. A wrong conclusion delivered
+// with full confidence is worse than no conclusion.
+type dynamicsDoc struct {
+	BuildingId string                     `json:"buildingId"`
+	Rooms      map[string]json.RawMessage `json:"rooms"`
+}
+
 func (e *Engine) MarshalDynamics() ([]byte, error) {
 	if e.dynamics == nil {
 		return []byte("{}"), nil
 	}
-	return e.dynamics.MarshalState()
+	inner, err := e.dynamics.MarshalState()
+	if err != nil {
+		return nil, err
+	}
+	var rooms map[string]json.RawMessage
+	if err := json.Unmarshal(inner, &rooms); err != nil {
+		return nil, err
+	}
+	e.mu.Lock()
+	id := e.buildingId
+	e.mu.Unlock()
+	return json.Marshal(dynamicsDoc{BuildingId: id, Rooms: rooms})
 }
 
 func (e *Engine) LoadDynamics(data []byte) error {
 	if e.dynamics == nil {
 		return nil
 	}
-	return e.dynamics.LoadState(data)
+	var doc dynamicsDoc
+	if err := json.Unmarshal(data, &doc); err != nil || doc.Rooms == nil {
+		// Legacy form: the bare room map, from before the file recorded which building it
+		// was identified in. It cannot prove it describes this building, so it is only
+		// trusted when the current fixture declares no id either.
+		e.mu.Lock()
+		id := e.buildingId
+		e.mu.Unlock()
+		if id != "" {
+			log.Printf("[dynamics] room models carry no building id but the loaded building " +
+				"is known — discarding rather than applying another building's rooms")
+			return nil
+		}
+		return e.dynamics.LoadState(data)
+	}
+	e.mu.Lock()
+	id := e.buildingId
+	e.mu.Unlock()
+	if doc.BuildingId != id {
+		log.Printf("[dynamics] room models were identified in %q but the loaded building is %q — "+
+			"discarding %d rooms; zone ids collide across buildings, so restoring them would "+
+			"apply one room's physics to another", doc.BuildingId, id, len(doc.Rooms))
+		return nil
+	}
+	inner, err := json.Marshal(doc.Rooms)
+	if err != nil {
+		return err
+	}
+	return e.dynamics.LoadState(inner)
 }
 
 // HardwareNode is one physical edge-node binding as reported by GET /api/hardware.
@@ -1257,25 +1545,23 @@ func (e *Engine) SetScenario(s string) {
 	for _, v := range e.Vavs {
 		z := e.Zones[v.TargetZone]
 		// Modulate VAV
+		// Modulation is RELATIVE to the box's design position, so the same step means the
+		// same thing whatever the box is sized at.
 		errorSignal := z.Temp - z.Setpoint
 		if errorSignal > z.Deadband/2 {
-			v.Resistance -= 0.05
+			v.Damper -= damperStep // too warm: open up
 		} else if errorSignal < -z.Deadband/2 {
-			v.Resistance += 0.05
+			v.Damper += damperStep // too cool: throttle back
 		}
 
 		if e.Scenario == "fault" && v.TargetZone == e.FaultTarget {
-			v.Resistance = 50.0 // Damper stuck closed
+			v.Damper = damperMax // stuck closed
 		} else if e.Scenario == "remediating" && (v.TargetZone == e.FaultTarget || z.Type == "core") {
-			v.Resistance = 0.01 // Maximum flow to faulty zone and core
+			v.Damper = damperMin // wide open to the faulting zone and the core
 		}
 
-		if v.Resistance < 0.01 {
-			v.Resistance = 0.01
-		}
-		if v.Resistance > 100.0 {
-			v.Resistance = 100.0
-		}
+		v.Damper = math.Max(damperMin, math.Min(damperMax, v.Damper))
+		v.Resistance = v.DesignResistance * v.Damper
 	}
 	e.doHardyCross()
 }
@@ -1507,19 +1793,55 @@ func (e *Engine) sampleHistory(now time.Time) {
 // how much real context it gets, and the series only accumulates at one sample per five
 // minutes. Discarding it on every redeploy would permanently cap the forecaster at however
 // long the process happened to have been up.
+// loadHistoryDoc is the persisted form of the recorded load series. The bare []float64
+// this replaces could not say WHICH building it described, so a checkout that swapped its
+// fixture reloaded the previous building's megawatts as if they were this one's — and the
+// zero-shot forecaster, whose whole value is that it reads the building's own history,
+// was handed two buildings spliced into one series with no discontinuity marked.
+type loadHistoryDoc struct {
+	BuildingId string    `json:"buildingId"`
+	Samples    []float64 `json:"samples"`
+}
+
 func (e *Engine) MarshalLoadHistory() ([]byte, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return json.Marshal(e.loadHist)
+	return json.Marshal(loadHistoryDoc{BuildingId: e.buildingId, Samples: e.loadHist})
+}
+
+// BuildingId reports the fixture currently loaded (empty when it declared none).
+func (e *Engine) BuildingId() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.buildingId
 }
 
 func (e *Engine) LoadLoadHistory(data []byte) error {
-	var hist []float64
-	if err := json.Unmarshal(data, &hist); err != nil {
-		return err
+	var doc loadHistoryDoc
+	if err := json.Unmarshal(data, &doc); err != nil {
+		// Legacy form: a bare array, from before the series recorded which building it
+		// belonged to. It is accepted, but it cannot prove it describes this building, so
+		// it is only trusted when the current fixture declares no id either.
+		var legacy []float64
+		if err2 := json.Unmarshal(data, &legacy); err2 != nil {
+			return err
+		}
+		doc = loadHistoryDoc{Samples: legacy}
 	}
+	hist := doc.Samples
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	// A series recorded against a different building is not this building's history.
+	// Restoring it would anchor every zero-shot forecast on a building that is not here.
+	if doc.BuildingId != e.buildingId {
+		log.Printf("[forecast] recorded load history belongs to %q but the loaded building is %q — "+
+			"discarding %d samples rather than forecasting this building from another one",
+			doc.BuildingId, e.buildingId, len(hist))
+		e.loadHist = e.loadHist[:0]
+		return nil
+	}
 	// Only finite, positive samples: a corrupt file must not be able to teach the
 	// forecaster that the building drew NaN megawatts.
 	e.loadHist = e.loadHist[:0]
@@ -1538,6 +1860,31 @@ func (e *Engine) LoadLoadHistory(data []byte) error {
 // zero-shot forecaster. Unlike the LSTM window it is NEVER padded: a foundation model
 // handles a short series natively, so the honest thing is to hand over exactly what has
 // really been measured and let the caller report how much that is.
+// ObservedLoadRange reports the lowest and highest building load in the recorded series,
+// and how many samples back it. It is what a forecast can be sanity-checked against: a
+// predicted peak far outside anything this building has ever been seen at is a statement
+// about the model, not about the building.
+func (e *Engine) ObservedLoadRange() (min, max float64, n int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// Prefer the running range: it is sampled at the baseline cadence, so it becomes
+	// usable evidence within minutes of boot rather than after two hours of 5-minute
+	// forecast samples. Fall back to the forecast history for a process that has just
+	// restored one and has not yet observed a live tick.
+	if e.loadSeen > 0 {
+		return e.loadMinMw, e.loadMaxMw, e.loadSeen
+	}
+	for i, v := range e.loadHist {
+		if i == 0 || v < min {
+			min = v
+		}
+		if i == 0 || v > max {
+			max = v
+		}
+	}
+	return min, max, len(e.loadHist)
+}
+
 func (e *Engine) LoadHistory() []float64 {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -1754,6 +2101,11 @@ func (e *Engine) broadcast() {
 		e.Persist("GLOBAL", "coolingOutputMw", coolingOutputMW)
 		e.Persist("GLOBAL", "systemHealth", systemHealth)
 		e.Persist("GLOBAL", "avgCo2", e.avgCo2(totalOccupants))
+		// Occupancy as its own GLOBAL series. Without it the dashboard's occupancy chart
+		// had nothing to replay after a reload and fell back to plotting avgCo2 under an
+		// "OCCUPANCY" heading — which is a different quantity the moment a real NDIR
+		// sensor is reporting instead of the occupancy estimate.
+		e.Persist("GLOBAL", "totalOccupants", float64(totalOccupants))
 		e.Persist("GLOBAL", "plugKw", plugTotalW/1000)
 		// The plant's modelled COP and, when anything is clamped, the one it is actually
 		// achieving. Two series rather than one: the divergence between them over time is
@@ -1805,6 +2157,19 @@ func (e *Engine) broadcast() {
 	// it is the twin's own memory of what "normal" is, independent of history storage.
 	if e.baselines != nil && now.Sub(e.lastBaselineAt) >= baselineSampleSecs*time.Second {
 		e.lastBaselineAt = now
+		// Running range of the building's load, at the baseline cadence. This is what a
+		// forecast is sanity-checked against, and it is kept separately from the 5-minute
+		// forecast history for one reason: at one sample per 5 minutes that history needs
+		// two hours before it can say anything about this building, and during those two
+		// hours an out-of-distribution forecast is free to actuate the building. At the
+		// baseline cadence the same evidence is in hand within minutes.
+		e.loadSeen++
+		if e.loadSeen == 1 || buildingLoadMW < e.loadMinMw {
+			e.loadMinMw = buildingLoadMW
+		}
+		if e.loadSeen == 1 || buildingLoadMW > e.loadMaxMw {
+			e.loadMaxMw = buildingLoadMW
+		}
 		e.baselines.Observe("GLOBAL", "buildingLoadMw", buildingLoadMW, now)
 		e.baselines.Observe("GLOBAL", "plugKw", plugTotalW/1000, now)
 		for id, z := range e.Zones {
@@ -1877,6 +2242,14 @@ func (e *Engine) broadcast() {
 			zPlugW, _ := z.plugNowW()
 			Telemetry.ZoneDataAddPlugW(builder, float32(zPlugW))
 			Telemetry.ZoneDataAddPlugShed(builder, z.PlugShed)
+			// The supply-air temperature the cooling law used for THIS zone this tick —
+			// the measured probe where one reports, the design value otherwise. The
+			// dashboard needs it to compute delivered cooling honestly; without it the
+			// panel had no choice but to assume the design 12 degC for every zone,
+			// including the ones whose probe says otherwise. supplyReal keeps the two
+			// distinguishable at the far end.
+			Telemetry.ZoneDataAddSupplyC(builder, float32(z.supplyC(z.Setpoint)))
+			Telemetry.ZoneDataAddSupplyReal(builder, z.supplyFresh() && z.HwSupplyC > 0)
 			zoneOffsets = append(zoneOffsets, Telemetry.ZoneDataEnd(builder))
 		}
 	}
@@ -1889,8 +2262,18 @@ func (e *Engine) broadcast() {
 	// Create VAVs
 	vavOffsets := make([]flatbuffers.UOffsetT, 0)
 	for id, v := range e.Vavs {
-		noiseFlow := math.Max(0, v.Flow+getNoise(0.2))
-		if math.Abs(noiseFlow-v.LastBroadcastFlow) > 0.1 {
+		// Measurement noise as a FRACTION of what this box is sized to move, which is what
+		// a flow station's accuracy actually is. Both of these were absolute constants
+		// (±0.2 and 0.1 m³/s) — a fraction of a percent while every box was mis-sized at
+		// ~22 m³/s, and LARGER THAN THE SIGNAL once boxes were sized properly at ~0.13.
+		// A house's airflow became mostly noise, and since the noise alone always cleared
+		// the dedupe, every VAV re-streamed at 30 Hz and the panel flickered.
+		scale := v.NominalFlow
+		if scale <= 1e-6 {
+			scale = math.Max(v.Flow, 0.05)
+		}
+		noiseFlow := math.Max(0, v.Flow+getNoise(flowNoiseFrac*scale))
+		if math.Abs(noiseFlow-v.LastBroadcastFlow) > flowDedupeFrac*scale {
 			v.LastBroadcastFlow = noiseFlow
 			idStr := builder.CreateString(id)
 			Telemetry.VavDataStart(builder)
@@ -1922,6 +2305,10 @@ func (e *Engine) broadcast() {
 	Telemetry.GlobalDataAddPlugSavedKwh(builder, float32(e.plugSavedKwh))
 	Telemetry.GlobalDataAddAutoPilot(builder, e.AutoPilot)
 	Telemetry.GlobalDataAddZonesInSetback(builder, int32(e.zonesInSetback))
+	// Static pressure from the Hardy-Cross solve. It has been computed every tick since
+	// the network model landed and never left the engine, so the topology view's AHU card
+	// has been showing a hardcoded 500 Pa placeholder instead of the solver's answer.
+	Telemetry.GlobalDataAddAhuPressurePa(builder, float32(e.AhuPressure))
 	globalPos := Telemetry.GlobalDataEnd(builder)
 
 	// Build SimState

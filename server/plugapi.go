@@ -23,10 +23,16 @@ import (
 const plugStatePath = "./data/plug-state.json"
 
 // plugState is what persists: the policy and the cumulative avoided energy. A savings
-// counter that zeroes on every redeploy is not a number anyone can put in a report.
+// counter that zeroes on every redeploy is not a number anyone can put in a report — but
+// nor is one that carries a DIFFERENT building's savings into this one, which is what
+// happened without BuildingId. The policy is a human decision and travels with the
+// operator; the counter is a measurement of one specific building and does not.
 type plugState struct {
-	Config   simulation.PlugConfig `json:"config"`
-	SavedKwh float64               `json:"savedKwh"`
+	// BuildingId the SavedKwh below was earned by. Empty means a file written before this
+	// field existed, which cannot prove it describes the current building.
+	BuildingId string                `json:"buildingId"`
+	Config     simulation.PlugConfig `json:"config"`
+	SavedKwh   float64               `json:"savedKwh"`
 }
 
 // loadPlugState restores policy + savings at boot; absent file means defaults.
@@ -56,6 +62,27 @@ func loadPlugState(engine *simulation.Engine) {
 	}
 	s.Config.CriticalTypes = merged
 	engine.SetPlugConfig(s.Config)
+
+	// The savings counter belongs to the building that earned it. Restoring it across a
+	// building change credits this building with another one's avoided energy — and unlike
+	// a stale baseline, this figure is REPORTED: it appears on the dashboard as "avoided so
+	// far", priced in dong, and in the carbon line beside it. A 72 m² house was carrying
+	// 128.7 kWh earned by a 39,776 m² tower. The policy above still restores, because a
+	// sweep schedule is a decision the operator made and it survives a re-digitization.
+	id := engine.BuildingId()
+	if s.BuildingId != id {
+		if s.SavedKwh > 0 {
+			log.Printf("[plugs] %.2f kWh of avoided energy was earned by %q but the loaded "+
+				"building is %q — discarding it rather than crediting this building with "+
+				"another one's savings. The sweep policy is kept.",
+				s.SavedKwh, s.BuildingId, id)
+		}
+		savePlugState(engine) // re-tag the file to this building
+		log.Printf("[plugs] restored policy: enabled=%v work=%02d-%02d grace=%dm critical=%v",
+			s.Config.Enabled, s.Config.WorkStartHour, s.Config.WorkEndHour, s.Config.GraceMinutes, merged)
+		return
+	}
+
 	engine.RestorePlugSavedKwh(s.SavedKwh)
 	log.Printf("[plugs] restored: enabled=%v work=%02d-%02d grace=%dm saved=%.2f kWh critical=%v",
 		s.Config.Enabled, s.Config.WorkStartHour, s.Config.WorkEndHour, s.Config.GraceMinutes,
@@ -63,7 +90,11 @@ func loadPlugState(engine *simulation.Engine) {
 }
 
 func savePlugState(engine *simulation.Engine) {
-	s := plugState{Config: engine.PlugSnapshot(0).Config, SavedKwh: engine.PlugSavedKwh()}
+	s := plugState{
+		BuildingId: engine.BuildingId(),
+		Config:     engine.PlugSnapshot(0).Config,
+		SavedKwh:   engine.PlugSavedKwh(),
+	}
 	data, _ := json.MarshalIndent(s, "", "  ")
 	if err := os.WriteFile(plugStatePath, data, 0644); err != nil {
 		log.Printf("[plugs] state save: %v", err)
