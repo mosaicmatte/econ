@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"sort"
 	"sync"
 )
 
@@ -58,6 +59,23 @@ type Physics struct {
 	NonHvacBaseWPerM2       float64 `json:"nonHvacBaseWPerM2"`
 	MinZoneCapacitanceJPerK float64 `json:"minZoneCapacitanceJPerK"`
 	RInFraction             float64 `json:"rInFraction"`
+	// HvacLoadPerDegCFraction and PrecoolShiftFraction are read by the DASHBOARD, not by
+	// the heat balance: they price what relaxing a setpoint by a degree costs, and what a
+	// pre-cool window can coast off the peak. They live here because they describe the
+	// building's plant, and the panels that used to carry them as JavaScript literals had
+	// drifted into three copies with three different justifications.
+	HvacLoadPerDegCFraction float64 `json:"hvacLoadPerDegCFraction"`
+	PrecoolShiftFraction    float64 `json:"precoolShiftFraction"`
+	// OutdoorCo2Ppm and Co2PpmPerOccupantSteady back the MODELLED concentration shown
+	// where no NDIR sensor reports. They were literals in engine.go and, with different
+	// values, in three dashboard files. A surface that renders them must say "modelled".
+	OutdoorCo2Ppm           float64 `json:"outdoorCo2Ppm"`
+	Co2PpmPerOccupantSteady float64 `json:"co2PpmPerOccupantSteady"`
+	// Air-side sizing. SupplyAirDesignAch gives every VAV a design flow from its own
+	// zone's volume; AhuDesignPressurePa is the static those resistances are referenced
+	// to and the operating point the fan curve is scaled to reach.
+	SupplyAirDesignAch  float64 `json:"supplyAirDesignAch"`
+	AhuDesignPressurePa float64 `json:"ahuDesignPressurePa"`
 }
 
 type libraryDoc struct {
@@ -97,6 +115,12 @@ func defaultLibrary() libraryDoc {
 		CopStrainSlope:             0.35,
 		CopMin:                     2.2,
 		CopMax:                     3.8,
+		HvacLoadPerDegCFraction:    0.05,
+		PrecoolShiftFraction:       0.05,
+		OutdoorCo2Ppm:              400.0,
+		Co2PpmPerOccupantSteady:    15.0,
+		SupplyAirDesignAch:         6.0,
+		AhuDesignPressurePa:        480.0,
 	}
 	d.Programmes = map[string]Programme{}
 	d.Calibration.GridEmissionFactor = 0.6766
@@ -150,6 +174,12 @@ func loadLibrary() {
 	mergeF(&p.CopStrainSlope, base.CopStrainSlope)
 	mergeF(&p.CopMin, base.CopMin)
 	mergeF(&p.CopMax, base.CopMax)
+	mergeF(&p.HvacLoadPerDegCFraction, base.HvacLoadPerDegCFraction)
+	mergeF(&p.PrecoolShiftFraction, base.PrecoolShiftFraction)
+	mergeF(&p.OutdoorCo2Ppm, base.OutdoorCo2Ppm)
+	mergeF(&p.Co2PpmPerOccupantSteady, base.Co2PpmPerOccupantSteady)
+	mergeF(&p.SupplyAirDesignAch, base.SupplyAirDesignAch)
+	mergeF(&p.AhuDesignPressurePa, base.AhuDesignPressurePa)
 	doc.Physics = p
 	if doc.Calibration.GridEmissionFactor == 0 {
 		doc.Calibration.GridEmissionFactor = 0.6766
@@ -211,3 +241,66 @@ func CriticalTypes() []string {
 // GridEmissionFactor is tCO2 per MWh for the local grid, used to turn avoided energy
 // into avoided carbon without that factor being retyped at every call site.
 func GridEmissionFactor() float64 { return Lib().Calibration.GridEmissionFactor }
+
+// --- read surface for the dashboard -----------------------------------------
+
+// LibraryView is what /api/library serves: the coefficients and the programme facts a
+// UI legitimately needs, and nothing else.
+//
+// It exists because the panels had grown their own copies of building constants — a
+// supply-air temperature typed as 12.0, a 5%-per-degC rule of thumb repeated three times
+// with three different explanations, and a hand-written list of which zone types are
+// "critical" that still named `server-room` and `mechanical` long after the digitizer
+// started minting `comms-room` and `plant-room`. Every one of those was a number
+// describing the BUILDING living in a .go or .jsx file, which is the thing this package
+// exists to prevent. Serving the library closes the loop: the dashboard evaluates the
+// same coefficients the engine does, from the same file, or it says it could not.
+type LibraryView struct {
+	Version    int                        `json:"version"`
+	Loaded     bool                       `json:"loaded"`
+	Physics    Physics                    `json:"physics"`
+	Programmes map[string]ProgrammeFacing `json:"programmes"`
+	// Critical is the flattened list of critical zone types — the single answer to "may
+	// this room be swept or set back?" that both the engine and the UI now read.
+	Critical []string `json:"critical"`
+}
+
+// ProgrammeFacing is the subset of a Programme a dashboard can use without pretending to
+// re-run the physics.
+type ProgrammeFacing struct {
+	SetpointC      float64 `json:"setpointC"`
+	DeadbandC      float64 `json:"deadbandC"`
+	Critical       bool    `json:"critical"`
+	LightingWPerM2 float64 `json:"lightingWPerM2"`
+	FacadeExposed  bool    `json:"facadeExposed"`
+	// AreaPerOccupantM2 is nil for programmes that are not occupied on a density basis
+	// (a plant room, a store). Null rather than zero so a client can withhold a design
+	// capacity instead of computing one from a divide-by-zero.
+	AreaPerOccupantM2 *float64 `json:"areaPerOccupantM2"`
+}
+
+// Library returns the view above. Loaded reports whether the JSON was actually read: a
+// dashboard shown built-in fallback physics must be able to say so rather than present
+// uncalibrated defaults as the site's own.
+func Library() LibraryView {
+	l := Lib()
+	out := LibraryView{
+		Version:    l.Version,
+		Loaded:     len(l.Programmes) > 0,
+		Physics:    l.Physics,
+		Programmes: make(map[string]ProgrammeFacing, len(l.Programmes)),
+		Critical:   CriticalTypes(),
+	}
+	for name, p := range l.Programmes {
+		out.Programmes[name] = ProgrammeFacing{
+			SetpointC:         p.SetpointC,
+			DeadbandC:         p.DeadbandC,
+			Critical:          p.Critical,
+			LightingWPerM2:    p.LightingWPerM2,
+			FacadeExposed:     p.FacadeExposed,
+			AreaPerOccupantM2: p.AreaPerOccupantM2,
+		}
+	}
+	sort.Strings(out.Critical) // stable output so a client can diff two fetches
+	return out
+}

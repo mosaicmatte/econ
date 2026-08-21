@@ -40,6 +40,23 @@ func main() {
 		w.Write(data)
 	})
 
+	// 2b. Serve the programme library's dashboard-facing view.
+	//
+	// The panels need three things the physics already owns: the design supply-air
+	// temperature, the plant coefficients that price a setpoint change, and which zone
+	// types are critical. Every one of those had been retyped as a JavaScript literal,
+	// and the critical-type list had gone stale against the digitizer's own vocabulary —
+	// the UI was still excluding "server-room" from its waste and setback advice in a
+	// building whose comms rooms are typed "comms-room", so it counted them as waste.
+	// One endpoint, read from the same file the engine evaluates.
+	http.HandleFunc("/api/library", func(w http.ResponseWriter, r *http.Request) {
+		if corsPreflight(w, r) {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(simulation.Library())
+	})
+
 	// Initialize simulation engine
 	engine := simulation.NewEngine()
 
