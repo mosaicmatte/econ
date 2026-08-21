@@ -2,6 +2,9 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { Activity, AlertTriangle, Settings, Zap, ChevronRight, ChevronUp, ChevronDown, User, X, BarChart2, ShieldAlert, Brain, Building2 } from 'lucide-react';
 import { useDigitalTwin } from './useDigitalTwin';
 import { API_BASE } from './api';
+import { useOpsStatus } from './useOpsStatus';
+import { useLibrary } from './useLibrary';
+import { splitPowerMw } from './units';
 import BuildingModel from './BuildingModel';
 import CanvasErrorBoundary from './CanvasErrorBoundary';
 import TelemetryPanel from './TelemetryPanel';
@@ -48,6 +51,15 @@ export default function MobileApp() {
   } = useDigitalTwin(onSimUpdate);
 
   const [hardwareNodes, setHardwareNodes] = useState({});
+
+  // The site's coordinates, from the engine's weather feed (WEATHER_LAT/WEATHER_LON) —
+  // the same location the 2R1C envelope integrates against. The sky background used to
+  // carry Ho Chi Minh City's coordinates as literals, so relocating the building left the
+  // dashboard rendering the wrong sunrise. Falls back to the component default until the
+  // feed answers.
+  const { weather: siteWeather } = useOpsStatus(60000);
+  const siteLat = siteWeather?.lat ?? 10.8231;
+  const siteLon = siteWeather?.lon ?? 106.6297;
   useEffect(() => {
     let alive = true;
     const load = () => fetch(`${API_BASE}/api/hardware`)
@@ -96,7 +108,7 @@ export default function MobileApp() {
     <div style={{ position: 'relative', height: '100dvh', width: '100vw', background: 'transparent', overflow: 'hidden', color: '#fff', fontFamily: 'system-ui, -apple-system, sans-serif', display: 'flex', flexDirection: 'column' }}>
       
       {/* Dynamic Weather Background */}
-      <LiveWeatherBackground lat={10.8231} lon={106.6297} />
+      <LiveWeatherBackground lat={siteLat} lon={siteLon} />
 
       {/* FLOATING HEADER */}
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '24px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', zIndex: 10, pointerEvents: 'none' }}>
@@ -188,7 +200,7 @@ export default function MobileApp() {
                {/* Tesla-Style Vertical Shoot-Up */}
                <div style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: '#B8B8B8', marginRight: '14px', boxShadow: '0 0 8px rgba(255,255,255,0.5)' }} />
                <div style={{ width: '1px', height: '35px', backgroundColor: 'rgba(184, 184, 184, 0.4)', marginRight: '16px', marginBottom: '8px' }} />
-               <div style={{ color: '#ffffff', fontSize: '28px', fontWeight: '600', lineHeight: 1, marginBottom: '4px' }}>{(globalMetrics?.gridPowerMw || 0).toFixed(1)} <span style={{fontSize: '14px', color:'rgba(255,255,255,0.55)'}}>MW</span></div>
+               <div style={{ color: '#ffffff', fontSize: '28px', fontWeight: '600', lineHeight: 1, marginBottom: '4px' }}>{splitPowerMw(globalMetrics?.gridPowerMw || 0).value} <span style={{fontSize: '14px', color:'rgba(255,255,255,0.55)'}}>{splitPowerMw(globalMetrics?.gridPowerMw || 0).unit}</span></div>
                <div style={{ color: 'rgba(255,255,255,0.68)', fontSize: '11px', fontWeight: '600', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Grid Power</div>
             </div>
           </>
@@ -303,17 +315,16 @@ export default function MobileApp() {
                 sendManualOverride={sendManualOverride}
                 onFocusZone={(id) => { setSelectedZone(id); setActiveModal(null); }}
                 onOpenEnergy={() => setActiveModal('energy')}
-                onClose={() => setActiveModal(null)}
              />
           )}
           {activeModal === 'energy' && (
-             <MobileEnergyScreen simData={simData} globalMetrics={globalMetrics} loadHistory={loadHistory} onClose={() => setActiveModal(null)} />
+             <MobileEnergyScreen simData={simData} globalMetrics={globalMetrics} loadHistory={loadHistory} />
           )}
           {activeModal === 'blueprint' && (
              <BlueprintImportPanel mobile onClose={() => setActiveModal(null)} />
           )}
           {activeModal === 'impact' && (
-             <MobileImpactScreen simData={simData} aiForecast={aiForecast} hardwareNodes={hardwareNodes} onClose={() => setActiveModal(null)} />
+             <MobileImpactScreen simData={simData} aiForecast={aiForecast} hardwareNodes={hardwareNodes} />
           )}
           {activeModal === 'analytics' && (
              <TelemetryPanel
@@ -423,14 +434,18 @@ function MenuItem({ icon, title, onClick, highlight, bottomText, hideChevron }) 
 // RCA card carried).
 function rcaFor(zone) {
   if (!zone) return { cause: 'unknown equipment' };
-  if (zone.type === 'server-room') return { cause: 'CRAC compressor failure' };
-  if (zone.type === 'open-office') return { cause: 'VAV damper stuck closed' };
-  if (zone.type === 'perimeter')   return { cause: 'perimeter heater stuck ON' };
+  const t = (zone.type || '').toLowerCase();
+  if (/comms|server|data/.test(t)) return { cause: 'CRAC compressor failure' };
+  if (/office|meeting|conference/.test(t)) return { cause: 'VAV damper stuck closed' };
+  if (/perimeter/.test(t)) return { cause: 'perimeter heater stuck ON' };
+  if (/plant|mechanical/.test(t)) return { cause: 'plant-room extract fan failure' };
   return { cause: 'chilled-water valve failure' };
 }
 
 function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
   const [sent, setSent] = useState(null);
+  // Ventilation coefficients for the modelled-CO2 readout, from the engine's library.
+  const { modelledCo2 } = useLibrary();
   if (!zone) return null;
   // Manual override: latches a human veto over the optimizer for 15 min (engine side).
   const override = (action, label) => {
@@ -449,9 +464,11 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
   // which one is on screen matters more here than on desktop: this is the view someone
   // reads while standing in the room.
   const co2Measured = zone.co2 > 0;
-  // Same per-zone steady-state model as the desktop micro-HUD and the engine's building
-  // average (400 ppm outdoor + 15/occupant) — three surfaces, one formula.
-  const co2 = co2Measured ? Math.round(zone.co2) : Math.round(400 + zone.occupancy * 15);
+  // Same coefficients as the desktop micro-HUD and the engine — because all three now read
+  // them from the programme library instead of each carrying its own literal. null means
+  // the library has not been read and there is no modelled figure to offer.
+  const co2Modelled = co2Measured ? null : modelledCo2(zone.occupancy);
+  const co2 = co2Measured ? Math.round(zone.co2) : co2Modelled != null ? Math.round(co2Modelled) : null;
   const humMeasured = zone.humidity > 0;
   return (
     <div style={{ 
@@ -501,7 +518,10 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
          <StatCard label="SETPOINT" value={`${zone.setpoint.toFixed(1)}°C`} />
          <StatCard label={cfmMeasured ? 'AIRFLOW (VAV)' : 'AIRFLOW (MODELED)'} value={`${cfm} CFM`} />
-         <StatCard label={co2Measured ? 'CO₂ (MEASURED)' : 'CO₂ (MODELED)'} value={`${co2} ppm`} />
+         <StatCard
+           label={co2Measured ? 'CO₂ (MEASURED)' : co2 != null ? 'CO₂ (MODELED)' : 'CO₂'}
+           value={co2 != null ? `${co2} ppm` : '— no sensor'}
+         />
          <StatCard label="OCCUPANCY" value={`${zone.occupancy} People`} />
          {humMeasured && <StatCard label="HUMIDITY (MEASURED)" value={`${zone.humidity.toFixed(1)} %RH`} />}
       </div>

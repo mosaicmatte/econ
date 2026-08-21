@@ -1,25 +1,26 @@
 import React from 'react';
 import { Activity, Users, Thermometer, Zap, BarChart2 } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area } from 'recharts';
-import { getBuilding } from './buildingStore';
 import useMeanLoad from './useMeanLoad';
-const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 import { API_BASE } from './api';
+import { useLibrary } from './useLibrary';
 import { money, energyCostPerDay, touPeriod, touPeriodLabel } from './tariff';
+import { powerMw, splitPowerMw } from './units';
 import {
   FLOOR_AREA_M2, EUI_BENCHMARK, IS_IT_DOMINATED, ZONE_MIX,
   euiRunRateFromLoadMw, euiFromMeanLoadMw, EUI_MIN_WINDOW_H,
   carbonTonnesPerYear, carbonAvoidedTonnesPerYear, tonnesStr,
 } from './sustainability';
 
-// Building design peak (MW electrical), derived once from the loaded building nameplate so the
-// "Active Cooling Capacity" bar scales with ANY building instead of a hard-coded constant.
-// Mirrors the engine's load model: Σ(zone base heat) thermal → /COP electrical → + base plant.
-const DESIGN_PEAK_MW = (() => {
-  const zones = (buildingData.floors || []).flatMap(f => f.zones || []);
-  const thermalMw = zones.reduce((s, z) => s + (z.thermalProperties?.baseHeatLoad || 0), 0) / 1e6;
-  return Math.max(3.6, thermalMw / 3.0 + 2.0); // ~COP 3 + 2 MW lighting/plug/fan baseline
-})();
+// (Plant utilization is measured against the peak load this building has actually been
+// observed at — see useMeanLoad. There is no synthesized nameplate here on purpose: the
+// previous `Math.max(3.6, Σ baseHeatLoad / 3 + 2)` was wrong twice over. The 3.6 MW floor
+// was borrowed from a large commercial tower, so on the house pilot the bar read 0.3% and
+// would have kept reading 0.3% through a total plant failure. And Σ baseHeatLoad is only
+// the zones' internal EQUIPMENT gain — it excludes the envelope, solar, occupants and
+// ventilation that the engine's load model integrates, and ventilation alone dominates
+// this building's cooling load. Any nameplate built from it would have been off by more
+// than an order of magnitude in the other direction.)
 
 function Sparkline({ data, dataKey, color }) {
   return (
@@ -33,18 +34,25 @@ function Sparkline({ data, dataKey, color }) {
   );
 }
 
-function BulletGraph({ label, value, max, target, color, unit, isLast }) {
+// `caption` carries the context that used to be crammed into `unit` — "of 25 kW seen in
+// 31 min", "setpoints avg 27.8". Inline, those strings ran the header past the panel edge
+// and pushed the label and the value into each other; on their own line they read.
+function BulletGraph({ label, value, max, target, color, unit, caption, digits = 1, isLast }) {
   const numValue = typeof value === 'number' ? value : parseFloat(value) || 0;
-  const percent = Math.max(0, Math.min(100, (numValue / max) * 100));
-  const targetPercent = Math.max(0, Math.min(100, (target / max) * 100));
+  const safeMax = Number.isFinite(max) && max > 0 ? max : 1;
+  const percent = Math.max(0, Math.min(100, (numValue / safeMax) * 100));
+  const targetPercent = Math.max(0, Math.min(100, (target / safeMax) * 100));
   return (
     <div style={{ marginBottom: isLast ? 0 : '14px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '5px' }}>
-        <span>{label}</span>
-        <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--text-primary)' }}>
-          {numValue.toFixed(1)}{unit ? <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}> {unit}</span> : null}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: caption ? '2px' : '5px' }}>
+        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--text-primary)', flexShrink: 0 }}>
+          {numValue.toFixed(digits)}{unit ? <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}> {unit}</span> : null}
         </span>
       </div>
+      {caption && (
+        <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginBottom: '5px' }}>{caption}</div>
+      )}
       {/* Track deliberately NOT overflow-hidden: the target tick extends above/below it so
           it reads as a reference marker crossing the track, not a detached bar fragment. */}
       <div style={{ position: 'relative', height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px' }}>
@@ -68,9 +76,23 @@ function DeltaCard({ title, icon: Icon, value, unit, delta, isGood, historyData,
         <div style={{ fontSize: '20px', fontWeight: 'bold', color: 'var(--text-primary)', fontFamily: 'monospace', lineHeight: 1 }}>
           {value} <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{unit}</span>
         </div>
-        <div style={{ fontSize: '10px', fontWeight: 'bold', color: isGood ? 'var(--accent-green)' : 'var(--accent-red)', background: isGood ? 'rgba(0,255,0,0.1)' : 'rgba(255,0,0,0.1)', padding: '2px 4px', borderRadius: '4px' }}>
-          {delta > 0 ? '▲' : '▼'} {Math.abs(delta)}
-        </div>
+        {/* A delta of exactly zero is "no change", not a fall. The old chip rendered a
+            red ▼ 0 whenever nothing had moved, which on the zone cards (whose delta was
+            hardcoded to 0) meant every room permanently displayed a downward arrow. */}
+        {(() => {
+          const flat = !Number.isFinite(delta) || Math.abs(delta) < 1e-9;
+          const good = flat ? null : isGood;
+          return (
+            <div style={{
+              fontSize: '10px', fontWeight: 'bold',
+              color: flat ? 'var(--text-secondary)' : good ? 'var(--accent-green)' : 'var(--accent-red)',
+              background: flat ? 'rgba(255,255,255,0.05)' : good ? 'rgba(0,255,0,0.1)' : 'rgba(255,0,0,0.1)',
+              padding: '2px 4px', borderRadius: '4px',
+            }}>
+              {flat ? '—' : `${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)}`}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -78,9 +100,13 @@ function DeltaCard({ title, icon: Icon, value, unit, delta, isGood, historyData,
 
 export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory, activeFloor, selectedNode, width = 320, setWidth, sendManualOverride, hardwareNodes = {} }) {
   const [zoneHistory, setZoneHistory] = React.useState([]);
+  // Programme coefficients from the engine (see useLibrary): used here for the zone's
+  // design occupant density, so the occupancy bar is scaled by the building's own
+  // calibration rather than a fixed 80-person axis.
+  const { areaPerOccupant } = useLibrary();
   // Annual intensity has to be built on the load actually observed over time, not on
   // whatever the load happens to be this second. See useMeanLoad.
-  const { meanMw, hours: observedH } = useMeanLoad(simData?.buildingLoadMw);
+  const { meanMw, hours: observedH, peakMw } = useMeanLoad(simData?.buildingLoadMw);
 
   React.useEffect(() => {
     if (selectedNode?.type === 'zone') {
@@ -95,6 +121,13 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
     }
   }, [selectedNode?.id]);
   
+  // The building's own mean setpoint — what "on target" means for THIS building.
+  const meanSetpoint = React.useMemo(() => {
+    const zs = Object.values(simData.zones || {});
+    if (!zs.length) return 24;
+    return zs.reduce((s, z) => s + (z.setpoint ?? 24), 0) / zs.length;
+  }, [simData.zones]);
+
   const bldgLoad = simData.buildingLoadMw ?? 0;
   const sysHealth = simData.systemHealth ?? 100;
   const occupants = simData.totalOccupants ?? 0;
@@ -104,9 +137,12 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
   // sysHealth<80 proxy never tripped once the building grew past ~20 zones).
   const criticalFaults = Object.values(simData.zones || {}).filter(z => z.alert === true).length;
   const hasFault = criticalFaults > 0;
-  // Active cooling capacity = current building electrical load vs nameplate design peak, so the
-  // bar tracks real plant utilization (rises on peak/fault) instead of a hard-coded constant.
-  const coolingCapacityPct = Math.max(0, Math.min(100, (bldgLoad / DESIGN_PEAK_MW) * 100));
+  // Plant utilization against the highest load this building has been SEEN at. Both
+  // numbers are measurements, so the ratio is one too. Withheld until a peak has actually
+  // been observed rather than shown against a denominator nobody measured.
+  const coolingCapacityPct = peakMw > 0
+    ? Math.max(0, Math.min(100, (bldgLoad / peakMw) * 100))
+    : null;
 
   // Real deltas: change between the last two history samples. Occupancy delta reads the
   // occupancy field directly — it used to be reverse-engineered from the co2 series as
@@ -116,6 +152,30 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
   const a = h[h.length - 2], b = h[h.length - 1];
   const loadDelta = a && b ? +(((b.pwr - a.pwr) / 1000)).toFixed(2) : 0;
   const occDelta = a && b && b.occ !== undefined ? b.occ - a.occ : 0;
+
+  // The per-zone history endpoint reuses the GLOBAL column names for different
+  // quantities: `pwr` carries temperature and `occ` carries occupancy. Rename once here
+  // so each card names the series it actually plots, instead of a chart labelled
+  // OCCUPANCY being handed a key called `co2`.
+  const zoneSeries = React.useMemo(
+    () => (zoneHistory || []).map((r) => ({ time: r.time, temp: r.pwr, occ: r.occ ?? r.co2 })),
+    [zoneHistory],
+  );
+  const zs = zoneSeries;
+  const za = zs[zs.length - 2], zb = zs[zs.length - 1];
+  const zoneTempDelta = za && zb ? +(zb.temp - za.temp).toFixed(2) : 0;
+  const zoneOccDelta = za && zb ? +(zb.occ - za.occ).toFixed(0) : 0;
+
+  // Design occupancy for the selected zone: its digitized floor area over the library's
+  // area-per-occupant for that programme. Zero when either is unknown, and the caller
+  // shows a plain count rather than a bar against an invented capacity.
+  const zoneDesignPax = React.useMemo(() => {
+    if (selectedNode?.type !== 'zone') return 0;
+    const areaM2 = selectedNode.data?.areaM2 || 0;
+    const perOcc = areaPerOccupant(selectedNode.data?.type);
+    if (!(areaM2 > 0) || !(perOcc > 0)) return 0;
+    return Math.max(1, Math.round(areaM2 / perOcc));
+  }, [selectedNode?.id, selectedNode?.data?.areaM2, selectedNode?.data?.type, areaPerOccupant]);
   
   return (
     <aside className="hud-dock-right" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width, padding: '1rem', position: 'absolute' }}>
@@ -147,13 +207,15 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
       {!selectedNode ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           {/* Delta Cards */}
+          {/* Unit follows the magnitude (units.js). It read "0.01 MW" on a building drawing
+              twelve kilowatts, while the utilization bar below it correctly said kW. */}
           <DeltaCard 
-            title="TOTAL LOAD" icon={Zap} value={bldgLoad.toFixed(2)} unit="MW" 
+            title="TOTAL LOAD" icon={Zap} value={splitPowerMw(bldgLoad).value} unit={splitPowerMw(bldgLoad).unit}
             delta={loadDelta} isGood={false} historyData={loadHistory} dataKey="pwr" sparkColor="var(--accent-yellow)" 
           />
           <DeltaCard
             title="OCCUPANCY" icon={Users} value={occupants} unit="Pax"
-            delta={occDelta} isGood={true} historyData={loadHistory} dataKey="co2" sparkColor="var(--accent-blue)"
+            delta={occDelta} isGood={true} historyData={loadHistory} dataKey="occ" sparkColor="var(--accent-blue)"
           />
 
           {/* Live savings from the engine's occupancy-driven setbacks (streamed energySavedMw),
@@ -167,7 +229,7 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--accent-green)', fontSize: '16px' }}>
-                    {savedKw.toFixed(0)} <span style={{ fontSize: '10px' }}>kW</span>
+                    {splitPowerMw(simData.energySavedMw || 0).value} <span style={{ fontSize: '10px' }}>{splitPowerMw(simData.energySavedMw || 0).unit}</span>
                   </div>
                   <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                     ≈ {money(energyCostPerDay(savedKw))}/day ({touPeriodLabel(touPeriod())})
@@ -221,7 +283,15 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
           {/* Operational carbon (Scope 2) — the subject of the Hanoi case study, and what an
               ESG reviewer asks for before anything else. */}
           {(() => {
-            const tYr = carbonTonnesPerYear(simData.buildingLoadMw || 0);
+            // Annualised from the MEAN load once a representative window has been observed,
+            // and from the instantaneous load before that — with the basis stated either
+            // way. This card used to headline "71 t CO2e/yr" computed from whatever the
+            // load happened to be that second, with no caveat at all, directly beneath an
+            // EUI card that withholds its own benchmark for exactly that reason. The two
+            // are the same quantity over the same hours; they cannot have different
+            // standards of evidence.
+            const settledC = observedH >= EUI_MIN_WINDOW_H;
+            const tYr = carbonTonnesPerYear(settledC ? meanMw : (simData.buildingLoadMw || 0));
             const avoided = carbonAvoidedTonnesPerYear(simData.energySavedMw || 0);
             return (
               <div style={{ background: 'rgba(34, 197, 94, 0.05)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '8px', padding: '12px' }}>
@@ -235,6 +305,11 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
                     </div>
                     <div style={{ fontSize: '9px', color: 'var(--accent-green)', marginTop: '2px' }}>
                       {avoided > 0.05 ? `${tonnesStr(avoided)}/yr avoided by setback` : 'no setback active'}
+                    </div>
+                    <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      {settledC
+                        ? `annualised from ${observedH.toFixed(0)} h observed`
+                        : 'run-rate at this instant, not an annual total'}
                     </div>
                   </div>
                 </div>
@@ -263,7 +338,7 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
                     {soc.toFixed(0)}<span style={{ fontSize: '10px' }}>%</span>
                   </div>
                   <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    {idle ? 'idle' : charging ? `charging ${Math.abs(dischMw).toFixed(2)} MW` : `discharging ${dischMw.toFixed(2)} MW`}
+                    {idle ? 'idle' : charging ? `charging ${powerMw(Math.abs(dischMw))}` : `discharging ${powerMw(dischMw)}`}
                   </div>
                 </div>
               </div>
@@ -272,10 +347,37 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
 
           {/* Bullet Graphs */}
           <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '16px 12px' }}>
-            <BulletGraph label="System Health" value={sysHealth} max={100} target={95} color={sysHealth < 80 ? 'var(--accent-red)' : 'var(--accent-green)'} unit="%" />
-            <BulletGraph label="Avg Temperature" value={globalMetrics.avgTemp || 24} max={35} target={23.5} color="var(--accent-blue)" unit="°C" />
-            <BulletGraph label="Active Cooling Capacity" value={coolingCapacityPct} max={100} target={60} color="var(--accent-yellow)" unit="%" />
-            <BulletGraph label="Plant COP" value={simData.plantCop || 0} max={4} target={3.4} color="var(--accent-green)" unit="" isLast />
+            <BulletGraph label="System Health" value={sysHealth} max={100} target={95} color={sysHealth < 80 ? 'var(--accent-red)' : 'var(--accent-green)'} unit="%" digits={0} />
+            {/* Target tick is the building's OWN mean setpoint, from the live zone state.
+                It was pinned at 23.5 °C — a figure matching neither the office fixture
+                (26 °C) nor the house pilot (28 °C), so the reference marker sat well left
+                of where every zone is actually controlled and made a correctly-running
+                building look permanently overheated. */}
+            <BulletGraph
+              label="Avg Temperature"
+              value={Number(globalMetrics.avgTemp) || 0}
+              max={Math.max(35, meanSetpoint + 10)}
+              target={meanSetpoint}
+              color="var(--accent-blue)"
+              unit="°C"
+              caption={`target tick = this building's mean setpoint, ${meanSetpoint.toFixed(1)} °C`}
+            />
+            {coolingCapacityPct !== null ? (
+              <BulletGraph
+                label="Load vs Observed Peak"
+                value={coolingCapacityPct}
+                max={100}
+                target={80}
+                color={coolingCapacityPct > 95 ? 'var(--accent-red)' : 'var(--accent-yellow)'}
+                unit="%"
+                caption={`of ${powerMw(peakMw)}, the highest seen in ${observedH < 1 ? `${(observedH * 60).toFixed(0)} min` : `${observedH.toFixed(0)} h`} observed`}
+              />
+            ) : (
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
+                Load vs observed peak — no load observed yet.
+              </div>
+            )}
+            <BulletGraph label="Plant COP" value={simData.plantCop || 0} max={Math.max(4, (simData.plantCop || 0) * 1.2)} target={3.4} color="var(--accent-green)" unit="" digits={2} isLast />
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: hasFault ? 'rgba(255,0,0,0.1)' : 'rgba(0,0,0,0.2)', border: hasFault ? '1px solid rgba(255,0,0,0.3)' : '1px solid var(--border-glass)', borderRadius: '8px', alignItems: 'center', transition: '0.3s' }}>
@@ -318,20 +420,55 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
             </span>
           </div>
 
-          {/* Delta Cards for Zone */}
+          {/* Delta Cards for Zone. The series come from /api/history?zone=…, where the
+              per-zone query returns temperature in `pwr` and occupancy in `occ` — so the
+              keys are remapped once, here, rather than each card silently plotting
+              whatever the column happened to hold. Deltas are the real change between the
+              last two recorded samples; they used to be hardcoded to 0, which rendered a
+              permanent "▼ 0" chip that looked like a measurement. */}
           <DeltaCard 
             title="LOCAL TEMP" icon={Thermometer} value={parseFloat(selectedNode.data.temp).toFixed(1)} unit="°C" 
-            delta={0} isGood={true} historyData={zoneHistory} dataKey="pwr" sparkColor="var(--accent-yellow)" 
+            delta={zoneTempDelta} isGood={zoneTempDelta <= 0} historyData={zoneSeries} dataKey="temp" sparkColor="var(--accent-yellow)" 
           />
           <DeltaCard 
             title="OCCUPANCY" icon={Users} value={selectedNode.data.occupancy} unit="Pax" 
-            delta={0} isGood={true} historyData={zoneHistory} dataKey="co2" sparkColor="var(--accent-blue)" 
+            delta={zoneOccDelta} isGood={true} historyData={zoneSeries} dataKey="occ" sparkColor="var(--accent-blue)" 
           />
 
           <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '16px 12px' }}>
-            <BulletGraph label="Local Temp" value={parseFloat(selectedNode.data.temp)} max={35} target={24} color={selectedNode.data.alert ? 'var(--accent-red)' : 'var(--accent-yellow)'} unit="°C" />
-            <BulletGraph label="Occupancy" value={selectedNode.data.occupancy} max={80} target={20} color="var(--accent-blue)" unit="Pax" />
-            <BulletGraph label="Integration Score" value={selectedNode.data.integration_score ?? 0} max={2} target={0.5} color="var(--accent-green)" unit="Idx" isLast />
+            <BulletGraph
+              label="Local Temp"
+              value={parseFloat(selectedNode.data.temp)}
+              max={Math.max(35, (selectedNode.data.setpoint ?? 24) + 10)}
+              target={selectedNode.data.setpoint ?? 24}
+              color={selectedNode.data.alert ? 'var(--accent-red)' : 'var(--accent-yellow)'}
+              unit="°C"
+            />
+            {/* Occupancy scaled against the zone's own design capacity (its digitized
+                floor area at the library's area-per-occupant), not a fixed 80-person
+                bar that made every real room look empty. Withheld when the fixture
+                carries no area for the zone rather than shown against a guess. */}
+            {zoneDesignPax > 0 ? (
+              <BulletGraph label="Occupancy" value={selectedNode.data.occupancy} max={zoneDesignPax} target={Math.round(zoneDesignPax * 0.6)} color="var(--accent-blue)" unit={`of ~${zoneDesignPax} Pax`} />
+            ) : (
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '14px', display: 'flex', justifyContent: 'space-between' }}>
+                <span>Occupancy</span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--text-primary)' }}>{selectedNode.data.occupancy ?? 0} Pax</span>
+              </div>
+            )}
+            {/* Plug draw replaces what used to be an "Integration Score" — a unitless
+                index with no definition, computed from a lookup table keyed on zone-type
+                names the digitizer stopped minting, so it read 0.6 for every zone in the
+                building. This is a metered or modelled watt figure with a stated basis. */}
+            <BulletGraph
+              label={selectedNode.data.plugShed ? 'Plug Draw (swept)' : 'Plug Draw'}
+              value={(selectedNode.data.plugW ?? 0) / 1000}
+              max={Math.max(0.5, ((selectedNode.data.baseHeatGain ?? 0) / 1000) || 0.5)}
+              target={((selectedNode.data.baseHeatGain ?? 0) / 1000) * 0.5}
+              color={selectedNode.data.plugShed ? 'var(--accent-green)' : 'var(--accent-yellow)'}
+              unit="kW"
+              isLast
+            />
           </div>
 
           {/* Manual Override Panel */}

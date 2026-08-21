@@ -1,11 +1,11 @@
 import React from 'react';
-import { X } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { money, energyCostPerDay, rateStr, touPeriod, touPeriodLabel, TARIFF } from './tariff';
+import { powerMw, powerKw } from './units';
 import { GRID_EF_KG_PER_KWH } from './sustainability';
 import { usePlugs } from './usePlugs';
 
-export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory, onClose }) {
+export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory }) {
   const loadMw   = globalMetrics?.buildingLoadMw ?? simData?.buildingLoadMw ?? 0;
   const hvacMw   = globalMetrics?.hvacElectricalMw ?? 0; // cooling thermal / live plant COP
   const baseMw   = globalMetrics?.baseLoadMw ?? 0;       // whatever the plant isn't drawing
@@ -20,21 +20,30 @@ export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory
   const gridMw   = globalMetrics?.gridPowerMw ?? Math.max(0, loadMw - dischMw);
   const charging = dischMw < -0.001;
   const idle     = Math.abs(dischMw) <= 0.001;
-  const stateLabel = idle ? 'Idle' : charging ? `Charging ${Math.abs(dischMw).toFixed(2)} MW`
-                     : `Discharging ${dischMw.toFixed(2)} MW`;
+  const stateLabel = idle ? 'Idle' : charging ? `Charging ${powerMw(Math.abs(dischMw))}`
+                     : `Discharging ${powerMw(dischMw)}`;
 
   // Plug loads (APLC): live stream numbers + the sweep policy from /api/plugs.
-  const { status: plugStatus, updateConfig: updatePlugConfig } = usePlugs();
+  const { status: plugStatus, updateConfig: updatePlugConfig, error: plugError, saving: plugSaving } = usePlugs();
   const plugMw     = (simData?.plugKw ?? 0) / 1000;
   const plugShedKw = simData?.plugShedKw ?? 0;
   const plugSaved  = simData?.plugSavedKwh ?? 0;
-  const otherMw    = Math.max(0, baseMw - plugMw); // lighting + fans, plug split out
-  const plugPct    = loadMw > 0 ? (plugMw / loadMw * 100).toFixed(0) + '%' : '0%';
+  // Lighting + fans is whatever the plant and the sockets are not drawing. Clamping at
+  // zero alone was not enough: when metered plug draw exceeds the non-HVAC baseline (the
+  // normal case on a small building with no chiller) the clamp hid the overflow and the
+  // three shares silently summed past 100%. Show the plug share against the load it is
+  // actually part of, and flag the inconsistency rather than papering over it.
+  const otherMw     = Math.max(0, baseMw - plugMw); // lighting + fans, plug split out
+  const plugExceeds = plugMw > baseMw + 1e-9;
+  const plugPct     = loadMw > 0 ? (plugMw / loadMw * 100).toFixed(0) + '%' : '0%';
   const sweepOn    = plugStatus?.config?.enabled ?? false;
 
+  // The window is ~60 one-second samples, so slicing the "HH:MM:SS" stamp to "HH:MM"
+  // collapsed every tick to the same one or two labels — a time axis that could not tell
+  // you when anything happened. Minutes:seconds is the resolution the data actually has.
   const chartData = (loadHistory || []).map(item => ({
-    t: item.time.slice(0, 5),
-    kw: item.pwr
+    t: (item.time || '').slice(3) || item.time,
+    kw: item.pwr,
   }));
 
   const hvacPct = loadMw > 0 ? (hvacMw / loadMw * 100).toFixed(0) + '%' : '0%';
@@ -43,7 +52,7 @@ export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory
   const savedPct = (loadMw + savedMw) > 0 ? (savedMw / (loadMw + savedMw) * 100).toFixed(0) + '%' : '0%';
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', color: '#ffffff', background: '#000000', fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', padding: '20px', minHeight: '100dvh', overflowY: 'auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', color: '#ffffff', fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
       
       {/* 1) Header */}
       <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', marginBottom: '24px' }}>
@@ -77,7 +86,7 @@ export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory
           <div style={{ width: `${soc}%`, height: '100%', background: '#3DDC84', borderRadius: '6px' }} />
         </div>
         <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
-          Grid draw {gridMw.toFixed(2)} MW {dischMw > 0.001 && `(battery shaving ${dischMw.toFixed(2)} MW off the grid)`}
+          Grid draw {powerMw(gridMw)} {dischMw > 0.001 && `(battery shaving ${powerMw(dischMw)} off the grid)`}
         </div>
       </div>
 
@@ -85,7 +94,7 @@ export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory
       <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
         <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '12px' }}>
           <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginBottom: '4px' }}>HVAC Load</div>
-          <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#F5C242' }}>{hvacMw.toFixed(2)} MW</div>
+          <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#F5C242' }}>{powerMw(hvacMw)}</div>
         </div>
         <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '12px' }}>
           <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginBottom: '4px' }}>Cooling Output</div>
@@ -124,27 +133,37 @@ export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory
           <div style={{ fontSize: '16px', fontWeight: '600' }}>Plug Loads</div>
           <button
             onClick={() => updatePlugConfig({ enabled: !sweepOn })}
+            disabled={plugSaving || !plugStatus}
             style={{
-              fontSize: '12px', fontWeight: 'bold', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer',
+              fontSize: '12px', fontWeight: 'bold', padding: '6px 12px', borderRadius: '8px',
+              cursor: plugSaving || !plugStatus ? 'default' : 'pointer',
+              opacity: plugSaving || !plugStatus ? 0.5 : 1,
               background: sweepOn ? 'rgba(61,220,132,0.12)' : 'rgba(255,255,255,0.08)',
               border: `1px solid ${sweepOn ? '#3DDC84' : 'rgba(255,255,255,0.15)'}`,
               color: sweepOn ? '#3DDC84' : 'rgba(255,255,255,0.6)',
             }}
           >
-            {sweepOn ? 'Sweep ON' : 'Sweep OFF'}
+            {plugSaving ? 'Saving…' : sweepOn ? 'Sweep ON' : 'Sweep OFF'}
           </button>
         </div>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '12px' }}>
           Largest end use in the Hanoi case study (26.4%) — its BMS couldn't switch sockets. This one can.
         </div>
+        {/* A refused policy change has to say so. The toggle used to drop the failure on
+            the floor, so on a token-protected engine tapping it simply did nothing. */}
+        {plugError && (
+          <div style={{ fontSize: '11px', color: '#F5C242', marginBottom: '12px', lineHeight: 1.4 }}>
+            {plugError}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
           <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: '10px', padding: '10px' }}>
             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>Draw now ({plugPct} of load)</div>
-            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#F5C242' }}>{(plugMw * 1000).toFixed(0)} kW</div>
+            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#F5C242' }}>{powerMw(plugMw)}</div>
           </div>
           <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: '10px', padding: '10px' }}>
             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>Swept off · {plugStatus?.shedZones ?? 0} zones</div>
-            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#3DDC84' }}>{plugShedKw.toFixed(1)} kW</div>
+            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#3DDC84' }}>{powerKw(plugShedKw)}</div>
           </div>
         </div>
         <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
@@ -163,12 +182,25 @@ export default function MobileEnergyScreen({ simData, globalMetrics, loadHistory
       <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '16px', padding: '20px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '40px' }}>
         <h3 style={{ margin: '0 0 20px 0', fontSize: '18px', fontWeight: '600' }}>Energy Flow</h3>
 
-        <FlowRow label="HVAC (cooling electrical)" value={`${hvacMw.toFixed(2)} MW`} pct={hvacPct} color="#F5C242" />
-        <FlowRow label="Plug loads (APLC)" value={`${plugMw.toFixed(2)} MW`} pct={plugPct} color="#F58C42" />
-        <FlowRow label="Lighting + fans" value={`${otherMw.toFixed(2)} MW`} pct={otherPct} color="#4A90E2" />
-        <FlowRow label="Total building load" value={`${loadMw.toFixed(2)} MW`} pct={totalPct} color="#B8B8B8" />
-        <FlowRow label="Grid draw (after battery)" value={`${gridMw.toFixed(2)} MW`} pct="" color="#B8B8B8" />
-        <FlowRow label="Autonomous saving (setback)" value={`-${savedMw.toFixed(2)} MW`} pct={savedPct} color="#3DDC84" isCredit />
+        <FlowRow label="HVAC (cooling electrical)" value={powerMw(hvacMw)} pct={hvacPct} color="#F5C242" />
+        <FlowRow label="Plug loads (APLC)" value={powerMw(plugMw)} pct={plugPct} color="#F58C42" />
+        <FlowRow label="Lighting + fans" value={powerMw(otherMw)} pct={otherPct} color="#4A90E2" />
+        {plugExceeds && (
+          <div style={{ fontSize: '11px', color: '#F5C242', marginTop: '-8px', marginBottom: '16px', lineHeight: 1.4 }}>
+            Metered plug draw exceeds the non-HVAC share of building load, so these rows do not sum to the total. That usually means a clamp is reading a circuit the load model does not know about — worth checking before trusting the split.
+          </div>
+        )}
+        <FlowRow label="Total building load" value={powerMw(loadMw)} pct={totalPct} color="#B8B8B8" />
+        <FlowRow label="Grid draw (after battery)" value={powerMw(gridMw)} pct="" color="#B8B8B8" />
+        {/* Only shown as a credit when there IS one: "-0.00 MW" against a green "saving"
+            label reads as a rounding artifact of a real number, which it is not. */}
+        <FlowRow
+          label="Autonomous saving (setback)"
+          value={savedMw > 0 ? `-${powerMw(savedMw)}` : 'none active'}
+          pct={savedMw > 0 ? savedPct : ''}
+          color="#3DDC84"
+          isCredit={savedMw > 0}
+        />
         <FlowRow label="Battery (SoC)" value={`${soc.toFixed(0)}%`} pct="" color="#3DDC84" />
       </div>
 
