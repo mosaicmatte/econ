@@ -5,6 +5,9 @@ import { useOpsStatus, untilLabel } from './useOpsStatus';
 import { usePlugs } from './usePlugs';
 import { useRecommendations } from './useRecommendations';
 import { useLocalModel } from './useLocalModel';
+import { useLibrary } from './useLibrary';
+import { useRoomModels } from './useRoomModels';
+import RecommendationEvidence from './RecommendationEvidence';
 import { API_BASE } from './api';
 
 // Mobile "AI & Automation" screen — the phone-sized twin of the desktop AI Insights panel.
@@ -17,7 +20,7 @@ import { API_BASE } from './api';
 // the EVN TOU clock, and the engine's own control loops (pre-cool, plug sweep, weather).
 export default function MobileAIScreen({
   simData = {}, activeScenario, faultTarget, aiForecast, hardwareNodes = {},
-  autoPilot, setAutoPilot, sendManualOverride, onFocusZone, onOpenEnergy, onClose,
+  autoPilot, setAutoPilot, sendManualOverride, onFocusZone, onOpenEnergy,
 }) {
   const [engaged, setEngaged] = useState({});
   const mark = (id) => setEngaged((e) => ({ ...e, [id]: true }));
@@ -29,8 +32,18 @@ export default function MobileAIScreen({
   // shed estimate tracks the real plant instead of subtracting a hard-coded baseline.
   const plantCop = simData.plantCop || 0;
   const hvacMw = plantCop > 0 ? Math.min(loadMw, (simData.coolingOutputMw || 0) / plantCop) : 0;
-  const shedKw = 0.05 * hvacMw * 1000; // ~5%-per-°C deadband/pre-cool shave
   const hwList = Object.values(hardwareNodes || {});
+
+  // Building coefficients and the critical-zone list come from the engine's programme
+  // library, not from literals here. The pre-cool shift fraction in particular had been
+  // typed into this file as "~5%-per-°C deadband/pre-cool shave" and into the desktop
+  // panel as "≈5% coast from a charged thermal mass" — the same number, two incompatible
+  // explanations, neither traceable to anything. Null until the library answers.
+  const { isCritical, precoolShift } = useLibrary();
+  // matureAfter comes from this endpoint, not the baseline model's — the two mature on
+  // different evidence and at different sample counts.
+  const { byZone: roomModels, rooms: roomList, identified: roomsIdentified, matureAfter: roomsMatureAfter } = useRoomModels();
+  const shedKw = precoolShift != null ? precoolShift * hvacMw * 1000 : null;
 
   // Live control-loop state from the engine (shared hooks with the desktop panel).
   const { precool, weather } = useOpsStatus();
@@ -96,6 +109,10 @@ export default function MobileAIScreen({
         id: `rec-${rec.id}`, accent, icon,
         title: rec.title,
         message: rec.message,
+        // The engine's reasoning travels with the card so the phone can show the same
+        // evidence the desktop does: the learned band, the σ position, the identified
+        // response, the sample counts.
+        rec,
         badge: rec.kind === 'prediction' ? (rec.etaSec > 0 ? `PREDICTED ${rec.etaSec >= 5400 ? (rec.etaSec / 3600).toFixed(1) + 'h' : Math.round(rec.etaSec / 60) + 'min'}` : 'PREDICTED')
           : rec.kind === 'capability' ? 'CAPABILITY'
           : rec.basis === 'learned' ? 'LEARNED' : 'ASHRAE STD',
@@ -115,9 +132,17 @@ export default function MobileAIScreen({
         title: tou === 'peak' ? 'Peak Tariff Running Now' : `Peak Tariff in ${toPeak} min`,
         message: windowOpen
           ? `A pre-cool window is open until ${untilLabel(precool.until)} — thermal mass is charging so chillers coast through the ${rateStr('peak')}/kWh window.`
-          : `${tou === 'peak' ? `Peak rate is charging ${rateStr('peak')}/kWh right now.` : `Peak rate (${rateStr('peak')}/kWh) begins at 17:30.`} Pre-cooling shifts ≈ ${shedKw.toFixed(0)} kW off peak ≈ ${money(peakShiftSavingPerMonth(shedKw))}/month.`,
-        actionLabel: windowOpen ? `✓ OPEN UNTIL ${untilLabel(precool.until)}` : 'ACTIVATE PRE-COOLING',
-        done: windowOpen,
+          : `${tou === 'peak' ? `Peak rate is charging ${rateStr('peak')}/kWh right now.` : `Peak rate (${rateStr('peak')}/kWh) begins at 17:30.`}${
+              shedKw != null
+                ? ` Pre-cooling shifts an estimated ${shedKw.toFixed(0)} kW off peak — about ${money(peakShiftSavingPerMonth(shedKw))}/month at the rate gap, using the library's ${(precoolShift * 100).toFixed(0)}% planning figure rather than a measured coast.`
+                : ' The size of the shift is not shown: it depends on a plant coefficient this dashboard could not read from the engine.'
+            }`,
+        actionLabel: 'ACTIVATE PRE-COOLING',
+        // A window the ENGINE already has open is a state, not a button. The card used to
+        // set done:true and put the status in actionLabel, but RecCard only renders a
+        // button when there is an action — so with the window open the status vanished
+        // and the card showed nothing at all about the pre-cool it was reporting.
+        status: windowOpen ? `✓ Pre-cooling — window open until ${untilLabel(precool.until)}` : null,
         onAction: windowOpen ? undefined : () => { sendManualOverride && sendManualOverride('precool', 'GLOBAL'); },
       });
     }
@@ -130,10 +155,18 @@ export default function MobileAIScreen({
       const realN = aiForecast.window_real_samples;
       const winLen = aiForecast.window_len || 12;
       const warmup = realN != null && realN < winLen ? ` Window warming up: ${realN}/${winLen} real samples.` : '';
+      // Same judgement as the desktop card: a forecast the engine has flagged as out of
+      // distribution for this building is presented as a finding about the model, not as
+      // this building's coming peak.
+      const ood = aiForecast.implausible === true;
       out.push({
-        id: 'forecast', accent: '#4A90E2', icon: <Activity size={20} color="#4A90E2" />,
-        title: 'LSTM Load Forecast',
-        message: `Model predicts an upcoming peak of ${aiForecast.predicted_peak_load.toFixed(2)} MW ${src}.${warmup}`,
+        id: 'forecast', accent: ood ? '#F5C242' : '#4A90E2',
+        icon: <Activity size={20} color={ood ? '#F5C242' : '#4A90E2'} />,
+        title: ood ? 'LSTM Forecast Out Of Distribution' : 'LSTM Load Forecast',
+        badge: ood ? 'NOT THIS BUILDING' : undefined,
+        message: ood
+          ? `The supervised model returns ${aiForecast.predicted_peak_load.toFixed(2)} MW. ${aiForecast.plausibility} Retrain it on this building, or rely on the zero-shot forecaster, which reads this building's own recorded series.`
+          : `Model predicts an upcoming peak of ${aiForecast.predicted_peak_load.toFixed(2)} MW ${src}.${warmup}`,
       });
     }
 
@@ -179,9 +212,11 @@ export default function MobileAIScreen({
     // 7. Unoccupied zones still at occupied setpoints — priced through the live COP at
     // the live tariff, and attributed honestly: instrumented zones set back themselves.
     // 24/7-critical types excluded: an empty server room being cooled is correct, not waste.
-    const wasting = zones.filter((z) =>
-      z.occupancy === 0 && z.load > 0 && z.lightsOn !== false
-      && z.type !== 'server-room' && z.type !== 'mechanical');
+    // Critical types come from the engine's library. The hardcoded pair this replaces
+    // (`server-room`, `mechanical`) matched no zone type the current digitizer emits, so
+    // it excluded nothing and this card counted the comms room as waste.
+    const wasting = isCritical(zones[0]?.type) === null ? [] : zones.filter((z) =>
+      z.occupancy === 0 && z.load > 0 && z.lightsOn !== false && !isCritical(z.type));
     if (wasting.length && plantCop > 0) {
       const wasteKw = wasting.reduce((acc, z) => acc + z.load, 0) / plantCop;
       out.push({
@@ -204,10 +239,10 @@ export default function MobileAIScreen({
     });
 
     return out;
-  }, [simData, activeScenario, faultTarget, aiForecast, hwList, shedKw, savingsPct, savedMw, autoPilot, recommendations, onFocusZone, sendManualOverride, setAutoPilot, precool, weather, plugStatus, onOpenEnergy]);
+  }, [simData, activeScenario, faultTarget, aiForecast, hwList, shedKw, precoolShift, isCritical, savingsPct, savedMw, autoPilot, recommendations, onFocusZone, sendManualOverride, setAutoPilot, precool, weather, plugStatus, onOpenEnergy]);
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', color: '#fff', background: '#000', fontFamily: 'system-ui, -apple-system, "SF Pro Display", sans-serif', padding: '20px', minHeight: '100dvh', overflowY: 'auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', color: '#fff', fontFamily: 'system-ui, -apple-system, "SF Pro Display", sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '10px' }}>
           <Brain size={22} color="#4A90E2" /> AI & Automation
@@ -252,9 +287,23 @@ export default function MobileAIScreen({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {recs.map((r) => (
-          <RecCard key={r.id} rec={r} done={!!engaged[r.id]} onEngage={() => mark(r.id)} />
+          <RecCard
+            key={r.id}
+            rec={r}
+            done={!!engaged[r.id]}
+            onEngage={() => mark(r.id)}
+            model={r.rec ? roomModels[r.rec.zone] : null}
+            matureAfter={recModel?.matureAfter}
+            horizonMin={recModel?.horizonMin ?? 30}
+            limit={r.rec?.metric === 'temp'
+              ? (simData.zones?.[r.rec.zone]?.setpoint ?? 0) + 1
+              : r.rec?.metric === 'co2' ? 1000 : undefined}
+          />
         ))}
       </div>
+
+      {/* What the twin has actually identified, phone-sized. */}
+      <RoomModelsMobile rooms={roomList} identified={roomsIdentified} matureAfter={roomsMatureAfter} learning={recModel?.roomsLearning ?? 0} onFocusZone={onFocusZone} />
 
       {/* Local models: take the intelligence offline. */}
       <ModelDownloadMobile />
@@ -336,8 +385,9 @@ function ModelDownloadMobile() {
   );
 }
 
-function RecCard({ rec, done, onEngage }) {
+function RecCard({ rec, done, onEngage, model, matureAfter, limit }) {
   const actionable = !!rec.onAction;
+  const [showWhy, setShowWhy] = useState(false);
   return (
     <div style={{ position: 'relative', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '16px 16px 16px 20px', overflow: 'hidden' }}>
       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '4px', background: rec.accent }} />
@@ -351,6 +401,29 @@ function RecCard({ rec, done, onEngage }) {
         )}
       </div>
       <p style={{ margin: '0 0 6px 0', fontSize: '13px', color: 'rgba(255,255,255,0.72)', lineHeight: 1.45 }}>{rec.message}</p>
+
+      {/* A state the engine is already in, rather than something to press. Without this
+          the pre-cool card went silent exactly when a window was open. */}
+      {rec.status && (
+        <div style={{ marginTop: '4px', fontSize: '12px', fontWeight: 700, color: '#3DDC84' }}>{rec.status}</div>
+      )}
+
+      {/* The same evidence the desktop shows — the learned band, the σ position, the
+          identified response — rather than a conclusion the operator cannot check. */}
+      {rec.rec && (
+        <>
+          <button
+            onClick={() => setShowWhy((v) => !v)}
+            style={{ marginTop: '4px', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: '12px', cursor: 'pointer', padding: '4px 0', textDecoration: 'underline' }}
+          >
+            {showWhy ? '▴ hide the evidence' : '▾ why this fired'}
+          </button>
+          {showWhy && (
+            <RecommendationEvidence rec={rec.rec} model={model} matureAfter={matureAfter} limit={limit} />
+          )}
+        </>
+      )}
+
       {actionable && (
         <button
           onClick={() => { rec.onAction(); onEngage(); }}
@@ -362,6 +435,66 @@ function RecCard({ rec, done, onEngage }) {
           }}
         >
           {done ? '✓ ENGAGED' : rec.actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+
+// RoomModelsMobile is the phone-sized view of what the twin has identified. Same data and
+// same honesty as the desktop card: a room that has not been identified does not appear,
+// and a cooling authority fitted against the library's design supply temperature says so
+// rather than passing as a measured one.
+function RoomModelsMobile({ rooms = [], identified = 0, matureAfter, learning = 0, onFocusZone }) {
+  const [open, setOpen] = useState(false);
+  if (!rooms.length) {
+    return (
+      <div style={{ marginTop: '22px', padding: '16px', borderRadius: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '6px' }}>Room Models</div>
+        <p style={{ margin: 0, fontSize: '12px', color: 'rgba(255,255,255,0.55)', lineHeight: 1.5 }}>
+          None identified yet{learning > 0 ? ` — ${learning} still learning` : ''}. A room has to move before its physics is visible: samples are taken every 5 simulated minutes and a fit matures at {matureAfter || 36} of them.
+        </p>
+      </div>
+    );
+  }
+  const shown = open ? rooms : rooms.slice(0, 3);
+  return (
+    <div style={{ marginTop: '22px', padding: '16px', borderRadius: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '6px' }}>
+        <span style={{ fontSize: '15px', fontWeight: 700 }}>Room Models</span>
+        <span style={{ marginLeft: 'auto', fontSize: '11px', fontFamily: 'ui-monospace, monospace', color: 'rgba(255,255,255,0.45)' }}>
+          {identified} identified{learning > 0 ? ` · ${learning} learning` : ''}
+        </span>
+      </div>
+      <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: 'rgba(255,255,255,0.55)', lineHeight: 1.45 }}>
+        Recovered from each room's own history, not configured. Every prediction above is one of these integrated forward.
+      </p>
+      {shown.map((m) => (
+        <div
+          key={m.zone}
+          onClick={() => onFocusZone && onFocusZone(m.zone)}
+          style={{ padding: '10px 0', borderTop: '1px solid rgba(255,255,255,0.06)', cursor: onFocusZone ? 'pointer' : 'default' }}
+        >
+          <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>{m.label}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', fontSize: '11px', fontFamily: 'ui-monospace, monospace', color: 'rgba(255,255,255,0.6)' }}>
+            {m.thermalReady && <span>τ {m.timeConstantMin.toFixed(0)} min</span>}
+            {m.thermalReady && <span>±{m.thermalResidual.toFixed(2)} °C/h</span>}
+            {m.co2Ready && <span>{m.achPerHour.toFixed(1)} ACH</span>}
+            {m.thermalReady && (
+              <span style={{ color: (m.supplyMeasuredFrac || 0) > 0 ? '#3DDC84' : '#F5C242' }}>
+                {(m.supplyMeasuredFrac || 0) > 0 ? `${((m.supplyMeasuredFrac) * 100).toFixed(0)}% measured supply` : 'design supply'}
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+      {rooms.length > 3 && (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          style={{ marginTop: '8px', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: '12px', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+        >
+          {open ? '▴ show fewer' : `▾ show all ${rooms.length}`}
         </button>
       )}
     </div>
