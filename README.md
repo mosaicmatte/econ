@@ -7,6 +7,101 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-08-21 — A forecast trained on another building was actuating this one
+>
+> A dashboard sweep turned up the usual crop of display defects, and one thing that was not a
+> display defect at all.
+>
+> **The serious one.** The supervised LSTM's weights encode whichever building `train.py`
+> last saw. Pointed at the house pilot it returned **2.41 MW for a building that had never
+> drawn more than 0.014 MW** — 173× — and nothing in the arithmetic objected. Two pieces of
+> state made it worse: `load-history.json` and the `GLOBAL` learned baselines both survived a
+> building change, so the zero-shot forecaster's context was one series spliced from two
+> different buildings, and the pre-cool automation's *learned* trigger was still the previous
+> building's 0.60 MW. The engine log, before the fix:
+>
+> ```
+> [precool] LSTM predicts 2.41 MW peak (learned trigger 0.60): pre-cooling until 00:46:38
+> ```
+>
+> That is a real actuation — every setpoint in the house driven down for twenty minutes — on
+> the authority of a model that had never seen it. Reporting a bad number on a dashboard is a
+> display bug; actuating on one is not. Now: state that belongs to one building is tagged
+> with that building's id and discarded on a change; every forecast is checked against the
+> building's own **observed** load range and carries that judgement; the panels lead with the
+> finding instead of the megawatts; and the pre-cool poller refuses to act both on a forecast
+> it has judged implausible **and** on any forecast at all until it has enough observation to
+> judge one. Same conditions, after:
+>
+> ```
+> [precool] REFUSING to act on the forecast: 2.41 MW is 210x the highest load this
+> building has been observed at (0.011 MW over 30 recorded samples). ...
+> ```
+>
+> **The crash nobody saw.** `housify_fixture.py` emitted `geometry.outline`; every airflow and
+> 3D consumer opens with `floor.geometry.exteriorPolygon.map(...)`. On the house fixture that
+> threw, and `AirflowWindow`'s throw reached the **root** error boundary — the entire desktop
+> console replaced by the fallback screen. `BuildingModel`'s throw was swallowed by the canvas
+> boundary and simply rendered no building at all. The generator now emits the canonical
+> fields, and `floorGeometry.js` reads either spelling and answers null rather than throwing.
+>
+> **Numbers that had quietly stopped meaning anything.** The critical-zone exclusions were
+> hardcoded as `server-room` / `mechanical` in four files; the digitizer emits `comms-room` /
+> `plant-room`, so the exclusion matched nothing and the comms room was counted as waste and
+> priced as a saving opportunity. `TelemetryPanel` computed delivered cooling against a
+> hardcoded 12 °C supply for every zone, including rooms whose DS18B20 says otherwise
+> (≈25% understated at 9 °C) — `supplyC` and `supplyReal` now ride the telemetry stream. The
+> topology AHU card had rendered the literal `500 Pa` seeded at init for the life of the
+> project while `doHardyCross()` solved the real static pressure every tick — `ahuPressurePa`
+> now streams. `MaintenanceDrawer` reversed an already-chronological series, plotting the last
+> ten minutes backwards **and inverting its least-squares slope**, so a recovering room was
+> labelled `CLIMBING`. An "Integration Score" bullet graph read 0.6 for every zone in the
+> building, from a lookup keyed on retired type names. And the forecast card's
+> "PROJECTED RAMP" was thirteen points of smoothstep easing between two real endpoints — the
+> LSTM has no trajectory to give, so the card now plots TimesFM's real horizon or shows the
+> two numbers it actually has.
+>
+> **`GET /api/library`** is the fix for the class, not just the instances. The panels needed
+> the design supply-air temperature, the plant coefficients that price a setpoint change, and
+> the list of critical zone types — all of which the engine already owns and all of which had
+> been retyped as JavaScript literals, in one case with the same number carrying two
+> incompatible justifications in two files. One endpoint, read from the same
+> `programme-library.json` the physics is evaluated with, through one hook (`useLibrary.js`).
+>
+> **The AI panel now shows its reasoning.** `/api/recommendations` has always carried the
+> learned mean and σ, the z-score, the sample count, the hour bucket, the predicted and
+> equilibrium values — and both dashboards rendered the prose message alone, leaving every
+> card unfalsifiable. `RecommendationEvidence.jsx` renders that payload verbatim: the reading
+> against its learned band, a σ-position strip, the maturity behind it, and the room's own
+> predicted trajectory. Where the identified τ is not to hand it is **recovered
+> algebraically** from the predicted and equilibrium values the engine already sends
+> (`τ = −T / ln((predicted − eq)/(now − eq))`), so the curve on screen is the engine's own
+> curve rather than a shape chosen to look plausible. `/api/rooms/models` — complete, correct
+> and with **zero consumers** since it was written — now backs a Room Models card on both
+> dashboards, including the supply-air provenance that says whether a room's cooling authority
+> was fitted against a real probe or against the library's design value.
+>
+> **Follow-on: the zero-shot model now has a vote.** Gating the bad forecast fixed the
+> symptom and left the arrangement that caused it — `precool.go` polled the *supervised*
+> endpoint exclusively, so the only actuating consumer of a forecast in the whole system was
+> wired to the one model that carries its training building in its weights, while TimesFM,
+> which reads this building's own recorded series and nothing else, had **zero influence on
+> any control decision**. It is now asked first whenever it has enough history, LSTM as
+> fallback, both through the same helpers the dashboard uses:
+>
+> ```
+> [precool] consulting TimesFM (zero-shot) (84 real samples): 0.010 MW predicted peak
+> ```
+>
+> TimesFM's nine decile heads were also being decoded in Python and dropped at the Go
+> boundary — the spread its own module argues matters most for a pre-cool decision. They now
+> reach the dashboard, where the forecast card plots the upper decile as a dashed band. The
+> trigger still compares the **central** estimate, deliberately: the learned threshold is
+> already mean + k·σ of this building's load, so triggering on an upper decile would count
+> the spread twice.
+>
+> Full defect table and reasoning: **PAPER.md §A.4.1**.
+>
 > ### 2026-07-25 — A `git pull` can no longer delete your building, and both forecasters run live in the inspector
 >
 > **The repo tracked three files the running system rewrites.** `building-data.json` and

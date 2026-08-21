@@ -1,0 +1,64 @@
+# Wokwi simulation of the ECON edge node.
+#
+# Runs the REAL firmware -- the same .elf PlatformIO builds for a physical board -- against
+# a simulated ESP32 with simulated WiFi. Nothing here is a reimplementation, so a bug that
+# reproduces in Wokwi is a bug in src/main.cpp.
+#
+# Quick start
+# -----------
+#   1. Install the "Wokwi for VS Code" extension.
+#   2. Build the firmware with the stock-part flag set:
+#
+#        PLATFORMIO_BUILD_FLAGS='-DUSE_DHT=1 -DUSE_MMWAVE=1 -DUSE_SUPPLY_TEMP=1 -DUSE_PLUG=1' \
+#          pio run -e esp32dev
+#
+#   3. Point the firmware at a broker Wokwi can actually reach (see below), then run
+#      "Wokwi: Start Simulator" from the command palette.
+#
+# THE ONE THING THAT WILL CATCH YOU OUT
+# ------------------------------------
+# Wokwi's virtual WiFi ("Wokwi-GUEST") has real internet access, but it is NOT on your LAN.
+# It cannot reach the mosquitto container on your laptop at 127.0.0.1 or 192.168.x.x. You
+# have three options, in descending order of how much I would trust them:
+#
+#   1. Tunnel your local broker.  cloudflared / ngrok tcp 1883, then set MQTT_HOST to the
+#      tunnel hostname. Stays private, works with the authenticated broker, no code change.
+#
+#   2. Run the broker somewhere routable (a VPS, a Pi with a port forward).
+#
+#   3. A public test broker (test.mosquitto.org, broker.hivemq.com). Fastest to try and the
+#      worst idea to leave running: `econ/telemetry/+` and `econ/commands/+` would be
+#      world-readable AND world-writable, so anyone could inject telemetry into your twin
+#      or publish a command that closes a relay. If you use one, pick an unguessable topic
+#      prefix and never point the production engine at it.
+#
+# Also note WiFi.begin("Wokwi-GUEST", "", 6) -- passing channel 6 explicitly skips the scan
+# and saves ~4 s of simulated boot. wifi_secrets.h is gitignored, so set it there.
+#
+# What is and is not simulated
+# ----------------------------
+# Stock Wokwi parts, running the real driver code:
+#   DHT22 (stands in for the SHT30 -- USE_DHT is a real firmware path, not a stub)
+#   DS18B20 supply probe (the actual part)
+#   pushbutton as the Rd-03 (the firmware only reads a digital level, so this is exact)
+#   potentiometer as the SCT-013 (a real ADC level on GPIO34)
+#   two relay modules (lighting GPIO23, plug GPIO25)
+#
+# Needs the Wokwi Custom Chips C API before it can be simulated at all:
+#   SHT30, ACD1200 CO2, BH1750 lux (all I2C), the IR emitter, and the PZEM-004T (UART).
+#   Leave those flags off; the firmware then omits their fields, which is the correct
+#   behaviour under rule 1 and is worth exercising deliberately.
+#
+# Known fidelity gap: the potentiometer presents a DC level, while readPlugAmps() computes
+# a true-RMS value from an AC waveform. You will get a stable, settable number that
+# exercises the sampling, scaling and publishing path -- you will NOT get a realistic RMS
+# of a mains sinewave. Do not use Wokwi to validate the plug calibration.
+
+[wokwi]
+version = 1
+elf = ".pio/build/esp32dev/firmware.elf"
+firmware = ".pio/build/esp32dev/firmware.bin"
+
+# Mirror the serial monitor into a file so a run can be diffed or attached to a bug report.
+# Comment out if you only ever watch the live monitor.
+# serialLogFile = "wokwi-serial.log"

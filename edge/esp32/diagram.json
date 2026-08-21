@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "author": "ECON",
+  "editor": "wokwi",
+  "$comment": [
+    "Wokwi circuit for the ECON edge node. Pins match src/main.cpp exactly -- change one",
+    "here and you must change it there. Build the firmware with:",
+    "",
+    "  PLATFORMIO_BUILD_FLAGS='-DUSE_DHT=1 -DUSE_MMWAVE=1 -DUSE_SUPPLY_TEMP=1 -DUSE_PLUG=1' pio run",
+    "",
+    "That flag set is deliberate: it is the largest subset of the node whose every sensor",
+    "has a STOCK Wokwi part, so the real firmware runs unmodified with nothing stubbed.",
+    "",
+    "Substitutions and why they are faithful:",
+    "  DHT22        stands in for the SHT30. USE_DHT is a real firmware path, not a stub --",
+    "               the SHT30 is not a Wokwi part, and DHT22 is the documented fallback.",
+    "  Pushbutton   stands in for the Rd-03 mmWave on GPIO18. The firmware only ever reads",
+    "               that pin as a digital level ('output high when sensing'), so a button",
+    "               is not an approximation of the contract, it IS the contract.",
+    "  Potentiometer stands in for the SCT-013 on GPIO34. readPlugAmps() true-RMS samples",
+    "               the ADC over ~100 ms; a pot gives a real, settable ADC level. It reads",
+    "               as DC so RMS-of-AC behaviour is not reproduced -- see the caveat below.",
+    "  DS18B20      is the ACTUAL part, not a substitute.",
+    "  Relays       are the actual lighting (GPIO23) and plug (GPIO25) modules.",
+    "",
+    "NOT modelled here, because Wokwi has no stock part: SHT30 (I2C), ACD1200 CO2 (I2C),",
+    "BH1750 lux (I2C), the IR emitter on GPIO19, and the PZEM-004T (UART). Those need the",
+    "Wokwi Custom Chips C API. Leave their build flags OFF and the firmware omits the",
+    "fields, which is the correct behaviour and is itself worth testing."
+  ],
+  "parts": [
+    { "type": "board-esp32-devkit-v1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+
+    { "type": "wokwi-dht22", "id": "dht", "top": -120, "left": 200, "attrs": {} },
+
+    { "type": "wokwi-ds18b20", "id": "supply", "top": 40, "left": 220, "attrs": {} },
+
+    { "type": "wokwi-pushbutton", "id": "mmwave", "top": 160, "left": 200,
+      "attrs": { "color": "green", "label": "mmWave OT2" } },
+
+    { "type": "wokwi-potentiometer", "id": "clamp", "top": 250, "left": 190,
+      "attrs": { "label": "SCT-013 (plug A)" } },
+
+    { "type": "wokwi-relay-module", "id": "lights", "top": -140, "left": -260, "attrs": {} },
+    { "type": "wokwi-relay-module", "id": "plug", "top": 60, "left": -260, "attrs": {} },
+
+    { "type": "wokwi-resistor", "id": "rpull", "top": 10, "left": 300,
+      "attrs": { "value": "4700" } }
+  ],
+  "connections": [
+    [ "esp:3V3", "dht:VCC", "red", [ "h10" ] ],
+    [ "esp:GND.1", "dht:GND", "black", [ "h10" ] ],
+    [ "esp:D4", "dht:SDA", "green", [ "h20" ] ],
+
+    [ "esp:3V3", "supply:VCC", "red", [ "h16" ] ],
+    [ "esp:GND.1", "supply:GND", "black", [ "h16" ] ],
+    [ "esp:D26", "supply:DQ", "orange", [ "h24" ] ],
+    [ "supply:DQ", "rpull:1", "orange", [ "v-10" ] ],
+    [ "rpull:2", "esp:3V3", "red", [ "v-20" ] ],
+
+    [ "esp:D18", "mmwave:1.l", "purple", [ "h30" ] ],
+    [ "mmwave:2.l", "esp:3V3", "red", [ "h-10" ] ],
+
+    [ "esp:3V3", "clamp:VCC", "red", [ "h12" ] ],
+    [ "esp:GND.1", "clamp:GND", "black", [ "h12" ] ],
+    [ "esp:D34", "clamp:SIG", "yellow", [ "h28" ] ],
+
+    [ "esp:D23", "lights:IN", "blue", [ "h-20" ] ],
+    [ "esp:5V", "lights:VCC", "red", [ "h-14" ] ],
+    [ "esp:GND.2", "lights:GND", "black", [ "h-14" ] ],
+
+    [ "esp:D25", "plug:IN", "blue", [ "h-20" ] ],
+    [ "esp:5V", "plug:VCC", "red", [ "h-14" ] ],
+    [ "esp:GND.2", "plug:GND", "black", [ "h-14" ] ]
+  ],
+  "dependencies": {}
+}

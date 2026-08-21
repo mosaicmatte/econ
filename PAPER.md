@@ -1133,18 +1133,24 @@ Everything outside this diagram is in A.6 or A.7.
 | `/api/forecast` | `forecast.go` (LSTM) | `AiInsightsPanel` | **LIVE (opt-in)** |
 | `/api/model`, `/api/model/export`, `/api/model/recommend` | `modelexport.go`, `modelcatalog.go` | `useLocalModel.js` | **LIVE** |
 | `/api/digitize`, `/api/building`, `/api/building/backups`, `/api/building/rollback` | `blueprint.go` | `BlueprintImportPanel` | **LIVE (opt-in)** |
-| `/api/rooms/models` | `dynamics.go` | **none** | **BUILT, UNWIRED** — the identification results have no UI |
-| `/api/forecast/load`, `/api/forecast/engines` | `forecast.go` (TimesFM) | **none** | **BUILT, UNWIRED** — zero-shot forecasting is reachable only by direct HTTP |
-| `/api/forecast/compare` | `forecast.go` (both engines) | **none** | **BUILT, UNWIRED** — runs the LSTM and TimesFM over the same instant and reports both peaks with the real-history count behind each |
+| `/api/rooms/models` | `dynamics.go` | `useRoomModels.js` → `AiInsightsPanel` (Room Models card), `MobileAIScreen`, `RecommendationEvidence` | **LIVE** |
+| `/api/forecast/compare` | `forecast.go` (both engines) | `useForecastCompare.js` → `AiInsightsPanel` forecast card | **LIVE (opt-in)** |
+| `/api/library` | `simulation/library.go` (`Library()`) | `useLibrary.js` → 6 panels | **LIVE** |
+| `/api/forecast/load`, `/api/forecast/engines` | `forecast.go` (TimesFM) | **none directly** — the dashboard reads TimesFM through `/api/forecast/compare` | **LIVE (opt-in)** |
 
-> The two unwired endpoints are the paper's clearest instance of its own thesis. The
-> identification layer of §7.8 is the system's differentiator, and while the dashboard shows
-> its *counts* (`roomsIdentified` / `roomsLearning`, carried on `/api/recommendations`), **no
-> per-room coefficient is displayed anywhere** — not a time constant, not a cooling
-> authority, not a residual. The tables of §8.2 had to be assembled by querying the engine
-> directly. Surfacing `/api/rooms/models` is the highest-value UI work outstanding: without
-> it an operator cannot see why a setback was refused, which is the one thing this system
-> does that a conventional BMS cannot.
+> **Resolved.** The identification layer of §7.8 now has a UI. `useRoomModels.js` renders a
+> Room Models card on both dashboards — per-room time constant, fit residual, measured air
+> change, and the supply-air provenance behind each fit — and `RecommendationEvidence.jsx`
+> attaches the same coefficients to every recommendation the model produces, alongside the
+> learned mean±σ, the σ-position of the reading, the sample count, and the room's own
+> predicted trajectory. The trajectory is not drawn from an assumed shape: where the
+> identified τ is not to hand it is recovered algebraically from the predicted and
+> equilibrium values the engine already sends, so the curve on screen is the engine's own
+> curve. An operator can now see why a setback was refused.
+>
+> `/api/forecast/compare` is likewise wired: the forecast card plots TimesFM's real horizon
+> when the zero-shot engine has answered, and shows the two engines' peaks side by side with
+> their disagreement. It no longer synthesizes a curve — see §A.4.
 
 ---
 
@@ -1155,10 +1161,11 @@ Everything outside this diagram is in A.6 or A.7.
 `GlobalMetricsPanel`, `MaintenanceDrawer`, `BlueprintImportPanel`, `AiInsightsPanel`,
 `PlugLoadPanel`, `AirflowWindow` → `ConstrainedAirflow3D` → `flowfield3d.js` (§5.4),
 `FloorInfrastructure`, `LiveWeatherBackground`, `MobileEnergyScreen`, `MobileImpactScreen`,
-`MobileAIScreen`. Hooks: `useDigitalTwin`, `usePlugs`, `useRecommendations`, `useOpsStatus`,
-`useLocalModel`, `useMeanLoad`. Libraries: `api.js`, `tariff.js`, `sustainability.js`,
-`flowfield.js`, `buildingStore.js`, `telemetry.ts`. Boundaries: `ErrorBoundary`,
-`UIErrorBoundary`, `CanvasErrorBoundary`.
+`MobileAIScreen`, `RecommendationEvidence`. Hooks: `useDigitalTwin`, `usePlugs`,
+`useRecommendations`, `useOpsStatus`, `useLocalModel`, `useMeanLoad`, `useLibrary`,
+`useRoomModels`, `useForecastCompare`. Libraries: `api.js`, `tariff.js`, `sustainability.js`,
+`flowfield.js`, `floorGeometry.js`, `buildingStore.js`, `telemetry.ts`. Boundaries:
+`ErrorBoundary`, `UIErrorBoundary`, `CanvasErrorBoundary`.
 
 **Orphaned — no importer:**
 
@@ -1171,6 +1178,264 @@ Everything outside this diagram is in A.6 or A.7.
 These are earlier iterations of the airflow visualization, retained because they document the
 progression from cosmetic particles to a physically-constrained field. They are dead code in
 the shipped bundle.
+
+#### A.4.1 Dashboard audit, 2026-08-21
+
+The same reverse-import discipline was applied to `dashboard/src`, which had not been swept
+since the fixture vocabulary changed. It found the mirror image of the §A.3 defect: not
+documented intentions read as implemented, but implemented code silently reading fields and
+zone-type names that no generator emits any more. Each item below produced a number on
+screen; none of them announced that it had stopped meaning anything.
+
+| Defect | Effect on screen | Resolution |
+|---|---|---|
+| Critical-zone exclusions hardcoded as `server-room` / `mechanical` in four files | The digitizer emits `comms-room` / `plant-room`, so the exclusion matched nothing and the comms room was counted as waste and priced as a saving opportunity | New `GET /api/library` serves the programme library's `critical` list; `useLibrary.js` is the single reader |
+| `SUPPLY_C = 12.0` in `TelemetryPanel` | Delivered cooling $Q=\rho\dot V c_p\Delta T$ computed against the design discharge for every zone, including rooms whose DS18B20 reads otherwise — understating a 9 °C-fed room's cooling by ≈25% | `supplyC` and `supplyReal` appended to `ZoneData`; the panel uses the temperature the engine's own cooling law used, and states how much of the chart is probe-backed |
+| `ahuPressure` never written | The topology AHU card rendered the literal `500 Pa` seeded at init, for the life of the project, while `doHardyCross()` solved the real static pressure every tick | `ahuPressurePa` appended to `GlobalData` |
+| `internalHeatLoad` read from `thermalProperties` | No generator has ever emitted that key; every zone's design gain resolved to 0 | Corrected to `baseHeatLoad` |
+| `integration_score` bullet graph | A unitless index from a lookup keyed on retired zone-type names — 0.6 for every zone in the building | Removed; replaced with metered plug draw against the zone's design gain |
+| `Math.max(3.6, …)` design-peak floor | "Active cooling capacity" read 0.3% on the house pilot and would have read 0.3% through a total plant failure | Measured against the peak load actually observed (`useMeanLoad`), which is a fact rather than a synthesized nameplate |
+| Smoothstep-eased "PROJECTED RAMP" | Thirteen points interpolated between the live load and the LSTM's scalar peak, captioned as a projection; the LSTM has no trajectory to give | Plots TimesFM's real horizon when it has answered; otherwise shows the two numbers it has |
+| `MaintenanceDrawer` reversed its series | `/api/history` returns oldest-first; the drawer reversed it, plotting the last ten minutes backwards **and inverting the least-squares slope**, so a recovering room was labelled CLIMBING | Reorder removed |
+| Mobile savings donut floored both slices at 0.001 | With the engine down the chart drew a confident half-green ring around a "0.0%" label | Empty state |
+| `floor.geometry.exteriorPolygon` | `housify_fixture.py` emitted `outline`; the read threw and `AirflowWindow`'s throw reached the **root** error boundary, replacing the entire desktop console. `BuildingModel`'s was swallowed by the canvas boundary and simply rendered no building | Generator emits the canonical fields; `floorGeometry.js` reads either spelling and answers null rather than throwing |
+| `/(server|data|it)/i` IT-programme test | The bare `it` matched `kitchen`, so a kitchen-dominated house would have declared itself IT-dominated and suppressed its own EUI benchmark | Token-boundary match |
+| Plug-sweep toggle discarded its result | On a token-protected engine the mobile toggle silently did nothing | Shared operator token; refusals surfaced |
+
+Three coefficients that describe the building — the per-°C HVAC fraction, the pre-cool shift
+fraction, and the modelled-CO₂ pair — were literals in the dashboard, in some cases with
+different values and incompatible justifications in different files. They now live in
+`programme-library.json` with their provenance, per the repository's second rule, and are
+read through `/api/library`.
+
+**The forecast that actuated the wrong building.** The most serious finding was not a
+display bug. The supervised LSTM's weights encode whichever building `train.py` last saw;
+pointed at the house pilot it returned **2.41 MW for a building that had never drawn more
+than 0.014 MW** — 173× — and nothing in the arithmetic objected. Two pieces of state made it
+worse: `load-history.json` and the `GLOBAL` learned baselines both survived a building
+change, so the zero-shot forecaster's context was one series spliced from two buildings, and
+the pre-cool automation's *learned* trigger was the previous building's 0.60 MW. The
+observed result, in the engine log:
+
+```
+[precool] LSTM predicts 2.41 MW peak (learned trigger 0.60): pre-cooling until 00:46:38
+```
+
+— a real actuation, driving every setpoint in the house down for twenty minutes, on the
+authority of a model that had never seen it. Reporting a bad number on a dashboard is a
+display defect; actuating on one is not. The fixes are: state that belongs to one building
+is now tagged with that building's id and discarded on a change; every forecast is checked
+against the building's own observed load range and reported with that judgement; the
+dashboard leads with the finding instead of the megawatts; and the pre-cool poller refuses
+to act both on a forecast it has judged implausible **and** on any forecast at all until it
+has enough observation to judge one. After the fix, same conditions:
+
+```
+[precool] REFUSING to act on the forecast: 2.41 MW is 210x the highest load this
+building has been observed at (0.011 MW over 30 recorded samples). ...
+```
+
+This is the third instance in this appendix of the same failure mode: a component that kept
+working correctly on inputs whose meaning had changed underneath it. It is the first where
+the consequence reached the actuators.
+
+**The follow-on: the zero-shot model had no vote.** Gating the bad forecast fixed the
+symptom and left the arrangement that produced it. `precool.go` polled `POST /predict` —
+the supervised endpoint — exclusively, so the only actuating consumer of a forecast in the
+entire system was wired to the one model that carries its training building inside its
+weights, while the model with no such attachment had **zero influence on any control
+decision**. TimesFM reads this building's own recorded series and nothing else, so it is now
+asked first whenever it has enough of that series to answer from, with the LSTM as fallback;
+both go through the same helpers `/api/forecast/compare` uses, so the poller and the panels
+can no longer be looking at different numbers. Observed after the change:
+
+```
+[precool] consulting TimesFM (zero-shot) (84 real samples): 0.010 MW predicted peak
+```
+
+Two smaller corrections came with it. TimesFM returns nine decile heads alongside its
+central path; they were decoded in Python and **dropped at the Go boundary**, so no consumer
+had ever seen the forecast's spread — the quantity `timesfm_forecaster.py`'s own docstring
+argues matters most for a pre-cool decision, "because the decision is really about the risk
+of the peak, not its mean." They now cross the boundary, and the forecast card plots the
+upper decile as a dashed band beside the central path.
+
+The trigger itself still compares the **central** estimate against the threshold, and
+deliberately so: the learned threshold is already mean + $k\sigma$ of this building's own
+load, so it encodes the risk appetite once. Comparing an upper-decile forecast against it
+would count the spread twice and pre-cool on the tail of a tail. The band is reported, not
+triggered on.
+
+**A.4.2 The 3D layer was pinned to the office plate.** Reported as "the building model on
+the platter is buggy" and "the desktop UI is too small", and it was neither a platter bug
+nor a scale setting. The whole 3D layer recentred the building **twice** for the 60x40 m
+office fixture: once per point, as `(px - 20, py - 20)` inside every shape, wall, zone and
+flow solver, and again by a wrapping `<group position={[-30, 0, -20]}>` — together putting
+world $x = p_x - 50$ and world $z = -p_y$, which the camera's `center = {x: -20, z: -20}`
+then targeted. Entirely self-consistent, and true of exactly one building. On the 13.6 x
+5.5 m house pilot the model rendered into the corner of a frame sized for a tower twenty
+times larger, which on screen is indistinguishable from nothing rendering at all.
+
+The offset is now the loaded building's own footprint centre, computed once in
+`floorGeometry.js` and exported as `ORIGIN` / `toWorld` / `FOOTPRINT`, because the model,
+the walls, the zones, the two flow solvers and the camera must all agree on it — a
+disagreement between any two puts the airflow field somewhere the building is not. Three
+further constants fell out with it: the camera aimed at `botY + span * 0.46` against a
+floored span, which on a single-storey building pointed at 8.68 m when the roof is at
+7.8 m; the drill-down offsets `(15, 28, 15)` were a reasonable vantage over an office plate
+and roughly four storeys above a house; and the bounding sphere assumed 30 x 20 m
+half-extents. Verified by projection: the building's measured scene bounds are now
+x ∈ [-6.88, 6.88], z ∈ [-2.86, 2.86] against a camera target of (0, 6.4, 0).
+
+**A.4.2b Framing to the canvas is not framing to the view.** Correcting the origin made the
+building render at the centre of the canvas, which is still the wrong place: the console
+paints the AI panel, the metrics dock, the topology window and the airflow window over a
+full-bleed 3D canvas, leaving a visible strip barely a third of its width. A building
+"correctly" framed to the canvas is therefore half behind the overlays — reported as the
+overview still being blocked.
+
+`towerFraming` now takes a safe area (the insets in pixels, plus the viewport), fits the
+bounding sphere to the FREE band's aspect rather than the canvas's, and pans camera and
+target together so the building lands at the centre of that band. Panning both preserves
+the fixed hero angle; only the framing moves. The insets come from the layout state
+`App.jsx` already owns, so the framing follows a dock resize or a panel collapse instead of
+being tuned once against one arrangement; `MobileApp` passes none and keeps the previous
+whole-canvas behaviour.
+
+Two details worth recording. The right-vector built from `VIEW_DIR` is the camera's LEFT —
+`VIEW_DIR` runs from target to camera, so the forward is its negation — and the first
+version slid the framing the wrong way. And a sphere fit does not contain a box: at a 1.08
+margin the building's projected corners overran the free band by 12 px with the lower
+windows closed. Verified by projecting the footprint's corners across four panel
+arrangements: all fit, filling 82-89% of the visible strip.
+
+**A.4.4 The air system was sized for whichever building had the most VAVs.** The profiler
+plotted five rooms in a 72 m2 house each receiving **~430 kW of cooling**, which is roughly
+the whole building's connected load per room. The chart was faithful; the flows were not.
+Every VAV was constructed with `Resistance: 1.0`, so the Hardy-Cross solve shared a FIXED
+fan capacity (`PMax: 600`) equally among however many boxes existed. Per-box flow was a
+function of the zone COUNT and nothing else — 735 boxes each drew a plausible trickle, and
+the identical fan through a house's two boxes gave **21.9 m3/s each, about 150,000 m3/h into
+72 m2**.
+
+Boxes are now sized from the room they serve: design flow is the zone's own volume at the
+library's `supplyAirDesignAch` (6 ACH, the usual band for sensible cooling), and
+$R = P_\text{design} / \dot V^2$. The fan curve is then scaled so the network settles at
+the design static for THIS building, since a `PMax` chosen for one tower cannot be the
+operating point of another:
+
+$$P = \frac{R_\text{sys} \cdot P_\text{max}}{K_\text{fan} + R_\text{sys}} \quad\Longrightarrow\quad P_\text{max} = P_\text{design}\left(\frac{K_\text{fan}}{R_\text{sys}} + 1\right)$$
+
+That required separating two things the code had conflated. The damper control moved
+`Resistance` directly, with a step of ±0.05 and limits of 0.01…100 — figures that only mean
+anything on the scale every box was initialised at. A physically-derived resistance of
+~30,000 was clamped straight back to 100, which is why the first attempt at this fix changed
+almost nothing. `DesignResistance` is now what the box is sized at and `Damper` is a
+dimensionless multiple of it, so the same control step means the same thing in a house and
+a tower.
+
+Measured after: 0.131 m3/s (472 m3/h) into the living room, against the 456 m3/h that 6 ACH
+of its volume predicts; per-zone cooling 1.5–9 kW instead of 430 kW. On the office fixture,
+per-box flow spans 0–3.5 m3/s about a 0.36 m3/s mean, and the building draws 1.49 MW.
+
+**A.4.5 A scatter needs a population.** With the flows corrected the profiler was still the
+wrong chart: it plots deviation-from-setpoint against cooling-delivered and reads the
+QUADRANTS, which is a good diagnosis for a tower and vacuous for five rooms. Every point
+landed inside the deadband shading, the quadrants were empty, and the axes implied a
+distribution five points cannot show. The profiler now switches on building size — below
+two dozen zones each room gets a row with its temperature drawn as a bullet against its
+OWN setpoint and its own deadband (a shared axis quietly flattens the fact that every room
+has different ones), sorted worst-first; above it, the scatter returns.
+
+**A.4.6 Noise larger than the signal, and a view that read it.** Sizing the boxes correctly
+exposed two constants that had been silently proportional to the wrong flows. Broadcast
+airflow carried `getNoise(0.2)` and was deduped at `> 0.1` m3/s — a fraction of a percent
+while every box was mis-sized at ~22 m3/s, and larger than the entire signal once boxes
+were sized at ~0.13. A house's airflow became mostly noise, and since the noise alone always
+cleared the dedupe, every VAV re-streamed at 30 Hz. Both are now fractions of the box's
+NOMINAL flow (1.5% noise, 4% dedupe), which is what a flow station's accuracy actually is.
+Measured after: boxes re-stream 4-20 of 122 frames instead of all of them, and the spread
+falls from over 100% of the mean to 7-11%.
+
+The same work surfaced an ordering error I had introduced. `sizeFanToBuilding` was appended
+at the END of the construction path, after `NominalFlow` is captured — so the nominal flow
+the cooling model normalises against was solved with the previous building's fan. Sizing now
+precedes the solve, and the AHU settles at exactly its design static.
+
+That left the view. A display is not a data logger: a temperature carrying +/-0.08 degC of
+noise, printed to one decimal thirty times a second, is a digit that never settles, and
+worse, worst-first ordering makes noise REORDER the rows — with every room inside its
+deadband the sort key is dominated by noise, so the list permanently reshuffles and a reader
+sees motion where the building is doing nothing. `useSteadyRows` samples the view rather
+than the data: values refresh at 1 Hz, position is decided by state and then by a deviation
+quantised to 0.5 degC (well above the noise floor), and a change of STATE bypasses the
+cadence entirely. Measured over 8 s: **0 reorders, 8 value updates**; and on an injected
+fault the faulting room promotes to position 1 immediately rather than waiting for the tick.
+
+**A.4.7 The provenance defect, generalised.** Two more instances of §A.4.1's failure mode
+turned up on a follow-up sweep, and at that point it stopped being a series of bugs and
+became a class worth a test.
+
+The plug sweep's `savedKwh` survived a building change. Unlike a stale baseline this figure
+is *reported*: it appears as "avoided so far", priced in dong and in kilograms of CO2. A 72
+m2 house was carrying **128.7 kWh earned by a 39,776 m2 tower**. The sweep POLICY still
+restores — a schedule is a decision the operator made and it outlives a re-digitization —
+but the counter is a measurement of one building and does not.
+
+The identified room models were worse. The baselines' only colliding key was `GLOBAL`;
+here *every* key can collide, because zone ids are minted from room name and level, so
+`zone-office-lvl1` and `zone-bathroom-lvl1` are what ANY house digitized by
+`housify_fixture.py` produces. Restoring across a building change would apply one physical
+room's identified time constant, cooling authority and air-change rate to a different
+physical room — and these are not display figures: they drive the predictions, the "cannot
+hold setpoint at full flow, dispatch maintenance" finding, and the setback gate.
+
+`simulation/state_provenance_test.go` now pins all of it: each store must refuse another
+building's state, must still restore its own across a restart, and must refuse untagged
+legacy files when the building declares an id. The VAV sizing of §A.4.4 is pinned in the
+same file, including the case that made the office fixture look healthy.
+
+A related but distinct finding: per-zone learned state for rooms the current building does
+not have is *inert* — nothing looks it up — but it is *counted*. A five-room house that had
+once run the 735-zone fixture reported **53,878 established signals**, a true statement
+about the file and a false impression of the building. Pruning on load dropped 60,735
+buckets and the figure became 148, which is what five rooms across three metrics and
+twenty-four hour-buckets should look like.
+
+**A.4.8 A log that was not a log.** The LOGS panel rebuilt one line per zone on every
+websocket frame, stamped every line with the time of the rebuild, and rendered the result
+as "RAW TELEMETRY STREAM". It looked like scrolling history and was a snapshot table redrawn
+thirty times a second: nothing accumulated, every timestamp read "now", and it flickered for
+the same reason the profiler did. It is now an event log — alarms, lighting and socket
+actuation, setpoint moves, occupancy transitions — recorded when they occur, with the time
+they occurred, and with an empty state that says a quiet log means a quiet building rather
+than a broken panel.
+
+**A.4.3 A regression of my own.** Hoisting whole-building scans out of a per-node loop is
+the fix; putting them in was the defect, and it was introduced by this audit. Computing
+`Object.values(vavs).reduce(...)` inside `nodes.map()` is O(nodes x vavs) — 735 x 735 on
+the office fixture, on every websocket frame. Measured in the browser: **24.9 ms per frame,
+75% of a 33 ms budget, against 0.08 ms hoisted — 311x.** That saturated main thread is also
+why the panels could not be dragged: pointer events during a drag never got scheduled. Two
+lessons worth recording. A perf regression presents as unrelated UI faults, so "the panel
+cannot be resized" and "the topology is laggy" were one bug, not two. And `new Map()` threw
+`Map is not a constructor` in `App.jsx`, because the file imports lucide-react's `Map` icon
+at the top — which shadows the global for the whole module and took the console down
+through the root error boundary.
+
+Finally, the loop had been silent on success — it logged only when it opened a window — so
+on a building whose forecast never crosses the trigger there was no way to confirm from
+outside which model the automation was consulting. Which model that is turned out to be the
+most important fact about this loop, so it now says so.
+
+| Other node | Role | Status |
+|---|---|---|
+| `pico/main.py` | RP2040 internal temp + BOOTSEL presence + LED; USB-serial or Pico W WiFi | **LIVE** |
+| `pico/bridge.py` | USB-serial ↔ MQTT bridge for the non-W Pico | **LIVE** |
+| `raspberry_pi/gateway.py` | Hosts Mosquitto; autonomous failsafe setback when the engine goes silent, tagged `;SRC=FAILSAFE` so it never mistakes its own command for the engine's | **LIVE** |
+| `esp32/esp32_emulator.py` | Software node speaking the same wire contract, for testing without hardware | **LIVE** |
+
+---
 
 ---
 
@@ -1211,15 +1476,6 @@ identified against a probe is distinguishable from one identified against the de
 
 One field remains genuinely ingested-only: `humidity`. It is stored, streamed and charted, but
 the heat balance carries no latent term for it to drive (§9.1.4), so nothing consumes it.
-
-| Other node | Role | Status |
-|---|---|---|
-| `pico/main.py` | RP2040 internal temp + BOOTSEL presence + LED; USB-serial or Pico W WiFi | **LIVE** |
-| `pico/bridge.py` | USB-serial ↔ MQTT bridge for the non-W Pico | **LIVE** |
-| `raspberry_pi/gateway.py` | Hosts Mosquitto; autonomous failsafe setback when the engine goes silent, tagged `;SRC=FAILSAFE` so it never mistakes its own command for the engine's | **LIVE** |
-| `esp32/esp32_emulator.py` | Software node speaking the same wire contract, for testing without hardware | **LIVE** |
-
----
 
 ### A.6 Python and AI modules
 
