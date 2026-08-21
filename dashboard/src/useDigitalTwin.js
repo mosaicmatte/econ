@@ -5,29 +5,26 @@ import { getBuilding } from './buildingStore';
 const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 import { API_BASE, WS_URL, getAdminToken } from './api';
 
-const INTEGRATION_BY_TYPE = {
-  'server-room': 1.05,
-  'corridor': 0.95,
-  'lobby': 0.90,
-  'mechanical': 0.85,
-  'retail': 0.75,
-  'conference': 0.70,
-  'office': 0.55,
-};
-
 // Data-driven fault targets: derive the selectable zones from the loaded building so any
 // regenerated building-data.json "just works" (no hard-coded zoneIds to re-wire).
 export const FAULT_ZONES = (() => {
   const zones = [];
   buildingData.floors.forEach(f => f.zones.forEach(z => zones.push({ ...z, level: f.level })));
-  const servers = zones.filter(z => z.zoneType === 'server-room');
+  // Zone TYPE names are minted by the digitizer and have changed over the project's life
+  // (`server-room` became `comms-room`; `mechanical` became `plant-room`). Matching an
+  // exact legacy string here meant the fault-target list silently fell back to "every
+  // zone in the building" on the current fixture. Match on the substring instead, and
+  // only to PREFER — never to exclude — so an unrecognized vocabulary degrades to the
+  // full list rather than to nothing.
+  const isPlant = (t) => /comms|server|data|plant|mechanical|switch|riser|ups/i.test(t || '');
+  const servers = zones.filter(z => isPlant(z.zoneType));
   const pick = (servers.length ? servers : zones).slice();
   return pick.map(z => ({ id: z.zoneId, label: `L${z.level} ${z.name.replace(/ Level \d+$/, '')}`, type: z.zoneType }));
 })();
 export const DEFAULT_FAULT_TARGET = FAULT_ZONES[0]?.id || '';
 
 export const getInitialSimData = () => {
-  const data = { scenario: 'peak', ahuPressure: 500, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, bessDischargeMw: 0, bessSocPct: 0, zonesInSetback: 0, autoPilot: true, vavs: {}, zones: {}, logs: [] };
+  const data = { scenario: 'peak', ahuPressure: 0, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, bessDischargeMw: 0, bessSocPct: 0, zonesInSetback: 0, autoPilot: true, vavs: {}, zones: {}, logs: [] };
   buildingData.floors.forEach(floor => {
     floor.zones.forEach(z => {
       let cx = 20, cy = 20;
@@ -44,7 +41,6 @@ export const getInitialSimData = () => {
         level: floor.level,
         label: z.name,
         type: z.zoneType,
-        archetype: z.zoneType === 'server-room' ? 'server_room' : 'office_dcv',
         bim_asset_id: z.bim_asset_id,
         temp: z.thermalProperties?.setpoint || 24.0,
         setpoint: z.thermalProperties?.setpoint || 24.0,
@@ -52,8 +48,11 @@ export const getInitialSimData = () => {
         alert: false,
         lightsOn: true, // live actuated state arrives from the backend stream
         occupancy: z.thermalProperties?.occupancy || 0, // real occupancy arrives from the backend stream
-        integration_score: INTEGRATION_BY_TYPE[z.zoneType] || 0.6,
-        baseHeatGain: z.thermalProperties?.internalHeatLoad || 0,
+        // Design internal gain from the fixture, in W. The key is baseHeatLoad — this
+        // read `internalHeatLoad`, which no generator has ever emitted, so it silently
+        // resolved to 0 for every zone in every building.
+        baseHeatGain: z.thermalProperties?.baseHeatLoad || 0,
+        areaM2: z.thermalProperties?.areaM2 || 0,
         centroid: { x: cx, y: cy }
       };
     });
@@ -81,9 +80,12 @@ export function useDigitalTwin(onUpdate) {
     fetch(`${API_BASE}/api/history`)
       .then(res => res.json())
       .then(data => {
-        if (data && data.length > 0) {
-          setLoadHistory(data);
-        }
+        // Rows arrive oldest-first (the handler reverses its DESC query), which is the
+        // same order the live stream appends in — so the replayed history and the live
+        // tail form one continuous series. `occ` is real occupancy in both the GLOBAL and
+        // per-zone queries; a server predating that column yields undefined, and callers
+        // must render a gap rather than substitute co2, which is a different quantity.
+        if (Array.isArray(data) && data.length > 0) setLoadHistory(data);
       })
       .catch(err => console.log('No history DB available:', err));
   }, []);
@@ -259,6 +261,10 @@ export function useDigitalTwin(onUpdate) {
               lightsOn: z.lightsOn(), humidity: z.humidity(), co2: z.co2(), alert,
               // APLC: live plug draw (clamp if metered, model otherwise) + sweep state.
               plugW: z.plugW(), plugShed: z.plugShed(),
+              // Supply-air temperature the engine's cooling law used for this zone, and
+              // whether a probe measured it. Panels that turn airflow into delivered
+              // cooling need the real number, not the design constant they assumed.
+              supplyC: z.supplyC(), supplyReal: z.supplyReal(),
             };
         }
       }
@@ -296,6 +302,9 @@ export function useDigitalTwin(onUpdate) {
         // "autonomous action" cards report a fact instead of a per-card estimate.
         newSimData.zonesInSetback = g.zonesInSetback();
         newSimData.autoPilot = g.autoPilot();
+        // Static pressure from the engine's Hardy-Cross network solve. The topology AHU
+        // card used to render the literal 500 that getInitialSimData seeded, forever.
+        newSimData.ahuPressure = g.ahuPressurePa();
         // The engine is authoritative: if its flag ever disagrees with the local toggle
         // (reconnect, another operator, a rejected send), adopt the engine's truth.
         if (g.autoPilot() !== autoPilotRef.current) {
@@ -309,11 +318,18 @@ export function useDigitalTwin(onUpdate) {
           setLoadHistory(prev => {
             const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const pwrDraw = Number((g.buildingLoadMw() * 1000).toFixed(1)); // kW
-            // CO2 comes from the engine, which prefers real NDIR sensors and only falls
-            // back to its occupancy estimate when nothing is measuring — recomputing the
+            // CO2 comes from the engine, which prefers real NDIR sensors and falls back to
+            // its own modelled estimate only when nothing is measuring — recomputing an
             // estimate here would silently overwrite a real 842 ppm with a modelled 450.
-            // (avgCo2() reads 0 only against a pre-upgrade server; estimate locally then.)
-            const avgCo2 = Math.round(g.avgCo2() > 0 ? g.avgCo2() : 400 + g.totalOccupants() * 0.85);
+            //
+            // avgCo2() reads 0 only against a pre-upgrade server. That used to be patched
+            // over with `400 + totalOccupants * 0.85`, a per-occupant coefficient matching
+            // neither the engine's model nor anything else in the codebase — it was ~18x
+            // too small for this building and ~75x too large for the office fixture. There
+            // is no defensible number to substitute, so the sample carries null and the
+            // chart draws a gap.
+            const engineCo2 = g.avgCo2();
+            const avgCo2 = engineCo2 > 0 ? Math.round(engineCo2) : null;
             // Occupancy travels as its own field: deriving it back out of co2 breaks the
             // moment co2 is sensor-driven rather than the estimate.
             const newHist = [...prev, { time: timeStr, pwr: pwrDraw, co2: avgCo2, occ: g.totalOccupants() }];

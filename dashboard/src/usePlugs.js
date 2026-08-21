@@ -7,13 +7,18 @@
 // the same UX contract as the blueprint deploy flow.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { API_BASE } from './api';
+import { API_BASE, getAdminToken, setAdminToken } from './api';
 
 export function usePlugs(pollMs = 10000) {
   const [status, setStatus] = useState(null); // /api/plugs snapshot, null until first load
   const [needToken, setNeedToken] = useState(false);
   const [saving, setSaving] = useState(false);
-  const tokenRef = useRef('');
+  const [error, setError] = useState(null);
+  // Seed from the shared operator token (api.js). This hook used to start with an empty
+  // token of its own, so on a token-protected engine an operator who had already signed
+  // in for the websocket still got a silent 401 the first time they touched the sweep —
+  // updateConfig returned false and callers that ignored the result showed nothing at all.
+  const tokenRef = useRef(getAdminToken());
 
   const load = useCallback(() => {
     fetch(`${API_BASE}/api/plugs`)
@@ -28,7 +33,9 @@ export function usePlugs(pollMs = 10000) {
     return () => clearInterval(id);
   }, [load, pollMs]);
 
-  const setToken = (t) => { tokenRef.current = t; };
+  // Persist through the shared store so a token entered here also authorizes the
+  // websocket, and vice versa — one credential per browser, not one per panel.
+  const setToken = (t) => { tokenRef.current = t; setAdminToken(t); };
 
   // updateConfig POSTs a full policy (merge over the current one) and refreshes.
   // Resolves true on success; flips needToken on a 401 instead of throwing.
@@ -45,21 +52,28 @@ export function usePlugs(pollMs = 10000) {
       });
       if (res.status === 401) {
         setNeedToken(true);
+        setError('This engine requires an operator token to change the sweep policy.');
         return false;
       }
       if (res.ok) {
         setNeedToken(false);
+        setError(null);
         const s = await res.json();
         setStatus(s);
         return true;
       }
+      setError(`The engine refused the change (HTTP ${res.status}).`);
       return false;
-    } catch {
+    } catch (e) {
+      setError(`Could not reach the engine: ${e.message}`);
       return false;
     } finally {
       setSaving(false);
     }
   }, [status]);
 
-  return { status, needToken, saving, setToken, updateConfig, reload: load };
+  // error is surfaced so a caller that does not check updateConfig's return value still
+  // has something to render. A control that silently does nothing is worse than one that
+  // says why it could not.
+  return { status, needToken, saving, error, setToken, updateConfig, reload: load };
 }

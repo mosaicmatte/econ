@@ -230,7 +230,8 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 			SELECT
 				to_char(time_bucket('1 second', time), 'HH24:MI:SS') as time_str,
 				MAX(CASE WHEN sensor_type = 'buildingLoadMw' THEN value ELSE 0 END) * 1000 AS pwr,
-				MAX(CASE WHEN sensor_type = 'avgCo2' THEN value ELSE 0 END) AS co2
+				MAX(CASE WHEN sensor_type = 'avgCo2' THEN value ELSE 0 END) AS co2,
+				MAX(CASE WHEN sensor_type = 'totalOccupants' THEN value ELSE 0 END) AS occ
 			FROM sensor_readings
 			WHERE zone_id = 'GLOBAL'
 			GROUP BY time_bucket('1 second', time)
@@ -242,7 +243,8 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 			SELECT
 				to_char(time_bucket('1 second', time), 'HH24:MI:SS') as time_str,
 				MAX(CASE WHEN sensor_type = 'temp' THEN value ELSE 0 END) AS pwr,
-				MAX(CASE WHEN sensor_type = 'occupancy' THEN value ELSE 0 END) AS co2
+				MAX(CASE WHEN sensor_type = 'occupancy' THEN value ELSE 0 END) AS co2,
+				MAX(CASE WHEN sensor_type = 'occupancy' THEN value ELSE 0 END) AS occ
 			FROM sensor_readings
 			WHERE zone_id = $1
 			GROUP BY time_bucket('1 second', time)
@@ -257,15 +259,21 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
+	// The two queries deliberately share column NAMES rather than meanings: for GLOBAL,
+	// pwr is building kW and co2 is ppm; for a zone, pwr is degC and co2 is occupancy.
+	// That reuse is what let the sparklines drift away from their labels, so `occ` is
+	// always occupancy in both — the one column a caller can read without knowing which
+	// query answered.
 	type histItem struct {
 		Time string  `json:"time"`
 		Pwr  float64 `json:"pwr"`
 		Co2  float64 `json:"co2"`
+		Occ  float64 `json:"occ"`
 	}
 	res := []histItem{} // non-nil so an empty result marshals as [] rather than null
 	for rows.Next() {
 		var item histItem
-		if err := rows.Scan(&item.Time, &item.Pwr, &item.Co2); err == nil {
+		if err := rows.Scan(&item.Time, &item.Pwr, &item.Co2, &item.Occ); err == nil {
 			res = append([]histItem{item}, res...) // prepend to get chronological order
 		}
 	}
@@ -283,7 +291,7 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 var seriesAllowed = map[string]bool{
 	"temp": true, "occupancy": true, "humidity": true, "co2": true,
 	"afddResidual": true, "buildingLoadMw": true, "coolingOutputMw": true,
-	"systemHealth": true, "avgCo2": true, "plugKw": true,
+	"systemHealth": true, "avgCo2": true, "plugKw": true, "totalOccupants": true,
 	// Plant efficiency: the modelled curve and, where an AC clamp is fitted, the COP the
 	// plant is actually achieving. Charting them together is how a drifting chiller shows up.
 	"plantCop": true, "measuredCop": true, "meteredAcKw": true,

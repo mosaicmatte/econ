@@ -59,8 +59,12 @@ function Spark({ points, width = 520, height = 90 }) {
   const stroke = measured === points.length ? '#4ade80' : measured === 0 ? '#f59e0b' : '#60a5fa';
   return (
     <div>
-      <svg width={width} height={height} style={{ maxWidth: '100%', display: 'block' }}>
-        <path d={d} fill="none" stroke={stroke} strokeWidth="1.5" />
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        style={{ width: '100%', height, display: 'block' }}
+      >
+        <path d={d} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
       </svg>
       <div style={S.sparkMeta}>
         <span>min {lo.toFixed(2)}</span>
@@ -392,8 +396,12 @@ function ForecastSpark({ values, colour, width = 300, height = 60 }) {
     })
     .join(' ');
   return (
-    <svg width={width} height={height} style={{ maxWidth: '100%', display: 'block' }}>
-      <path d={d} fill="none" stroke={colour} strokeWidth="1.5" strokeDasharray="3 2" />
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      style={{ width: '100%', height, display: 'block' }}
+    >
+      <path d={d} fill="none" stroke={colour} strokeWidth="1.5" strokeDasharray="3 2" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }

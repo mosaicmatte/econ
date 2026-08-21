@@ -301,6 +301,19 @@ def build(scan_dir, write, top_floor=False):
         cx, cy = centre(e)
         doors.append({"x": round(cx, 2), "y": round(cy, 2), "tx": 0, "tz": 1})
 
+    # Window centres, in the same fixture coordinates as the zone polygons. The airflow
+    # solver treats each as a point of perimeter relief; without them it stamps synthetic
+    # openings around the envelope at office cadence, which for a house is wrong in both
+    # position and count when the scan already told us where the windows are.
+    # `wins` already holds origin-normalised centres (see centre()), so they are in the
+    # same frame as the zone polygons and need no further transform.
+    window_pts = [{"x": round(wx, 2), "y": round(wy, 2)} for wx, wy in wins]
+
+    # Mean wall thickness the scan reported, over the rooms that reported one. Zero means
+    # the CSV carried no wall data, and the caller falls back rather than inventing a value.
+    _walls = [z[6] for z in zones if z[6]]
+    mean_wall = sum(_walls) / len(_walls) if _walls else 0.0
+
     maxx = round(max(p[0] for z in floors_zones for p in z["polygon"]), 2)
     maxy = round(max(p[1] for z in floors_zones for p in z["polygon"]), 2)
 
@@ -311,8 +324,24 @@ def build(scan_dir, write, top_floor=False):
             "elevation": 0.0,
             "height": max((z["thermalProperties"]["areaM2"] and 2.8) for z in floors_zones),
             "name": "Ground floor",
-            "geometry": {"outline": [[0, 0], [maxx, 0], [maxx, maxy], [0, maxy]]},
-            "airflowDomain": {"doors": doors},
+            # Field names must match what the dashboard's airflow solver reads. This
+            # emitted `outline`, which nothing consumes: flowfield.js and flowfield3d.js
+            # both open with `floor.geometry.exteriorPolygon.map(...)`, so on a house
+            # fixture that call threw and the AirflowWindow crash propagated to the root
+            # error boundary — the whole desktop console went to the fallback screen, not
+            # just the airflow panel. `outline` is kept alongside for anything that
+            # already reads it.
+            "geometry": {
+                "exteriorPolygon": [[0, 0], [maxx, 0], [maxx, maxy], [0, maxy]],
+                "outline": [[0, 0], [maxx, 0], [maxx, maxy], [0, maxy]],
+                # A house has no service core. An empty polygon is the honest statement
+                # of that, and the solver treats it as "nothing to route around".
+                "corePolygon": [],
+                # Measured mean wall thickness from the scan where the CSV carried one,
+                # else the value the solver would otherwise assume.
+                "wallThickness": round(mean_wall, 2) if mean_wall else 0.2,
+            },
+            "airflowDomain": {"doors": doors, "windows": window_pts},
             "zones": floors_zones,
         }],
     }
