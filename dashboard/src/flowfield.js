@@ -16,6 +16,8 @@
 // so everything lines up with BuildingModel/AirflowWindow without a second mapping.
 // ============================================================================
 
+import { exteriorPolygon, toWorld, ORIGIN } from './floorGeometry';
+
 export const CELL = {
   SOLID: 0,   // outside the envelope, or unassigned interior -> no flow
   OPEN: 1,    // inside a room
@@ -25,7 +27,7 @@ export const CELL = {
   RETURN: 5,  // return-air grille sink (to the AHU, in the core/corridor)
 };
 
-const toLocal = (p) => [p[0] - 20, 20 - p[1]];
+const toLocal = (p) => toWorld(p);
 
 export function pointInPoly(x, z, poly) {
   let inside = false;
@@ -95,15 +97,17 @@ export function buildFlowField(floor, simState, opts = {}) {
   if (!floor) return null;
   const targetCells = opts.targetCells || 96; // cells along the long axis
 
-  const ext = floor.geometry.exteriorPolygon.map(toLocal);
+  const extRaw = exteriorPolygon(floor);
+  if (!extRaw) return null; // no envelope to solve against — the caller renders an empty state
+  const ext = extRaw.map(toLocal);
   const zones = (floor.zones || []).map((z, i) => ({
     i,
     type: z.zoneType,
     zoneId: z.zoneId,
     vavId: z.hvacMapping?.vavId,
     poly: z.polygon.map(toLocal),
-    cx: z.centroid.x - 20,
-    cz: 20 - z.centroid.y,
+    cx: z.centroid.x - ORIGIN.x,
+    cz: ORIGIN.y - z.centroid.y,
     temp: simState?.zones?.[z.zoneId]?.temp ?? z.thermalProperties?.setpoint ?? 24,
     setpoint: z.thermalProperties?.setpoint ?? 24,
     deadband: z.thermalProperties?.deadband ?? 2,
@@ -164,7 +168,7 @@ export function buildFlowField(floor, simState, opts = {}) {
   const tol = Math.max(0.4, h);
   const provided = floor.airflowDomain?.doors;
   if (Array.isArray(provided) && provided.length) {
-    for (const d of provided) doors.push({ x: d.x - 20, z: 20 - d.y, tx: d.tx ?? 1, tz: d.tz ?? 0 });
+    for (const d of provided) doors.push({ x: d.x - ORIGIN.x, z: ORIGIN.y - d.y, tx: d.tx ?? 1, tz: d.tz ?? 0 });
   } else {
     for (let a = 0; a < zones.length; a++) {
       for (let b = a + 1; b < zones.length; b++) {
@@ -240,7 +244,7 @@ export function buildFlowField(floor, simState, opts = {}) {
   const winSpacing = floor.floorType === 'typical-office' ? 4.0 : 6.0;
   const providedWins = floor.airflowDomain?.windows;
   if (Array.isArray(providedWins) && providedWins.length) {
-    for (const w of providedWins) windows.push({ x: w.x - 20, z: 20 - w.y });
+    for (const w of providedWins) windows.push({ x: w.x - ORIGIN.x, z: ORIGIN.y - w.y });
   } else {
     for (let e = 0; e < ext.length; e++) {
       const p0 = ext[e], p1 = ext[(e + 1) % ext.length];

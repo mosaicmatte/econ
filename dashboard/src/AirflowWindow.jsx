@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import CanvasErrorBoundary from './CanvasErrorBoundary';
 import ConstrainedAirflow3D from './ConstrainedAirflow3D';
+import { exteriorPolygon , toWorld, ORIGIN } from './floorGeometry';
 
 // Corner resize handle, mirroring the topology panel's handle.
 function ResizeHandle({ size, setSize }) {
@@ -66,8 +67,13 @@ export default function AirflowWindow({ floor, activeFloor, simState, size, setS
 
   // Frame the camera on the floor footprint (same local centering the zones use:
   // x = px-20, z = 20-py). A high, slightly-tilted angle reads as a plan view.
-  const xs = floor ? floor.geometry.exteriorPolygon.map((p) => p[0] - 20) : [-20, 20];
-  const zs = floor ? floor.geometry.exteriorPolygon.map((p) => 20 - p[1]) : [-20, 20];
+  // Read through the shared accessor: a floor whose generator spelled the envelope
+  // differently (or omitted it) yields null here and the panel renders an explanation,
+  // instead of throwing out of render and taking the whole console to the root error
+  // boundary — which is exactly what `floor.geometry.exteriorPolygon.map(...)` did.
+  const extPoly = exteriorPolygon(floor);
+  const xs = extPoly ? extPoly.map((p) => p[0] - ORIGIN.x) : [-20, 20];
+  const zs = extPoly ? extPoly.map((p) => ORIGIN.y - p[1]) : [-20, 20];
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minZ = Math.min(...zs), maxZ = Math.max(...zs);
   const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
