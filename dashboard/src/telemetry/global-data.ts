@@ -97,8 +97,13 @@ zonesInSetback():number {
   return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
 }
 
+ahuPressurePa():number {
+  const offset = this.bb!.__offset(this.bb_pos, 34);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
 static startGlobalData(builder:flatbuffers.Builder) {
-  builder.startObject(15);
+  builder.startObject(16);
 }
 
 static addBuildingLoadMw(builder:flatbuffers.Builder, buildingLoadMw:number) {
@@ -161,12 +166,16 @@ static addZonesInSetback(builder:flatbuffers.Builder, zonesInSetback:number) {
   builder.addFieldInt32(14, zonesInSetback, 0);
 }
 
+static addAhuPressurePa(builder:flatbuffers.Builder, ahuPressurePa:number) {
+  builder.addFieldFloat32(15, ahuPressurePa, 0.0);
+}
+
 static endGlobalData(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, systemHealth:number, totalOccupants:number, coolingOutputMw:number, plantCop:number, energySavedMw:number, bessDischargeMw:number, bessSocPct:number, avgCo2:number, plugKw:number, plugStandbyKw:number, plugShedKw:number, plugSavedKwh:number, autoPilot:boolean, zonesInSetback:number):flatbuffers.Offset {
+static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, systemHealth:number, totalOccupants:number, coolingOutputMw:number, plantCop:number, energySavedMw:number, bessDischargeMw:number, bessSocPct:number, avgCo2:number, plugKw:number, plugStandbyKw:number, plugShedKw:number, plugSavedKwh:number, autoPilot:boolean, zonesInSetback:number, ahuPressurePa:number):flatbuffers.Offset {
   GlobalData.startGlobalData(builder);
   GlobalData.addBuildingLoadMw(builder, buildingLoadMw);
   GlobalData.addSystemHealth(builder, systemHealth);
@@ -183,6 +192,7 @@ static createGlobalData(builder:flatbuffers.Builder, buildingLoadMw:number, syst
   GlobalData.addPlugSavedKwh(builder, plugSavedKwh);
   GlobalData.addAutoPilot(builder, autoPilot);
   GlobalData.addZonesInSetback(builder, zonesInSetback);
+  GlobalData.addAhuPressurePa(builder, ahuPressurePa);
   return GlobalData.endGlobalData(builder);
 }
 }

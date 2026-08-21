@@ -10,6 +10,13 @@ table ZoneData {
   co2: float = 0;         // appended: measured ppm from a bound NDIR sensor (0 = none)
   plugW: float = 0;       // appended: plug-load draw in W (measured clamp if bound, else model)
   plugShed: bool = false; // appended: non-critical sockets currently swept off by the APLC
+  // Supply-air temperature the cooling law actually used for THIS zone this tick. The
+  // dashboard needs it to compute delivered cooling Q = rho*V*cp*(Troom - Tsupply); it
+  // used to hardcode 12.0 degC, which stopped being true the moment a DS18B20 probe could
+  // supersede the design value per zone. supplyReal says which it is, so a modelled figure
+  // never travels on a channel that implies it was measured.
+  supplyC: float = 0;       // appended: degC, 0 = engine reported none
+  supplyReal: bool = false; // appended: true only when a live probe measured it
 }
 
 table VavData {
@@ -50,6 +57,11 @@ table GlobalData {
   // energy-saving setback right now — the real backing for the "autonomous action" cards.
   autoPilot: bool = true;      // appended
   zonesInSetback: int = 0;     // appended
+  // AHU static pressure, Pa — the real output of the engine's Hardy-Cross network solve
+  // (engine.go doHardyCross). It was computed every tick and never serialized, so the
+  // topology view's AHU card showed a literal 500 Pa placeholder for the life of the
+  // project. Zero means the solver has not run yet.
+  ahuPressurePa: float = 0;    // appended
 }
 
 table SimState {

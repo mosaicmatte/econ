@@ -69,8 +69,18 @@ plugShed():boolean {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
+supplyC():number {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
+}
+
+supplyReal():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
 static startZoneData(builder:flatbuffers.Builder) {
-  builder.startObject(9);
+  builder.startObject(11);
 }
 
 static addId(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset) {
@@ -109,12 +119,20 @@ static addPlugShed(builder:flatbuffers.Builder, plugShed:boolean) {
   builder.addFieldInt8(8, +plugShed, +false);
 }
 
+static addSupplyC(builder:flatbuffers.Builder, supplyC:number) {
+  builder.addFieldFloat32(9, supplyC, 0.0);
+}
+
+static addSupplyReal(builder:flatbuffers.Builder, supplyReal:boolean) {
+  builder.addFieldInt8(10, +supplyReal, +false);
+}
+
 static endZoneData(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createZoneData(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset, temp:number, occupants:number, load:number, lightsOn:boolean, humidity:number, co2:number, plugW:number, plugShed:boolean):flatbuffers.Offset {
+static createZoneData(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset, temp:number, occupants:number, load:number, lightsOn:boolean, humidity:number, co2:number, plugW:number, plugShed:boolean, supplyC:number, supplyReal:boolean):flatbuffers.Offset {
   ZoneData.startZoneData(builder);
   ZoneData.addId(builder, idOffset);
   ZoneData.addTemp(builder, temp);
@@ -125,6 +143,8 @@ static createZoneData(builder:flatbuffers.Builder, idOffset:flatbuffers.Offset, 
   ZoneData.addCo2(builder, co2);
   ZoneData.addPlugW(builder, plugW);
   ZoneData.addPlugShed(builder, plugShed);
+  ZoneData.addSupplyC(builder, supplyC);
+  ZoneData.addSupplyReal(builder, supplyReal);
   return ZoneData.endZoneData(builder);
 }
 }

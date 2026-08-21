@@ -221,8 +221,20 @@ func (rcv *GlobalData) MutateZonesInSetback(n int32) bool {
 	return rcv._tab.MutateInt32Slot(32, n)
 }
 
+func (rcv *GlobalData) AhuPressurePa() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(34))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *GlobalData) MutateAhuPressurePa(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(34, n)
+}
+
 func GlobalDataStart(builder *flatbuffers.Builder) {
-	builder.StartObject(15)
+	builder.StartObject(16)
 }
 func GlobalDataAddBuildingLoadMw(builder *flatbuffers.Builder, buildingLoadMw float32) {
 	builder.PrependFloat32Slot(0, buildingLoadMw, 0.0)
@@ -268,6 +280,9 @@ func GlobalDataAddAutoPilot(builder *flatbuffers.Builder, autoPilot bool) {
 }
 func GlobalDataAddZonesInSetback(builder *flatbuffers.Builder, zonesInSetback int32) {
 	builder.PrependInt32Slot(14, zonesInSetback, 0)
+}
+func GlobalDataAddAhuPressurePa(builder *flatbuffers.Builder, ahuPressurePa float32) {
+	builder.PrependFloat32Slot(15, ahuPressurePa, 0.0)
 }
 func GlobalDataEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
