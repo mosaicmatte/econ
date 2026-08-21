@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"econ/simulation"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -42,13 +42,31 @@ const precoolSigmaK = 1.5
 // trigger anticipates the hour the forecast peak lands in rather than the current one.
 const precoolLead = 30 * time.Minute
 
-// precoolLoop closes the forecast→actuation loop: every 5 minutes it feeds the live
-// telemetry window to the Python LSTM (same contract as /api/forecast) and, when the
-// predicted peak crosses the trigger, opens a pre-cool window — the optimizer then
-// drives occupied zones below setpoint so the thermal mass absorbs the coming peak.
-// The forecaster being down or untrained just means no pre-cooling, never an error.
+// precoolHorizonSteps is how far ahead the zero-shot forecaster is asked to look, in
+// 5-minute engine steps — one hour, matching the window the pre-cool decision is about.
+// Named separately from the LSTM's forecastWindowLen, which happens to be the same number
+// but means the opposite thing: that one is an INPUT window length, this is an output
+// horizon, and letting one stand in for the other is how they silently diverge.
+const precoolHorizonSteps = 12
+
+// precoolLoop closes the forecast→actuation loop: every 5 minutes it asks the forecasting
+// layer for the coming peak and, when that peak crosses the trigger, opens a pre-cool
+// window — the optimizer then drives occupied zones below setpoint so the thermal mass
+// absorbs the peak. The forecaster being down or untrained just means no pre-cooling,
+// never an error.
+//
+// WHICH forecaster is asked matters more than it looks. Until now this polled the
+// supervised LSTM exclusively, which meant the only actuating consumer of a forecast in
+// the entire system was wired to the one model that carries its training building inside
+// its weights. Pointed at a building train.py has not seen, it answers with the old
+// building's megawatts and the automation dutifully acts. The zero-shot foundation model
+// has no such attachment — it reads THIS building's own recorded series and nothing else —
+// so it is asked first whenever it has enough of that series to answer from.
 func precoolLoop(engine *simulation.Engine) {
 	client := &http.Client{Timeout: 8 * time.Second}
+	// TimesFM may be downloading a checkpoint on its first call; the poller runs every
+	// five minutes and nothing waits on it, so it can afford to be patient.
+	tfmClient := &http.Client{Timeout: 180 * time.Second}
 	base := os.Getenv("FORECAST_URL")
 	if base == "" {
 		base = "http://localhost:8000"
@@ -57,6 +75,13 @@ func precoolLoop(engine *simulation.Engine) {
 	log.Printf("[precool] poller up: forecaster=%s trigger=%.2f MW window=%s", base, trigger, precoolWindow)
 
 	var lastAuto time.Time
+	// lastRefusal rate-limits the "refusing to act" log to once an hour: the condition
+	// persists until someone retrains the model, and a line every poll would bury
+	// everything else in the log rather than making the problem more visible.
+	var lastRefusal time.Time
+	// lastEngine tracks which forecaster last drove a decision, so a change of engine is
+	// reported without logging the same line every five minutes.
+	var lastEngine string
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
@@ -67,22 +92,74 @@ func precoolLoop(engine *simulation.Engine) {
 			continue // hysteresis after the last auto-window
 		}
 
-		// Same request builder as /api/forecast: real sampled window + the engine's
-		// live outdoor conditions, so auto-pre-cool decisions and the dashboard's
-		// forecast card are always looking at the same prediction.
-		req, _ := buildForecastRequest(engine)
-		body, _ := json.Marshal(req)
-		resp, err := client.Post(base+"/predict", "application/json", bytes.NewReader(body))
-		if err != nil {
-			continue // forecaster unreachable: run without pre-cooling
+		// Prefer the zero-shot model, fall back to the supervised one. Both go through
+		// the SAME helpers the dashboard's /api/forecast/compare uses, so the poller and
+		// the panels can never be looking at different numbers — which they could when
+		// this loop issued its own hand-rolled POST.
+		var (
+			res        engineResult
+			engineName string
+		)
+		// queryTimesFM applies the minimum-history rule itself and reports Available=false
+		// with the reason when it has too little, so the condition is not restated here —
+		// one threshold, one place.
+		if r := queryTimesFM(engine, tfmClient, base, precoolHorizonSteps); r.Available && r.PeakMw != nil {
+			res, engineName = r, "TimesFM (zero-shot)"
 		}
-		var out struct {
-			PredictedPeakLoad float64 `json:"predicted_peak_load"`
+		if engineName == "" {
+			if r := queryLSTM(engine, client, base); r.Available && r.PeakMw != nil {
+				res, engineName = r, "LSTM (supervised)"
+			}
 		}
-		decodeErr := json.NewDecoder(resp.Body).Decode(&out)
-		resp.Body.Close()
-		if decodeErr != nil || resp.StatusCode != http.StatusOK {
-			continue // 503 = model not trained yet
+		if engineName == "" {
+			continue // neither engine answered: run without pre-cooling
+		}
+		predictedPeak := *res.PeakMw
+
+		// Say WHICH engine is driving the decision, once, and again whenever it changes.
+		// The loop is otherwise silent on success — it only logs when it opens a window —
+		// so on a building whose forecast never crosses the trigger there was no way to
+		// confirm from the outside which model the automation was actually consulting.
+		// That is exactly the fact that turned out to matter most about this loop.
+		if engineName != lastEngine {
+			lastEngine = engineName
+			log.Printf("[precool] consulting %s (%d real samples): %.3f MW predicted peak",
+				engineName, res.RealSamples, predictedPeak)
+		}
+
+		// A forecast the twin cannot vouch for must not actuate the building.
+		//
+		// This is the sharpest edge in the whole forecasting path, and it applies to
+		// WHICHEVER engine answered — preferring the zero-shot model makes the bad case
+		// rarer, it does not make it impossible. The trigger below is data-driven: it
+		// compares the predicted peak against what THIS building normally draws. But a
+		// supervised model's weights encode whichever building train.py last saw, so
+		// pointed at a different one it answers with the old building's numbers — 2.4 MW
+		// for a house that has never drawn more than 0.03 MW. That clears a learned
+		// threshold of ~0.01 MW on every single poll, so the building would sit in a
+		// permanently re-opened pre-cool window, driving every setpoint down and burning
+		// real energy, on the authority of a model that has never seen it. Reporting a bad
+		// number on a dashboard is a display bug; actuating on one is not.
+		lo, hi, n := engine.ObservedLoadRange()
+		if n < minRangeSamples {
+			// Not enough observation to judge the forecast yet. Pre-cooling is an
+			// optimisation, not a safety function, so the safe default while the twin
+			// cannot vouch for a number is to NOT drive the whole building's setpoints
+			// down on it. Waiting a few minutes after boot costs nothing; acting on an
+			// unvouchable forecast costs energy, and it is precisely the window in which
+			// a model trained on another building gets its way unchallenged.
+			continue
+		}
+		checkPlausible(&res, lo, hi, n)
+		if res.Implausible {
+			if time.Since(lastRefusal) > time.Hour {
+				lastRefusal = time.Now()
+				log.Printf("[precool] REFUSING to act on the %s forecast: %s "+
+					"Pre-cooling stays closed until the model is retrained on this building "+
+					"(backend/forecasting/train.py) or the forecast returns to a plausible range.",
+					engineName, res.Plausibility)
+			}
+			continue
 		}
 
 		// Data-driven trigger: prefer the learned load baseline — pre-cool when the
@@ -93,11 +170,23 @@ func precoolLoop(engine *simulation.Engine) {
 		if learned, ok := engine.LoadForecastThreshold(precoolSigmaK, precoolLead); ok && learned > 0 {
 			threshold, basis = learned, "learned"
 		}
-		if out.PredictedPeakLoad >= threshold {
+		// The trigger compares CENTRAL estimate against threshold, deliberately.
+		//
+		// The learned threshold is already mean + k·sigma of this building's own load, so it
+		// encodes the risk appetite once. Comparing an upper-decile forecast against it
+		// would count the spread twice and pre-cool on the tail of a tail. The upper band
+		// is logged instead, because "0.012 MW central, 0.014 MW at the 90th" is what tells
+		// an operator how firm the decision was — a number no consumer of this system has
+		// ever been shown.
+		if predictedPeak >= threshold {
 			until := engine.StartPreCool(precoolWindow)
 			lastAuto = time.Now()
-			log.Printf("[precool] LSTM predicts %.2f MW peak (%s trigger %.2f): pre-cooling until %s",
-				out.PredictedPeakLoad, basis, threshold, until.Format("15:04:05"))
+			band := ""
+			if res.PeakUpperMw != nil {
+				band = fmt.Sprintf(" [%s %.3f MW]", res.UpperQuantile, *res.PeakUpperMw)
+			}
+			log.Printf("[precool] %s predicts %.3f MW peak%s (%s trigger %.3f): pre-cooling until %s",
+				engineName, predictedPeak, band, basis, threshold, until.Format("15:04:05"))
 		}
 	}
 }
