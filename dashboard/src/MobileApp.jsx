@@ -561,6 +561,7 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
         <div style={{ display: 'flex', gap: '10px' }}>
           <OverrideButton label="FORCE OFF" color="#4A90E2" onClick={() => override('LIGHTS_OFF;SETPOINT=26.0', 'Force-off')} />
           <OverrideButton label="MAX COOL" color="#FF3B30" onClick={() => override('LIGHTS_ON;SETPOINT=20.0', 'Max-cool')} />
+          <OverrideButton label="IR FAN" color="#34C759" onClick={() => override('IR_SEND:NEC:0xFF00FF:32', 'IR-Fan')} />
           <OverrideButton label="RESET" color="rgba(255,255,255,0.5)" onClick={() => override('reset', 'Reset')} />
         </div>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '10px', lineHeight: 1.4 }}>

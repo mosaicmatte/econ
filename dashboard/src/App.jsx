@@ -712,6 +712,7 @@ function App() {
                 <span style={{ fontSize: '10px', color: 'var(--text-secondary)', alignSelf: 'center' }}>MANUAL VETO:</span>
                 <button onClick={() => sendManualOverride('LIGHTS_OFF;SETPOINT=26.0', selectedZone)} style={{ flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent-blue)', color: 'var(--accent-blue)', fontSize: '10px', padding: '6px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold' }}>FORCE OFF</button>
                 <button onClick={() => sendManualOverride('LIGHTS_ON;SETPOINT=20.0', selectedZone)} style={{ flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent-red)', color: 'var(--accent-red)', fontSize: '10px', padding: '6px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold' }}>MAX COOL</button>
+                <button onClick={() => sendManualOverride('IR_SEND:NEC:0xFF00FF:32', selectedZone)} title="Universal IR Blaster Test" style={{ flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent-green)', color: 'var(--accent-green)', fontSize: '10px', padding: '6px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold' }}>IR FAN</button>
               </div>
               {/* [GEMINI IMPLEMENTATION END] */}
             </div>
