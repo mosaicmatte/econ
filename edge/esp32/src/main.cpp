@@ -462,6 +462,7 @@ void setupWifi() {
   #include <IRremoteESP8266.h>
   #include <IRsend.h>
   #include <IRac.h>
+  #include <IRutils.h>
 
   // Which brand's protocol to speak. IRremoteESP8266's IRac wraps ~50 vendor protocols
   // behind one state struct, so switching brands is a build flag, not a rewrite:
@@ -482,6 +483,7 @@ void setupWifi() {
   #endif
 
   IRac ac(IR_PIN);
+  IRsend customIrSend(IR_PIN);       // Generic IR sender for fans, TVs, etc.
   bool irAcReady = false;            // protocol compiled AND supported by the library
 #endif
 
@@ -643,6 +645,32 @@ void handleCommand(const String& msg) {
     else if (tok == "LIGHTS_OFF") setLights(false);
     else if (tok.startsWith("SETPOINT=")) applyHvacSetpoint(tok.substring(9).toFloat());
     else if (tok.startsWith("HVAC_SET:")) applyHvacSetpoint(tok.substring(9).toFloat());
+    else if (tok.startsWith("IR_SEND:")) {
+#if USE_IR_AC
+      int p1 = tok.indexOf(':', 8);
+      if (p1 != -1) {
+        int p2 = tok.indexOf(':', p1 + 1);
+        if (p2 != -1) {
+          String protoStr = tok.substring(8, p1);
+          String dataStr = tok.substring(p1 + 1, p2);
+          String bitsStr = tok.substring(p2 + 1);
+          
+          decode_type_t protocol = strToDecodeType(protoStr.c_str());
+          uint64_t data = strtoull(dataStr.c_str(), NULL, 16);
+          uint16_t nbits = bitsStr.toInt();
+          
+          if (protocol != decode_type_t::UNKNOWN) {
+            customIrSend.send(protocol, data, nbits);
+            Serial.printf("[ir] sent %s: 0x%llx (%d bits)\n", protoStr.c_str(), (unsigned long long)data, nbits);
+          } else {
+            Serial.printf("[ir] unknown protocol: %s\n", protoStr.c_str());
+          }
+        }
+      }
+#else
+      Serial.println("[ir] WARNING: IR_SEND requested but USE_IR_AC=0");
+#endif
+    }
 #if USE_PLUG
     // After-hours sweep (APLC, plugs.go): the engine sheds the zone's non-critical
     // sockets on verified vacancy and restores them the instant presence returns.
@@ -884,6 +912,7 @@ void setup() {
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(IR_PIN, OUTPUT);
 #if USE_IR_AC
+  customIrSend.begin();
   // IRac has no begin() — the per-protocol sender initialises itself on send. What DOES
   // need doing is seeding the state struct to the library's defaults, so any field this
   // firmware does not set explicitly holds a sane value rather than whatever was on the
