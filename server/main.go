@@ -49,16 +49,20 @@ func main() {
 	// the UI was still excluding "server-room" from its waste and setback advice in a
 	// building whose comms rooms are typed "comms-room", so it counted them as waste.
 	// One endpoint, read from the same file the engine evaluates.
+	// Registered below, once the engine exists: the view carries the building id and the
+	// occupancy model version, which is how a browser knows whether the window it has been
+	// accumulating in localStorage still describes the series the engine is producing.
+
+	// Initialize simulation engine
+	engine := simulation.NewEngine()
+
 	http.HandleFunc("/api/library", func(w http.ResponseWriter, r *http.Request) {
 		if corsPreflight(w, r) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(simulation.Library())
+		json.NewEncoder(w).Encode(simulation.Library(engine.BuildingId()))
 	})
-
-	// Initialize simulation engine
-	engine := simulation.NewEngine()
 
 	// [GEMINI IMPLEMENTATION START]
 	initDB()

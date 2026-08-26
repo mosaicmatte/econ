@@ -25,6 +25,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 
@@ -72,7 +73,7 @@ char CLIENT_ID[32];                         // econ-esp32-<ZONE_TOPIC>
 #define ZONE_LABEL (gCfg.zoneLabel)
 
 // ---------------- HARDWARE PINS ----------------
-const int RELAY_PIN  = 13;  // lighting relay (active HIGH)
+const int RELAY_PIN  = 23;  // lighting relay (active HIGH)
 // GPIO19, NOT GPIO22: 22 is the I2C clock. applyHvacSetpoint() pulses this pin, so leaving
 // the emitter on 22 made every setpoint command drive SCL directly and corrupt any read from
 // the SHT30 or the ACD1200 sharing that bus.
@@ -92,28 +93,40 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 #ifndef USE_REAL_SENSORS
   #define USE_REAL_SENSORS 0
 #endif
+#ifndef USE_CAMERA
+  #define USE_CAMERA 1                // Camera-based ML person detection (OV7670 + TFLite Micro)
+#endif
 #ifndef USE_SHT30
-  #define USE_SHT30 1                // SHT30 over I2C -> measured temperature + humidity
+  #define USE_SHT30 0                // SHT30 over I2C -> measured temperature + humidity
 #endif
 #ifndef USE_DHT
   // DHT is the fallback path; SHT30 wins when both are compiled in.
   #define USE_DHT (USE_REAL_SENSORS && !USE_SHT30)
 #endif
 #ifndef USE_PIR
-  #define USE_PIR USE_REAL_SENSORS   // PIR   -> measured presence
+  #define USE_PIR (USE_REAL_SENSORS && !USE_CAMERA)   // PIR -> measured presence (reused by camera D7)
 #endif
 #ifndef USE_CO2
-  #define USE_CO2 1                  // ASAIR ACD1200 NDIR (I2C) -> measured CO2 ppm
+  #define USE_CO2 0                  // ASAIR ACD1200 NDIR (I2C) -> measured CO2 ppm
 #endif
 #ifndef USE_MMWAVE
-  #define USE_MMWAVE 1               // HLK-LD2410C / Rd-03 radar -> presence incl. stationary people
+  #define USE_MMWAVE 0               // HLK-LD2410C radar -> presence incl. stationary people
+#endif
+
+#if USE_CAMERA
+  #include "camera/camera_config.h"
+  #include "camera/tracking_payload.h"
+  #include "camera/dual_mode_comm.h"
+  #include "camera/ov7670_driver.h"
+  #include "camera/model_data.h"
+  #include "camera/person_detector.h"
 #endif
 #ifndef USE_PLUG
   // Plug-load node (APLC): SCT-013 current clamp -> measured plug-circuit watts, plus a
   // second relay that switches the zone's non-critical socket circuit. This is the load a
   // conventional BMS neither meters nor controls — 26.4% of energy in the Hanoi office
   // case study — and the reason this node exists.
-  #define USE_PLUG 1
+  #define USE_PLUG 0
 #endif
 
 // ---------------------------------------------------------------------------------
@@ -384,7 +397,7 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 // touch. Touching the bare pin (or a jumper wire in it) drops the reading well below
 // the boot-time baseline -> occupied. Publishes immediately on change for a snappy demo.
 #define USE_TOUCH_PRESENCE 1
-#if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
+#if !USE_CAMERA && !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
   const int TOUCH_PIN = T9;      // GPIO32
   #define TOUCH_OCCUPANTS (gCfg.touchOccupants) // headcount reported while touched
   int touchBaseline = 0;         // calibrated in setup()
@@ -409,6 +422,11 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 
 WiFiClient   espClient;
 PubSubClient client(espClient);
+#if USE_CAMERA
+WiFiUDP              udpClient;
+DualModeComm         dualComm(udpClient, client, Serial);
+CameraPersonDetector cameraDetector;
+#endif
 
 unsigned long lastPublish = 0;
 unsigned long lastReconnectAttempt = 0;
@@ -524,11 +542,11 @@ void applyHvacSetpoint(float celsius) {
 #endif
 }
 
-  void setLights(bool on) {
-    lightsOn = on;
-    digitalWrite(RELAY_PIN, on ? HIGH : LOW);
-    Serial.printf("[relay] lights %s\n", on ? "ON" : "OFF");
-  }
+void setLights(bool on) {
+  lightsOn = on;
+  digitalWrite(RELAY_PIN, on ? HIGH : LOW);
+  Serial.printf("[relay] lights %s\n", on ? "ON" : "OFF");
+}
 
 #if USE_PLUG
 bool plugOn = true;  // fail-energized: sockets are live until the engine says otherwise
@@ -730,8 +748,18 @@ void readAndPublish() {
   doc["tempReal"] = tempReal;  // only a genuine measurement may pin zone physics
 
   // --- occupancy ---
-  int occupancy;
-#if USE_PIR || USE_MMWAVE
+  int occupancy = 0;
+#if USE_CAMERA
+  bool present = cameraDetector.isPersonDetected();
+  #if USE_MMWAVE
+    if (digitalRead(MMWAVE_PIN) == HIGH) present = true;
+  #endif
+  occupancy = present ? (cameraDetector.getPersonCount() > 0 ? cameraDetector.getPersonCount() : 1) : 0;
+  doc["confidence"] = round(cameraDetector.getConfidence() * 100) / 100.0;
+  doc["person_count"] = cameraDetector.getPersonCount();
+  // Transmit real-time tracking payload to DualModeComm (UDP broadcast :4210 + MQTT, fallback to Serial)
+  cameraDetector.transmitTelemetry(dualComm);
+#elif USE_PIR || USE_MMWAVE
   // Either sensor asserting means occupied. They fail in opposite directions — the PIR
   // misses a person sitting still, the radar can hold on residual micro-motion after an
   // exit — so OR-ing them errs toward "occupied", which for HVAC is the safe error: a
@@ -882,24 +910,6 @@ void setup() {
 #if USE_SHT30 || USE_CO2 || USE_LUX
   Wire.begin(I2C_SDA, I2C_SCL);
   Serial.printf("[i2c] bus up on SDA=GPIO%d SCL=GPIO%d\n", I2C_SDA, I2C_SCL);
-  
-  Serial.println("[i2c] Scanning bus...");
-  int nDevices = 0;
-  for(byte address = 1; address < 127; address++ ) {
-    Wire.beginTransmission(address);
-    byte error = Wire.endTransmission();
-    if (error == 0) {
-      Serial.printf("[i2c] I2C device found at address 0x%02X\n", address);
-      nDevices++;
-    } else if (error == 4) {
-      Serial.printf("[i2c] Unknown error at address 0x%02X\n", address);
-    }
-  }
-  if (nDevices == 0) {
-    Serial.println("[i2c] No I2C devices found");
-  } else {
-    Serial.println("[i2c] Scan complete");
-  }
 #endif
 #if USE_SHT30
   Serial.printf("[sht30] expecting I2C addr 0x%02X\n", SHT30_ADDR);
@@ -981,45 +991,89 @@ void setup() {
   snprintf(CONFIG_STATE_TOPIC, sizeof(CONFIG_STATE_TOPIC), "econ/config/%s/state", ZONE_TOPIC);
   snprintf(CLIENT_ID,          sizeof(CLIENT_ID),          "econ-esp32-%s",       ZONE_TOPIC);
 
-  // setupWifi(); // Vô hiệu hóa Wi-Fi theo yêu cầu dùng USB
-  // client.setServer(MQTT_HOST, MQTT_PORT);
-  // client.setCallback(onMessage);
+  setupWifi();
+  client.setServer(MQTT_HOST, MQTT_PORT);
+  client.setCallback(onMessage);
+
+#if USE_CAMERA
+  cameraDetector.setZoneAndSensorId(ZONE_TOPIC, CLIENT_ID);
+  if (cameraDetector.init()) {
+    Serial.printf("[camera] OV7670 & TFLite Micro person detector initialized (state: %s)\n",
+                  cameraDetector.getState() == DetectorState::READY ? "READY" : "SIMULATION");
+  } else {
+    Serial.println("[camera] WARNING: Camera detector initialization failed");
+  }
+
+  CommConfig commCfg;
+  commCfg.wifi_ssid = WIFI_SSID;
+  commCfg.wifi_pass = WIFI_PASS;
+  commCfg.mqtt_host = MQTT_HOST;
+  commCfg.mqtt_port = MQTT_PORT;
+  commCfg.mqtt_topic = TELEMETRY_TOPIC;
+  commCfg.zone_topic = ZONE_TOPIC;
+  commCfg.zone_label = ZONE_LABEL;
+  commCfg.sensor_id  = CLIENT_ID;
+  commCfg.udp_port   = 4210;
+  commCfg.udp_broadcast_port = 4210;
+  commCfg.broadcast_ip = IPAddress(255, 255, 255, 255);
+  commCfg.enable_udp_broadcast = true;
+  commCfg.enable_serial_fallback = true;
+  dualComm.begin(commCfg);
+  dualComm.setMqttClient(&client, TELEMETRY_TOPIC);
+#endif
 }
 
 void loop() {
-  while (Serial.available()) {
-    String line = Serial.readStringUntil('\n');
-    line.trim();
-    if (line.startsWith("[mqtt] sub ")) {
-      int arrowIdx = line.indexOf(" -> ");
-      if (arrowIdx > 0) {
-        String topicStr = line.substring(11, arrowIdx);
-        String payloadStr = line.substring(arrowIdx + 4);
-        onMessage((char*)topicStr.c_str(), (byte*)payloadStr.c_str(), payloadStr.length());
-      }
-    }
-  }
+#if USE_CAMERA
+  // Non-blocking dual-mode communications state machine tick (<0.2ms)
+  dualComm.tick();
 
-  // Bỏ qua MQTT loop nếu không dùng Wi-Fi
-  // if (!client.loop()) {
-  unsigned long now = millis();
-  
-#if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
-  static unsigned long lastTouchPoll = 0;
-  static bool lastTouched = false;
-  if (now - lastTouchPoll > 150) {
-    lastTouchPoll = now;
-    bool touched = touchOccupied();
-    if (touched != lastTouched) {
-      lastTouched = touched;
-      lastPublish = now;
-      readAndPublish();
+  // Non-blocking camera frame capture and ML person detection inference (~6.6 FPS)
+  static unsigned long lastCameraFrameTime = 0;
+  static bool lastPersonDetectedState = false;
+  unsigned long nowCamera = millis();
+  if (nowCamera - lastCameraFrameTime >= 150) {
+    lastCameraFrameTime = nowCamera;
+    if (cameraDetector.processFrame()) {
+      bool currentDetected = cameraDetector.isPersonDetected();
+      // Immediate telemetry burst on occupancy transition (<200ms latency)
+      if (currentDetected != lastPersonDetectedState) {
+        lastPersonDetectedState = currentDetected;
+        cameraDetector.transmitTelemetry(dualComm);
+      }
     }
   }
 #endif
 
-  if (now - lastPublish > gCfg.publishIntervalMs) {
-    lastPublish = now;
-    readAndPublish();
+  // Non-blocking reconnect (every 5s) keeps sensing/actuation responsive.
+  if (!client.connected()) {
+    digitalWrite(STATUS_LED, LOW);
+    unsigned long now = millis();
+    if (now - lastReconnectAttempt > 5000) {
+      lastReconnectAttempt = now;
+      mqttConnect();
+    }
+  } else {
+    client.loop();
+    unsigned long now = millis();
+#if !USE_CAMERA && !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
+    // Publish instantly when presence flips so the dashboard reacts in <0.2 s
+    // instead of waiting out the periodic interval.
+    static unsigned long lastTouchPoll = 0;
+    static bool lastTouched = false;
+    if (now - lastTouchPoll > 150) {
+      lastTouchPoll = now;
+      bool touched = touchOccupied();
+      if (touched != lastTouched) {
+        lastTouched = touched;
+        lastPublish = now;
+        readAndPublish();
+      }
+    }
+#endif
+    if (now - lastPublish > gCfg.publishIntervalMs) {
+      lastPublish = now;
+      readAndPublish();
+    }
   }
 }

@@ -86,6 +86,26 @@ export function useLibrary() {
         ? p.areaPerOccupantM2
         : null;
     },
+    // seriesId identifies the load series the engine is currently producing: which
+    // building, under which occupancy model. Any window the browser accumulates across
+    // reloads — an observed peak, a mean load — belongs to one series and must be
+    // discarded when the engine starts producing a different one, exactly as the engine
+    // discards its own persisted state. Null until the library arrives, which means "do
+    // not start accumulating yet" rather than "any window will do".
+    seriesId: lib
+      ? `${lib.buildingId || 'unknown'}@v${lib.occupancyModelVersion ?? 0}`
+      : null,
+    // Fresh-air rate per person. Backs the MODELLED ventilation shown where no VAV
+    // reports, so the figure on screen is the one the engine's own heat balance uses.
+    outdoorAirLPerSPerPerson: physics?.outdoorAirLPerSPerPerson ?? null,
+    // modelledVentilationLPerS is the outdoor air an occupancy implies, from the same
+    // coefficient the ventilation load is computed with. Null when the library has not
+    // arrived: a surface that cannot compute this shows "—", never a plausible number.
+    modelledVentilationLPerS: (occupancy) => {
+      const per = physics?.outdoorAirLPerSPerPerson;
+      if (per == null) return null;
+      return per * (occupancy || 0);
+    },
     // The coefficients the panels used to carry as literals. Null until the library
     // arrives so a caller withholds the derived figure rather than pricing a saving
     // against a number nobody calibrated.

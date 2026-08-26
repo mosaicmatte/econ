@@ -21,11 +21,11 @@ services:
       # Authenticated by default. Run ./setup-mqtt-auth.sh once to mint mosquitto/passwd
       # before the first start — the broker will not come up without it, which is the
       # correct failure for something that switches mains circuits.
-      # - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
-      # - ./mosquitto/passwd:/mosquitto/config/passwd:ro
-      # - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
       # Local demo with no hardware attached? Swap the three lines above for this one:
-      - ./mosquitto/mosquitto.dev.conf:/mosquitto/config/mosquitto.conf
+      # - ./mosquitto/mosquitto.dev.conf:/mosquitto/config/mosquitto.conf
 
   server:
     build: .

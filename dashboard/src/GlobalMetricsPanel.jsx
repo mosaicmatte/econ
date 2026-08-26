@@ -103,10 +103,10 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
   // Programme coefficients from the engine (see useLibrary): used here for the zone's
   // design occupant density, so the occupancy bar is scaled by the building's own
   // calibration rather than a fixed 80-person axis.
-  const { areaPerOccupant } = useLibrary();
+  const { areaPerOccupant, seriesId } = useLibrary();
   // Annual intensity has to be built on the load actually observed over time, not on
   // whatever the load happens to be this second. See useMeanLoad.
-  const { meanMw, hours: observedH, peakMw } = useMeanLoad(simData?.buildingLoadMw);
+  const { meanMw, hours: observedH, peakMw } = useMeanLoad(simData?.buildingLoadMw, seriesId);
 
   React.useEffect(() => {
     if (selectedNode?.type === 'zone') {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-const STORAGE_KEY = 'econ.meanLoad.v1';
+const STORAGE_KEY = 'econ.meanLoad.v2';
 
 /**
  * Running mean of the building's electrical load, and how long it has been observed for.
@@ -14,10 +14,21 @@ const STORAGE_KEY = 'econ.meanLoad.v1';
  * Accumulates in localStorage so the window survives a page reload — the observation is a
  * property of the building, not of the browser tab, and a demo that reloads should not
  * silently restart its own evidence.
+ *
+ * The window belongs to ONE series, named by `seriesId` (see useLibrary): a building, under
+ * an occupancy model. This is the same rule the engine applies to its own persisted state,
+ * and it is here because the browser broke it in exactly the way the engine used to. When
+ * the engine's occupancy model was corrected, the house it had been modelling with
+ * twenty-eight phantom occupants went from drawing 25 kW to drawing 5 kW — and every open
+ * dashboard carried on reporting "20.4% of 25 kW, the highest seen", captioned as this
+ * building's own observed peak, from a run of a building that no longer exists. A window
+ * that cannot say which series it came from is not evidence about this one.
  */
-export default function useMeanLoad(loadMw) {
+export default function useMeanLoad(loadMw, seriesId = null) {
   const acc = useRef(null);
   const [state, setState] = useState({ meanMw: 0, hours: 0, samples: 0, peakMw: 0 });
+
+  const fresh = () => ({ sumMwMs: 0, ms: 0, samples: 0, peakMw: 0, seriesId, last: null });
 
   // Restore any accumulated window once, on mount.
   if (acc.current === null) {
@@ -31,15 +42,41 @@ export default function useMeanLoad(loadMw) {
     } catch {
       // A corrupt or unavailable store just means the window starts now.
     }
-    acc.current = restored || { sumMwMs: 0, ms: 0, samples: 0, peakMw: 0 };
+    acc.current = restored || fresh();
     if (typeof acc.current.peakMw !== 'number') acc.current.peakMw = 0;
     acc.current.last = null;
   }
 
+  // Drop a window recorded from a different series the moment we learn which one we are
+  // on. seriesId is null until the library answers; that is "not yet known", not "any
+  // series will do", so nothing is discarded on the strength of it.
+  useEffect(() => {
+    if (!seriesId) return;
+    const a = acc.current;
+    if (a.seriesId === seriesId) return;
+    if (a.seriesId != null && a.ms > 0) {
+      console.info(
+        `[econ] discarding a ${(a.ms / 3_600_000).toFixed(1)} h load window recorded on ` +
+        `${a.seriesId}; this engine is producing ${seriesId}`,
+      );
+    }
+    acc.current = fresh();
+    setState({ meanMw: 0, hours: 0, samples: 0, peakMw: 0 });
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Nothing to clean up if the store is unavailable.
+    }
+  }, [seriesId]);
+
   useEffect(() => {
     if (!Number.isFinite(loadMw) || loadMw < 0) return;
+    // Nothing is accumulated until the series is known, so a window can never be built
+    // from two of them spliced together.
+    if (!seriesId) return;
     const now = Date.now();
     const a = acc.current;
+    if (a.seriesId !== seriesId) return;
 
     if (a.last !== null) {
       // Trapezoidal over the real elapsed interval, so an irregular websocket cadence
@@ -69,12 +106,12 @@ export default function useMeanLoad(loadMw) {
 
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        sumMwMs: a.sumMwMs, ms: a.ms, samples: a.samples, peakMw: a.peakMw,
+        sumMwMs: a.sumMwMs, ms: a.ms, samples: a.samples, peakMw: a.peakMw, seriesId,
       }));
     } catch {
       // Storage full or blocked; the in-memory window still works for this session.
     }
-  }, [loadMw]);
+  }, [loadMw, seriesId]);
 
   return state;
 }

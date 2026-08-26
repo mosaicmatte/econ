@@ -11,7 +11,7 @@ import { useLibrary } from './useLibrary';
 import { useRoomModels } from './useRoomModels';
 import RecommendationEvidence from './RecommendationEvidence';
 import { API_BASE } from './api';
-import { powerMw } from './units';
+import { powerMw, powerKw } from './units';
 
 // fmtEta renders a predicted time-to-breach the way an operator reads it.
 function fmtEta(sec) {
@@ -225,7 +225,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
           windowOpen
             ? `A pre-cool window is OPEN until ${untilLabel(precool.until)} — thermal mass is charging so chillers can coast.`
             : shedKw != null
-              ? `Pre-cooling now charges the thermal mass at the cheaper rate — shifting an estimated ${shedKw.toFixed(0)} kW off peak, worth roughly ${money(peakShiftSavingPerMonth(shedKw))}/month at the rate gap. The shift fraction is the library's ${(precoolShift * 100).toFixed(0)}% planning estimate, not a measured coast.`
+              ? `Pre-cooling now charges the thermal mass at the cheaper rate — shifting an estimated ${powerKw(shedKw)} off peak, worth roughly ${money(peakShiftSavingPerMonth(shedKw))}/month at the rate gap. The shift fraction is the library's ${(precoolShift * 100).toFixed(0)}% planning estimate, not a measured coast.`
               : 'Pre-cooling now charges the thermal mass at the cheaper rate. The size of the shift is not shown: it depends on the plant coefficient in the engine\'s programme library, which this dashboard has not been able to read.'
         }`,
         action: windowOpen ? 'PRE-COOLING' : 'ACTIVATE PRE-COOLING',
@@ -252,18 +252,31 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       // answer against this building's own observed load range and says so, and the card
       // leads with the finding rather than burying it under a confident MW figure.
       const ood = aiForecast.implausible === true;
+      // And a forecast the engine has not yet been able to check is reported as unchecked
+      // rather than as clear. This is the state after a restart, and after the engine has
+      // discarded a load series recorded under a superseded model — precisely when a stale
+      // supervised model is most likely to be answering about the wrong building, and least
+      // likely to be caught.
+      const unjudged = !ood && aiForecast.plausibility_judged === false;
+      const flagged = ood || unjudged;
       generated.push({
         id: 'forecast',
-        type: ood ? 'warning' : 'info',
+        type: flagged ? 'warning' : 'info',
         expandable: true,
-        icon: <Activity size={18} color={ood ? 'var(--accent-yellow)' : 'var(--accent-blue)'} />,
-        title: ood ? 'LSTM Forecast Out Of Distribution' : 'LSTM Load Forecast',
-        badge: ood ? 'NOT THIS BUILDING' : undefined,
-        badgeColor: ood ? 'var(--accent-yellow)' : undefined,
-        badgeTitle: ood ? "Checked against this building's own recorded load range" : undefined,
+        icon: <Activity size={18} color={flagged ? 'var(--accent-yellow)' : 'var(--accent-blue)'} />,
+        title: ood ? 'LSTM Forecast Out Of Distribution'
+          : unjudged ? 'LSTM Forecast Not Yet Checked'
+          : 'LSTM Load Forecast',
+        badge: ood ? 'NOT THIS BUILDING' : unjudged ? 'UNVERIFIED' : undefined,
+        badgeColor: flagged ? 'var(--accent-yellow)' : undefined,
+        badgeTitle: ood ? "Checked against this building's own recorded load range"
+          : unjudged ? 'Not enough observed load yet to check it against this building'
+          : undefined,
         message: ood
-          ? `The supervised model returns ${aiForecast.predicted_peak_load.toFixed(2)} MW, which the engine has flagged: ${aiForecast.plausibility} Retrain it on this building (backend/forecasting/train.py) or read the zero-shot forecaster instead — it needs no training and forecasts this building's own recorded series.`
-          : `Deep Learning model predicts an upcoming peak load of ${aiForecast.predicted_peak_load.toFixed(2)} MW over the sampled last hour. ${weatherNote}${warmup}`,
+          ? `The supervised model returns ${powerMw(aiForecast.predicted_peak_load)}, which the engine has flagged: ${aiForecast.plausibility} Retrain it on this building (backend/forecasting/train.py) or read the zero-shot forecaster instead — it needs no training and forecasts this building's own recorded series.`
+          : unjudged
+            ? `The supervised model returns ${powerMw(aiForecast.predicted_peak_load)}, but ${aiForecast.plausibility} Until it can be, treat it as the model's answer rather than this building's forecast.`
+            : `Deep Learning model predicts an upcoming peak load of ${powerMw(aiForecast.predicted_peak_load)} over the sampled last hour. ${weatherNote}${warmup}`,
         action: 'VIEW PREDICTIONS'
       });
     }
@@ -349,7 +362,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       icon: <Brain size={18} color={apOn ? 'var(--accent-green)' : 'var(--accent-yellow)'} />,
       title: apOn ? 'Autonomous Operations Active' : 'Auto-Pilot Suspended',
       message: apOn
-        ? `Occupancy-driven optimizer is holding ${inSetback} zone${inSetback === 1 ? '' : 's'} in setback — ${savingsPct.toFixed(1)}% of plant load (${(savedMw * 1000).toFixed(0)} kW ≈ ${money(energyCostPerDay(savedMw * 1000))}/day). Streamed from the engine.`
+        ? `Occupancy-driven optimizer is holding ${inSetback} zone${inSetback === 1 ? '' : 's'} in setback — ${savingsPct.toFixed(1)}% of plant load (${powerMw(savedMw)} ≈ ${money(energyCostPerDay(savedMw * 1000))}/day). Streamed from the engine.`
         : 'The optimizer is off — it released its setbacks to the occupied baseline and the operator is in manual control. Re-engage to resume autonomous setback.',
       action: 'VIEW MODEL METRICS'
     });
@@ -364,7 +377,10 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       // subtracted from the live load as "headroom": both would state that this building
       // is heading for a number the engine has already said belongs to a different one.
       const lstmOod = aiForecast?.implausible === true;
-      const peak = lstmOod ? null : aiForecast?.predicted_peak_load;
+      // Same rule as the mobile card: an unchecked forecast is not a passing one, and a
+      // reference line drawn from it states a target the engine has not stood behind.
+      const lstmUnjudged = aiForecast != null && aiForecast.plausibility_judged === false;
+      const peak = lstmOod || lstmUnjudged ? null : aiForecast?.predicted_peak_load;
       // No horizon to draw. Show what the LSTM actually produced — two numbers — rather
       // than a curve interpolated between them.
       if (!forecastSeries.length) {
@@ -376,14 +392,15 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
               <span style={{ fontSize: '10px', fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--text-primary)', textAlign: 'right' }}>{powerMw(loadMw)}</span>
               <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>LSTM predicted peak</span>
               <span style={{ fontSize: '10px', fontFamily: 'monospace', fontWeight: 'bold', color: lstmOod ? 'var(--accent-yellow)' : 'var(--accent-blue)', textAlign: 'right' }}>
-                {peak != null ? `${peak.toFixed(2)} MW`
-                  : lstmOod ? `${aiForecast.predicted_peak_load.toFixed(2)} MW · out of distribution`
+                {peak != null ? powerMw(peak)
+                  : lstmOod ? `${powerMw(aiForecast.predicted_peak_load)} · out of distribution`
+                  : lstmUnjudged ? `${powerMw(aiForecast.predicted_peak_load)} · not yet checked`
                   : '—'}
               </span>
               {delta != null && (
                 <>
                   <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Headroom to peak</span>
-                  <span style={{ fontSize: '10px', fontFamily: 'monospace', fontWeight: 'bold', color: delta > 0 ? 'var(--accent-yellow)' : 'var(--accent-green)', textAlign: 'right' }}>{delta >= 0 ? '+' : ''}{delta.toFixed(2)} MW</span>
+                  <span style={{ fontSize: '10px', fontFamily: 'monospace', fontWeight: 'bold', color: delta > 0 ? 'var(--accent-yellow)' : 'var(--accent-green)', textAlign: 'right' }}>{delta >= 0 ? '+' : ''}{powerMw(delta)}</span>
                 </>
               )}
               <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Zero-shot horizon</span>
@@ -437,9 +454,10 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
             )}
             <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{lstmOod ? 'LSTM (supervised)' : 'Red line — LSTM (supervised)'}</span>
             <span style={{ fontSize: '10px', fontFamily: 'monospace', color: lstmOod ? 'var(--accent-yellow)' : 'var(--accent-red)', textAlign: 'right' }}>
-              {lstmOod ? `${aiForecast.predicted_peak_load.toFixed(2)} MW · not this building`
-                : lstmCompare?.peakMw != null ? `${lstmCompare.peakMw.toFixed(2)} MW peak`
-                : peak != null ? `${peak.toFixed(2)} MW peak` : '—'}
+              {lstmOod ? `${powerMw(aiForecast.predicted_peak_load)} · not this building`
+                : lstmUnjudged ? `${powerMw(aiForecast.predicted_peak_load)} · not yet checked`
+                : lstmCompare?.peakMw != null ? `${powerMw(lstmCompare.peakMw)} peak`
+                : peak != null ? `${powerMw(peak)} peak` : '—'}
             </span>
             {agreement?.comparable && (
               <>
@@ -448,7 +466,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
                   fontSize: '10px', fontFamily: 'monospace', textAlign: 'right',
                   color: agreement.relativeDiff > 0.25 ? 'var(--accent-yellow)' : 'var(--text-primary)',
                 }}>
-                  {Math.abs(agreement.deltaMw).toFixed(2)} MW ({(agreement.relativeDiff * 100).toFixed(0)}%) · {agreement.higher.toUpperCase()} higher
+                  {powerMw(Math.abs(agreement.deltaMw))} ({(agreement.relativeDiff * 100).toFixed(0)}%) · {agreement.higher.toUpperCase()} higher
                 </span>
               </>
             )}
@@ -460,7 +478,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       const rows = [
         ['Auto-Pilot', simData.autoPilot !== false ? 'engaged' : 'suspended (manual)'],
         ['Zones in setback', `${simData.zonesInSetback || 0}`],
-        ['Live savings', `${(savedMw * 1000).toFixed(0)} kW (${savingsPct.toFixed(1)}%)`],
+        ['Live savings', `${powerMw(savedMw)} (${savingsPct.toFixed(1)}%)`],
         ['Utility saving', `${money(energyCostPerDay(savedMw * 1000))}/day`],
         ['Plant COP', (simData.plantCop || 0).toFixed(2)],
         ['Cooling delivered', `${powerMw(simData.coolingOutputMw || 0)} thermal`],

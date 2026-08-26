@@ -156,7 +156,14 @@ type engineResult struct {
 	// drawn more than 0.03 MW. The number is not wrong arithmetic, it is a model being
 	// asked about a building it has never seen — and a dashboard that renders it as "the
 	// predicted peak" is making a claim the twin cannot support.
-	Implausible  bool   `json:"implausible"`
+	Implausible bool `json:"implausible"`
+	// Judged separates "checked against this building's own load range and found sane"
+	// from "there was not enough observed history to check at all". Without it the two
+	// are indistinguishable downstream — Implausible is false in both cases — and a panel
+	// reading only that flag drew a peak-shaving bar of a 2.41 MW forecast against a 5.2 kW
+	// house, reported it as 0%, and captioned it as this building's predicted peak. An
+	// unmade judgement is not a passing one.
+	Judged       bool   `json:"plausibilityJudged"`
 	Plausibility string `json:"plausibility,omitempty"`
 }
 
@@ -173,9 +180,33 @@ const minRangeSamples = 24
 
 // checkPlausible annotates a result against the building's own observed load range.
 func checkPlausible(res *engineResult, lo, hi float64, n int) {
-	if res.PeakMw == nil || n < minRangeSamples || hi <= 0 {
+	if res.PeakMw == nil {
 		return
 	}
+	// Not enough observed history to say anything. Report that explicitly rather than
+	// leaving the result looking checked-and-clear: this is the state right after a
+	// restart, or after the engine has discarded a load series recorded under a
+	// superseded model, and it is exactly when a wild forecast is least defensible to
+	// draw a comparison against.
+	if n < minRangeSamples || hi <= 0 {
+		res.Judged = false
+		if hi <= 0 {
+			res.Plausibility = "not assessed: no load has been observed for this building yet, " +
+				"so there is no range to check the forecast against. It is shown as reported."
+		} else {
+			plural := "samples"
+			if n == 1 {
+				plural = "sample"
+			}
+			res.Plausibility = fmt.Sprintf(
+				"not assessed: this building has only %d recorded load %s and at least %d "+
+					"are needed before its own range means anything. The forecast is shown as "+
+					"reported and has not been checked against this building.",
+				n, plural, minRangeSamples)
+		}
+		return
+	}
+	res.Judged = true
 	p := *res.PeakMw
 	switch {
 	case p > hi*outOfDistributionFactor:
@@ -414,6 +445,30 @@ func forecastAgreement(lstm, tfm engineResult) map[string]interface{} {
 			"note":       "both engines must answer before their forecasts can be compared",
 		}
 	}
+	// An answer this same payload has already flagged as out of distribution is not one
+	// half of a model comparison. Reporting "the two engines differ by 2.37 MW (99%)" on a
+	// building whose highest observed load is 0.025 MW states a disagreement between two
+	// forecasts of THIS building, when one of them is a forecast of a different one — the
+	// difference measures the gap between the buildings, not between the models. The panel
+	// was rendering that percentage as a headline directly beneath its own "not this
+	// building" badge.
+	if lstm.Implausible || tfm.Implausible {
+		out := map[string]interface{}{
+			"comparable": false,
+			"note": "the two forecasts cannot be compared: one of them has been flagged as " +
+				"out of distribution for this building, so the gap between them measures " +
+				"the gap between buildings rather than between models",
+		}
+		switch {
+		case lstm.Implausible && tfm.Implausible:
+			out["excluded"] = []string{"lstm", "timesfm"}
+		case lstm.Implausible:
+			out["excluded"] = []string{"lstm"}
+		default:
+			out["excluded"] = []string{"timesfm"}
+		}
+		return out
+	}
 	a, b := *lstm.PeakMw, *tfm.PeakMw
 	diff := a - b
 	rel := 0.0
@@ -509,6 +564,7 @@ func forecastHandler(engine *simulation.Engine) http.HandlerFunc {
 					res := engineResult{PeakMw: &peak}
 					checkPlausible(&res, lo, hi, n)
 					out["implausible"] = res.Implausible
+					out["plausibility_judged"] = res.Judged
 					if res.Plausibility != "" {
 						out["plausibility"] = res.Plausibility
 					}

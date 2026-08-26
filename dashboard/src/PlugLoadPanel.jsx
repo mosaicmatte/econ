@@ -3,6 +3,7 @@ import { Plug, PowerOff, ShieldAlert, Gauge, KeyRound, Moon } from 'lucide-react
 import { usePlugs } from './usePlugs';
 import { money, TARIFF } from './tariff';
 import { GRID_EF_KG_PER_KWH, IS_IT_DOMINATED, ZONE_MIX } from './sustainability';
+import { powerKw } from './units';
 
 // Plug-load management (APLC) — the end use a conventional BMS neither meters nor
 // controls. In the Hanoi office-tower case study this project benchmarks against
@@ -64,7 +65,7 @@ export default function PlugLoadPanel({ simData }) {
       <div style={S.section}>
         <div style={S.row}>
           <span style={S.label}>Plug draw now</span>
-          <span style={S.big}>{plugKw.toFixed(0)} kW</span>
+          <span style={S.big}>{powerKw(plugKw)}</span>
         </div>
         <div style={S.row}>
           <span style={S.label}>Share of building load</span>

@@ -175,6 +175,8 @@ type Engine struct {
 	Bess       Battery
 	lastLoadMw float64   // latest computed building electrical load (MW), fed to BESS dispatch
 	lastBessAt time.Time // wall-clock of the last BESS integration step
+	// lastOccupancyAt paces the modelled occupancy redraw (applyOccupancySchedule).
+	lastOccupancyAt time.Time
 	// Automated Plug Load Control (plugs.go): sweep policy, cumulative avoided energy,
 	// and the wall-clock anchor its integration runs on (sim time accelerates; savings
 	// must not).
@@ -362,11 +364,15 @@ func (e *Engine) buildFromJSON(data []byte) error {
 				areaM2 = plugDefaultAreaM2
 			}
 			e.Zones[z.ZoneId] = &ZoneSim{
-				Temp:          temp,
-				WallTemp:      temp,
-				Type:          z.ZoneType,
-				BimAssetId:    z.BimAssetId,
-				Occupancy:     rand.Intn(10),
+				Temp:       temp,
+				WallTemp:   temp,
+				Type:       z.ZoneType,
+				BimAssetId: z.BimAssetId,
+				// Occupancy comes from the zone's own area and its programme's design
+				// density, scaled by the hour (see applyOccupancySchedule). It was
+				// rand.Intn(10) — a uniform 0..9 people drawn once and never changed,
+				// which put seven people in a 4 m2 bathroom and made vacancy impossible.
+				Occupancy:     scheduledOccupancy(z.ZoneType, areaM2, time.Now()),
 				BaseHeatGain:  z.ThermalProperties.BaseHeatLoad,
 				SolarGainMult: z.ThermalProperties.SolarGainMultiplier,
 				// Floor CAir: some digitized zones (e.g. tiny "server rooms") carry an
@@ -1203,6 +1209,24 @@ func (e *Engine) LoadForecastThreshold(k float64, lead time.Duration) (threshold
 // (recommendapi.go), exactly like the plug savings counter — a model that forgets
 // everything it learned on every redeploy would be re-learning "normal" forever. Bytes,
 // not the internal map type, so the persistence lives cleanly in package main.
+// OccupancyModelVersion stamps every file of learned state with the occupancy model that
+// produced it.
+//
+// Learned state can be stale for a second reason besides describing a different building:
+// it can describe THIS building under a different model. Occupancy is an input to almost
+// everything the engine learns — the zone temperatures the baselines score, the whole-
+// building load they trigger pre-cool from, the recorded megawatt series both forecasters
+// read, and the occupant-gain term of every identified room. When that input changes, state
+// fit against the old one is not merely imprecise, it is a confident statement about a
+// building that no longer exists: the house learned its normal load with twenty-eight
+// phantom occupants in it, and the pre-cool trigger, the plausibility check that decides
+// whether a forecast is refused, and the battery's own nameplate are all read off it.
+//
+// Bump this whenever a change alters what the engine will learn. A mismatch discards the
+// affected state and relearns, which costs hours of warm-up and buys not acting on a model
+// of a building that was never there.
+const OccupancyModelVersion = 2
+
 // baselineDoc wraps the learned buckets with the building they were learned from.
 //
 // Zone buckets are keyed by zoneId, so a different building simply mints different keys.
@@ -1211,8 +1235,15 @@ func (e *Engine) LoadForecastThreshold(k float64, lead time.Duration) (threshold
 // automation actuates on. Restoring a previous building's version of it told a 72 m2 house
 // that it normally draws 0.6 MW, and the automation duly opened real pre-cool windows.
 type baselineDoc struct {
-	BuildingId string                           `json:"buildingId"`
-	Stats      map[string]map[int]*baselineStat `json:"stats"`
+	BuildingId string `json:"buildingId"`
+	ModelVer   int    `json:"occupancyModelVersion"`
+	// Site is the network this state was learned on (see site.go). The building id says
+	// which building the model DESCRIBES; it cannot say whether the engine is currently at
+	// it. The fixture travels with the machine, so a laptop running the house's fixture
+	// somewhere else passes every other check and folds that somewhere-else into the
+	// house's learned normal.
+	Site  string                           `json:"site,omitempty"`
+	Stats map[string]map[int]*baselineStat `json:"stats"`
 }
 
 func (e *Engine) MarshalBaselines() ([]byte, error) {
@@ -1222,7 +1253,10 @@ func (e *Engine) MarshalBaselines() ([]byte, error) {
 	e.mu.Lock()
 	id := e.buildingId
 	e.mu.Unlock()
-	return json.Marshal(baselineDoc{BuildingId: id, Stats: e.baselines.Snapshot()})
+	return json.Marshal(baselineDoc{
+		BuildingId: id, ModelVer: OccupancyModelVersion, Site: SiteFingerprint(),
+		Stats: e.baselines.Snapshot(),
+	})
 }
 
 func (e *Engine) LoadBaselines(data []byte) error {
@@ -1232,19 +1266,37 @@ func (e *Engine) LoadBaselines(data []byte) error {
 	var doc baselineDoc
 	if err := json.Unmarshal(data, &doc); err != nil || doc.Stats == nil {
 		// Legacy form: the bare bucket map, from before the model recorded which building
-		// it learned from. Restore it, then drop the whole-building buckets, because they
-		// are the ones that cannot be shown to describe this building.
+		// it learned from. It also predates the occupancy model version, so it cannot show
+		// that it was learned under the occupancy this engine now drives — and a baseline
+		// is a statement about what is normal, which is exactly what changed. Verify it
+		// parses so a corrupt file is still reported, then discard it and relearn.
 		if err2 := e.baselines.LoadState(data); err2 != nil {
 			if err != nil {
 				return err
 			}
 			return err2
 		}
-		if n := e.baselines.DropGlobal(); n > 0 {
-			log.Printf("[baselines] restored a model with no building recorded — dropped %d "+
-				"whole-building buckets rather than assume they describe this building", n)
-		}
-		e.pruneStaleZoneState()
+		e.baselines.Restore(map[string]map[int]*baselineStat{})
+		log.Printf("[baselines] restored model records neither a building nor an occupancy " +
+			"model version — discarding it and relearning rather than treating another " +
+			"building's normal, or this one's under a different occupancy, as this one's")
+		return nil
+	}
+	// State learned under a previous occupancy model describes a building that was never
+	// there. Per-zone buckets are as affected as the GLOBAL ones here — the occupancy the
+	// rooms were scored against, and the temperatures that followed from it, both changed —
+	// so the whole model is dropped rather than partially trusted.
+	if doc.ModelVer != OccupancyModelVersion {
+		log.Printf("[baselines] learned under occupancy model v%d, this engine is v%d — "+
+			"discarding the model and relearning; what a zone's normal looks like changed "+
+			"with the occupancy that drives it", doc.ModelVer, OccupancyModelVersion)
+		return nil
+	}
+	if !sameSite(doc.Site) {
+		log.Printf("[baselines] learned on network %s but this engine is on %s — discarding "+
+			"and relearning. This is what a machine carrying its fixture to another site "+
+			"looks like; if instead the router here was replaced, the state was still this "+
+			"building's and it will simply relearn.", doc.Site, SiteFingerprint())
 		return nil
 	}
 	e.baselines.Restore(doc.Stats)
@@ -1389,6 +1441,8 @@ func (e *Engine) DynamicsCoverage() (identified, learning int) {
 // with full confidence is worse than no conclusion.
 type dynamicsDoc struct {
 	BuildingId string                     `json:"buildingId"`
+	ModelVer   int                        `json:"occupancyModelVersion"`
+	Site       string                     `json:"site,omitempty"`
 	Rooms      map[string]json.RawMessage `json:"rooms"`
 }
 
@@ -1407,7 +1461,9 @@ func (e *Engine) MarshalDynamics() ([]byte, error) {
 	e.mu.Lock()
 	id := e.buildingId
 	e.mu.Unlock()
-	return json.Marshal(dynamicsDoc{BuildingId: id, Rooms: rooms})
+	return json.Marshal(dynamicsDoc{
+		BuildingId: id, ModelVer: OccupancyModelVersion, Site: SiteFingerprint(), Rooms: rooms,
+	})
 }
 
 func (e *Engine) LoadDynamics(data []byte) error {
@@ -1436,6 +1492,23 @@ func (e *Engine) LoadDynamics(data []byte) error {
 		log.Printf("[dynamics] room models were identified in %q but the loaded building is %q — "+
 			"discarding %d rooms; zone ids collide across buildings, so restoring them would "+
 			"apply one room's physics to another", doc.BuildingId, id, len(doc.Rooms))
+		return nil
+	}
+	// Occupancy is a regressor in the thermal fit. A fit identified when it was a constant
+	// carries an occupant-gain coefficient that the data never constrained, held at its
+	// prior by the ridge term; keeping it would present a number as identified that was
+	// only ever assumed.
+	if doc.ModelVer != OccupancyModelVersion {
+		log.Printf("[dynamics] room models were identified under occupancy model v%d, this "+
+			"engine is v%d — discarding %d rooms and re-identifying; occupancy is a regressor "+
+			"in the thermal fit", doc.ModelVer, OccupancyModelVersion, len(doc.Rooms))
+		return nil
+	}
+	if !sameSite(doc.Site) {
+		log.Printf("[dynamics] room models were identified on network %s but this engine is "+
+			"on %s — discarding %d rooms. An identified time constant and cooling authority "+
+			"belong to a physical room in a physical place, not to a fixture id.",
+			doc.Site, SiteFingerprint(), len(doc.Rooms))
 		return nil
 	}
 	inner, err := json.Marshal(doc.Rooms)
@@ -1572,6 +1645,79 @@ func (e *Engine) RemoveClient(conn *websocket.Conn) {
 	e.mu.Unlock()
 }
 
+// --- occupancy -------------------------------------------------------------
+//
+// Who is in each room. This is the term the whole optimizer turns on: a zone is set back
+// when it is empty, its sockets are swept when it has been empty long enough, its fresh-air
+// load is its headcount times the library's litres per second per person, and its
+// identified thermal model carries an occupant-gain coefficient that only means anything if
+// the count actually moves.
+//
+// It used to be rand.Intn(10), drawn once per zone at boot. See OccupancySchedule in
+// library.go for what that cost. What replaces it is the ordinary engineering model: the
+// zone's own digitized floor area over its programme's design occupant density, scaled by a
+// diurnal profile, with a small draw-to-draw variation so a learned baseline has a real
+// spread to measure against.
+//
+// Nothing here is a measurement and nothing here pretends to be. A zone bound to a PIR or a
+// CV tracker is skipped entirely — z.Live is set the moment real occupancy arrives, and the
+// model never writes over it.
+
+// scheduledOccupancy is the modelled headcount for a zone of this programme and area at
+// this moment, including the library's draw-to-draw variation.
+func scheduledOccupancy(zoneType string, areaM2 float64, at time.Time) int {
+	design := DesignOccupancy(zoneType, areaM2)
+	if design <= 0 {
+		return 0
+	}
+	frac := OccupancyFractionAt(zoneType, at.In(vnLoc).Hour())
+	if frac <= 0 {
+		return 0
+	}
+	mean := float64(design) * frac
+	// Vary the draw around the scheduled mean. Without this every day is identical and
+	// the learned baseline's standard deviation collapses toward zero, which turns the
+	// first genuine change into an anomaly of unbounded sigma.
+	if j := Occupancy().JitterFraction; j > 0 {
+		mean += getNoise(mean * j)
+	}
+	n := int(math.Round(mean))
+	if n < 0 {
+		n = 0
+	}
+	// The schedule says a fraction of the design count is present; it cannot conjure more
+	// people than the room is designed to hold.
+	if n > design {
+		n = design
+	}
+	return n
+}
+
+// applyOccupancySchedule refreshes every modelled zone's headcount. Lock held.
+//
+// The count is redrawn on the library's cadence rather than every tick: at 30 fps a fresh
+// draw each frame would be pure noise, and both the vacancy delay before a setback and the
+// identification's excitation gate need the count to hold still long enough to mean
+// something.
+func (e *Engine) applyOccupancySchedule(now time.Time) {
+	every := Occupancy().ResampleMinutes
+	if every <= 0 {
+		every = 20
+	}
+	if !e.lastOccupancyAt.IsZero() && now.Sub(e.lastOccupancyAt) < time.Duration(every*float64(time.Minute)) {
+		return
+	}
+	e.lastOccupancyAt = now
+	for _, z := range e.Zones {
+		// A real sensor owns this zone's occupancy; the model must never overwrite a
+		// measurement (rule 1).
+		if z.Live {
+			continue
+		}
+		z.Occupancy = scheduledOccupancy(z.Type, z.AreaM2, now)
+	}
+}
+
 func getNoise(std float64) float64 {
 	u, v := 0.0, 0.0
 	for u == 0 {
@@ -1631,6 +1777,11 @@ func (e *Engine) Start() {
 		e.actuate()
 		e.applyHardware()
 
+		// Who is in each room, on the library's diurnal schedule. Runs before the plug
+		// sweep and the optimizer read it, so a room that has just emptied is seen as
+		// empty on the same tick rather than one behind.
+		e.applyOccupancySchedule(time.Now())
+
 		// After-hours plug sweep (APLC): shed/restore switchable sockets on verified
 		// vacancy, accumulate avoided energy on wall-clock time.
 		e.plugTick(time.Now())
@@ -1641,7 +1792,14 @@ func (e *Engine) Start() {
 
 		// BESS dispatch: TOU-driven charge/discharge against the last computed building load,
 		// integrated on real wall-clock time so the state of charge trends realistically.
+		//
+		// An undeclared pack is sized to this building first, from the peak it has actually
+		// been observed at — the same rule the fan follows. A site that declared its own
+		// nameplate is untouched by this.
 		now := time.Now()
+		if _, peakMw, n := e.observedLoadRange(); n > 0 {
+			e.Bess.SizeToBuilding(peakMw)
+		}
 		e.Bess.Dispatch(now.Sub(e.lastBessAt).Seconds(), e.lastLoadMw, touBand(now))
 		e.lastBessAt = now
 		e.mu.Unlock()
@@ -1800,13 +1958,18 @@ func (e *Engine) sampleHistory(now time.Time) {
 // was handed two buildings spliced into one series with no discontinuity marked.
 type loadHistoryDoc struct {
 	BuildingId string    `json:"buildingId"`
+	ModelVer   int       `json:"occupancyModelVersion"`
+	Site       string    `json:"site,omitempty"`
 	Samples    []float64 `json:"samples"`
 }
 
 func (e *Engine) MarshalLoadHistory() ([]byte, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return json.Marshal(loadHistoryDoc{BuildingId: e.buildingId, Samples: e.loadHist})
+	return json.Marshal(loadHistoryDoc{
+		BuildingId: e.buildingId, ModelVer: OccupancyModelVersion, Site: SiteFingerprint(),
+		Samples: e.loadHist,
+	})
 }
 
 // BuildingId reports the fixture currently loaded (empty when it declared none).
@@ -1842,6 +2005,27 @@ func (e *Engine) LoadLoadHistory(data []byte) error {
 		e.loadHist = e.loadHist[:0]
 		return nil
 	}
+	// The recorded megawatts are only this building's if the model that produced them still
+	// is. This series is not merely plotted: it is the range the plausibility check refuses
+	// a forecast against, the history the zero-shot forecaster reads, and the peak the
+	// battery's nameplate is sized from. A load recorded with a population the building
+	// never had would keep all three anchored to it.
+	if doc.ModelVer != OccupancyModelVersion {
+		log.Printf("[forecast] recorded load history was produced under occupancy model v%d, "+
+			"this engine is v%d — discarding %d samples; the load this building draws changed "+
+			"with the occupancy driving it", doc.ModelVer, OccupancyModelVersion, len(hist))
+		e.loadHist = e.loadHist[:0]
+		return nil
+	}
+	if !sameSite(doc.Site) {
+		log.Printf("[forecast] recorded load history was measured on network %s but this "+
+			"engine is on %s — discarding %d samples. These megawatts are the range the "+
+			"plausibility check refuses a forecast against and the peak the battery is sized "+
+			"from; both must describe the place the engine is actually running.",
+			doc.Site, SiteFingerprint(), len(hist))
+		e.loadHist = e.loadHist[:0]
+		return nil
+	}
 	// Only finite, positive samples: a corrupt file must not be able to teach the
 	// forecaster that the building drew NaN megawatts.
 	e.loadHist = e.loadHist[:0]
@@ -1867,6 +2051,11 @@ func (e *Engine) LoadLoadHistory(data []byte) error {
 func (e *Engine) ObservedLoadRange() (min, max float64, n int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.observedLoadRange()
+}
+
+// observedLoadRange is the same answer for callers that already hold the lock.
+func (e *Engine) observedLoadRange() (min, max float64, n int) {
 	// Prefer the running range: it is sampled at the baseline cadence, so it becomes
 	// usable evidence within minutes of boot rather than after two hours of 5-minute
 	// forecast samples. Fall back to the forecast history for a process that has just

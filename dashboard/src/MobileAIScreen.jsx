@@ -9,6 +9,7 @@ import { useLibrary } from './useLibrary';
 import { useRoomModels } from './useRoomModels';
 import RecommendationEvidence from './RecommendationEvidence';
 import { API_BASE } from './api';
+import { powerMw, powerKw } from './units';
 
 // Mobile "AI & Automation" screen — the phone-sized twin of the desktop AI Insights panel.
 // Gives the operator the three things the app is meant to offer on the go:
@@ -134,7 +135,7 @@ export default function MobileAIScreen({
           ? `A pre-cool window is open until ${untilLabel(precool.until)} — thermal mass is charging so chillers coast through the ${rateStr('peak')}/kWh window.`
           : `${tou === 'peak' ? `Peak rate is charging ${rateStr('peak')}/kWh right now.` : `Peak rate (${rateStr('peak')}/kWh) begins at 17:30.`}${
               shedKw != null
-                ? ` Pre-cooling shifts an estimated ${shedKw.toFixed(0)} kW off peak — about ${money(peakShiftSavingPerMonth(shedKw))}/month at the rate gap, using the library's ${(precoolShift * 100).toFixed(0)}% planning figure rather than a measured coast.`
+                ? ` Pre-cooling shifts an estimated ${powerKw(shedKw)} off peak — about ${money(peakShiftSavingPerMonth(shedKw))}/month at the rate gap, using the library's ${(precoolShift * 100).toFixed(0)}% planning figure rather than a measured coast.`
                 : ' The size of the shift is not shown: it depends on a plant coefficient this dashboard could not read from the engine.'
             }`,
         actionLabel: 'ACTIVATE PRE-COOLING',
@@ -159,14 +160,22 @@ export default function MobileAIScreen({
       // distribution for this building is presented as a finding about the model, not as
       // this building's coming peak.
       const ood = aiForecast.implausible === true;
+      // And one the engine has not had enough observed load to check yet is reported as
+      // unchecked, not as clear — "not flagged" and "verified" are different states.
+      const unjudged = !ood && aiForecast.plausibility_judged === false;
+      const flagged = ood || unjudged;
       out.push({
-        id: 'forecast', accent: ood ? '#F5C242' : '#4A90E2',
-        icon: <Activity size={20} color={ood ? '#F5C242' : '#4A90E2'} />,
-        title: ood ? 'LSTM Forecast Out Of Distribution' : 'LSTM Load Forecast',
-        badge: ood ? 'NOT THIS BUILDING' : undefined,
+        id: 'forecast', accent: flagged ? '#F5C242' : '#4A90E2',
+        icon: <Activity size={20} color={flagged ? '#F5C242' : '#4A90E2'} />,
+        title: ood ? 'LSTM Forecast Out Of Distribution'
+          : unjudged ? 'LSTM Forecast Not Yet Checked'
+          : 'LSTM Load Forecast',
+        badge: ood ? 'NOT THIS BUILDING' : unjudged ? 'UNVERIFIED' : undefined,
         message: ood
-          ? `The supervised model returns ${aiForecast.predicted_peak_load.toFixed(2)} MW. ${aiForecast.plausibility} Retrain it on this building, or rely on the zero-shot forecaster, which reads this building's own recorded series.`
-          : `Model predicts an upcoming peak of ${aiForecast.predicted_peak_load.toFixed(2)} MW ${src}.${warmup}`,
+          ? `The supervised model returns ${powerMw(aiForecast.predicted_peak_load)}. ${aiForecast.plausibility} Retrain it on this building, or rely on the zero-shot forecaster, which reads this building's own recorded series.`
+          : unjudged
+            ? `The supervised model returns ${powerMw(aiForecast.predicted_peak_load)}, but ${aiForecast.plausibility}`
+            : `Model predicts an upcoming peak of ${powerMw(aiForecast.predicted_peak_load)} ${src}.${warmup}`,
       });
     }
 
@@ -266,7 +275,7 @@ export default function MobileAIScreen({
           </div>
           <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginTop: '3px', lineHeight: 1.35 }}>
             {autoPilot
-              ? `Holding ${simData.zonesInSetback ?? 0} zone${(simData.zonesInSetback ?? 0) === 1 ? '' : 's'} in setback — ${((simData.energySavedMw || 0) * 1000).toFixed(0)} kW saved (${money(energyCostPerDay((simData.energySavedMw || 0) * 1000))}/day). Streamed from the engine.`
+              ? `Holding ${simData.zonesInSetback ?? 0} zone${(simData.zonesInSetback ?? 0) === 1 ? '' : 's'} in setback — ${powerMw(simData.energySavedMw || 0)} saved (${money(energyCostPerDay((simData.energySavedMw || 0) * 1000))}/day). Streamed from the engine.`
               : 'Manual mode — setpoints released to baseline, you are in control. Recommendations below are suggestions.'}
           </div>
         </div>

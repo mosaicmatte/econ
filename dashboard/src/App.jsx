@@ -24,6 +24,7 @@ import { rateNow, money, touPeriodLabel, touPeriod } from './tariff';
 import { SimState } from './telemetry';
 import { useDigitalTwin, FAULT_ZONES, DEFAULT_FAULT_TARGET } from './useDigitalTwin';
 import AirflowWindow from './AirflowWindow';
+import StreamStatus from './StreamStatus';
 import CanvasErrorBoundary from './CanvasErrorBoundary';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Canvas } from '@react-three/fiber';
@@ -355,11 +356,14 @@ function App() {
     const GUTTER = 24;      // the docks' own offset from the viewport edge
     const TOP_BAR = 72;     // view-mode toggle strip across the top
     const BOTTOM_BAR = 96;  // scenario / auto-pilot bar across the bottom
-    const rightOverlay = Math.max(
-      rightPanelWidth,                                   // metrics dock
+    // The floating windows are anchored beside the metrics dock rather than on top of it,
+    // so the region they exclude between them is the dock PLUS the widest window, not the
+    // wider of the two.
+    const floating = Math.max(
       panelSize.w,                                       // topology window
       showWindSim ? airflowSize.w : 0,                   // airflow window
     );
+    const rightOverlay = rightPanelWidth + (floating > 0 ? floating + 12 : 0);
     return {
       left: (isLeftPanelOpen ? leftPanelSize.w : 0) + GUTTER,
       right: rightOverlay + GUTTER,
@@ -497,7 +501,9 @@ function App() {
     globalMetrics,
     loadScenario,
     sendManualOverride,
-    aiForecast
+    aiForecast,
+    streamOpen,
+    streamAgeMs,
   } = useDigitalTwin(onSimUpdate);
 
   const executeRemediation = () => {
@@ -537,12 +543,20 @@ function App() {
         simData={simData}
         aiForecast={aiForecast}
         hardwareNodes={hardwareNodes}
+        streamOpen={streamOpen}
+        streamAgeMs={streamAgeMs}
       />
     );
   }
 
   return (
     <div className="hud-container">
+      {/* Nothing at all while the stream is healthy; explicit the moment it is not. Every
+          streamed number below this line is the last frame received, and without this the
+          page reads as normal operation straight through an engine outage. */}
+      <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 4000 }}>
+        <StreamStatus streamOpen={streamOpen} streamAgeMs={streamAgeMs} />
+      </div>
 
       {/* Live time-of-day sky, shared with the mobile view: golden hour, morning, afternoon,
           sunset, evening. Sits behind the transparent 3D canvas. */}
@@ -709,7 +723,14 @@ function App() {
       <div 
         className="minimap-wrapper" 
         style={{ 
-          position: 'absolute', width: panelSize.w, height: panelSize.h, bottom: '90px', right: '24px', padding: 0, overflow: 'visible', zIndex: 10
+          // Anchored to the INSIDE edge of the metrics dock, not to the viewport edge.
+          // At right: 24 these floating windows sat directly on top of the ENTERPRISE
+          // OVERVIEW — the panel carrying total load, savings, EUI, carbon and the fault
+          // count — and hid most of it behind a secondary view the moment either was
+          // opened. safeArea already treats the dock and these windows as one right-hand
+          // exclusion for framing the building; this makes the layout agree with it.
+          position: 'absolute', width: panelSize.w, height: panelSize.h, bottom: '90px',
+          right: rightPanelWidth + 24 + 12, padding: 0, overflow: 'visible', zIndex: 10
         }}
       >
         <div 
@@ -816,7 +837,7 @@ function App() {
           size={airflowSize}
           setSize={setAirflowSize}
           onClose={() => setShowWindSim(false)}
-          right={24}
+          right={rightPanelWidth + 24 + 12}
           bottom={90 + panelSize.h + 12}
         />
       )}

@@ -17,6 +17,7 @@ import LiveWeatherBackground from './LiveWeatherBackground';
 import { getBuilding } from './buildingStore';
 const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 import { DEFAULT_FAULT_TARGET } from './useDigitalTwin';
+import { streamIsStale, streamAgeLabel } from './StreamStatus';
 
 // The floor to open on: the one holding the default critical asset, read from the loaded
 // building rather than pinned to a level number, so a regenerated building-data.json (or a
@@ -47,8 +48,13 @@ export default function MobileApp() {
     globalMetrics,
     loadScenario,
     aiForecast,
-    sendManualOverride
+    sendManualOverride,
+    streamOpen,
+    streamAgeMs,
   } = useDigitalTwin(onSimUpdate);
+
+  // True when the numbers on this screen have stopped being current. See StreamStatus.
+  const stale = streamIsStale(streamOpen, streamAgeMs);
 
   const [hardwareNodes, setHardwareNodes] = useState({});
 
@@ -117,10 +123,18 @@ export default function MobileApp() {
           style={{ cursor: failingZone ? 'pointer' : 'default', pointerEvents: failingZone ? 'auto' : 'none' }}
         >
           <div style={{ fontSize: '24px', fontWeight: '600' }}>ECON Center</div>
-          <div style={{ fontSize: '14px', color: failingZone ? '#FF3B30' : '#34C759', fontWeight: '500', marginTop: '2px' }}>
-            {failingZone
-              ? `⚠ ${failingZone.label} · ${Number(failingZone.temp).toFixed(1)}°C`
-              : 'Nominal Operation'}
+          {/* "Nominal Operation" is the most misleading thing this screen can say during an
+              engine outage: it is a verdict on a building nobody is currently hearing from.
+              A stale stream reports itself instead. */}
+          <div style={{
+            fontSize: '14px', fontWeight: '500', marginTop: '2px',
+            color: stale ? '#FF9F0A' : failingZone ? '#FF3B30' : '#34C759',
+          }}>
+            {stale
+              ? `⚠ Telemetry stale · ${streamAgeLabel(streamAgeMs)}`
+              : failingZone
+                ? `⚠ ${failingZone.label} · ${Number(failingZone.temp).toFixed(1)}°C`
+                : 'Nominal Operation'}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -324,7 +338,7 @@ export default function MobileApp() {
              <BlueprintImportPanel mobile onClose={() => setActiveModal(null)} />
           )}
           {activeModal === 'impact' && (
-             <MobileImpactScreen simData={simData} aiForecast={aiForecast} hardwareNodes={hardwareNodes} />
+             <MobileImpactScreen simData={simData} aiForecast={aiForecast} hardwareNodes={hardwareNodes} streamOpen={streamOpen} streamAgeMs={streamAgeMs} />
           )}
           {activeModal === 'analytics' && (
              <TelemetryPanel
@@ -445,7 +459,7 @@ function rcaFor(zone) {
 function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
   const [sent, setSent] = useState(null);
   // Ventilation coefficients for the modelled-CO2 readout, from the engine's library.
-  const { modelledCo2 } = useLibrary();
+  const { modelledCo2, modelledVentilationLPerS } = useLibrary();
   if (!zone) return null;
   // Manual override: latches a human veto over the optimizer for 15 min (engine side).
   const override = (action, label) => {
@@ -457,7 +471,17 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
   // ventilation estimate, and the card label says so — same measured/modeled honesty as CO₂.
   const vav = simData ? Object.values(simData.vavs || {}).find(v => v.targetZone === zone.id) : null;
   const cfmMeasured = (vav?.flow || 0) > 0;
-  const cfm = cfmMeasured ? Math.round(vav.flow * 35.3147) : Math.round(zone.occupancy * 17 + 120);
+  // The modelled fallback is the fresh air this zone's occupancy requires, at the library's
+  // own litres-per-second-per-person — the same coefficient the engine's ventilation load is
+  // computed with. It used to be `occupancy * 17 + 120`: a per-person rate that matched no
+  // standard and a 120 CFM floor from nowhere at all, so a room the VAV reported no flow for
+  // flipped from "1 CFM" to a confident "239 CFM" between frames. Null when the library has
+  // not answered — the card then says there is no figure, exactly as it does for CO2.
+  const ventLPerS = cfmMeasured ? null : modelledVentilationLPerS(zone.occupancy);
+  const cfm = cfmMeasured
+    ? Math.round(vav.flow * 35.3147)
+    : ventLPerS != null ? Math.round(ventLPerS * 2.1189) // L/s -> CFM
+    : null;
   // A bound NDIR sensor wins, exactly as on desktop; the occupancy estimate is only a
   // fallback for the zones nothing is measuring. The engine streams 0 when no sensor is
   // reporting, so 0 means "modelled" rather than "a room with no CO2 in it". Labelling
@@ -517,7 +541,10 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
       {/* 2x2 Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
          <StatCard label="SETPOINT" value={`${zone.setpoint.toFixed(1)}°C`} />
-         <StatCard label={cfmMeasured ? 'AIRFLOW (VAV)' : 'AIRFLOW (MODELED)'} value={`${cfm} CFM`} />
+         <StatCard
+           label={cfmMeasured ? 'AIRFLOW (VAV)' : 'AIRFLOW (MODELED)'}
+           value={cfm != null ? `${cfm} CFM` : '—'}
+         />
          <StatCard
            label={co2Measured ? 'CO₂ (MEASURED)' : co2 != null ? 'CO₂ (MODELED)' : 'CO₂'}
            value={co2 != null ? `${co2} ppm` : '— no sensor'}

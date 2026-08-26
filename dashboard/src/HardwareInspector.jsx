@@ -15,6 +15,7 @@
 // "ReferenceError: React is not defined" from this file rather than from the cache.
 import React, { useState, useEffect, useCallback } from 'react';
 import { API_BASE } from './api';
+import { powerMw } from './units';
 
 const POLL_MS = 2000;
 
@@ -508,7 +509,7 @@ function ForecastTab() {
       {agree.comparable ? (
         <div style={agree.relativeDiff > 0.2 ? S.warn : { ...S.dim, lineHeight: 1.6 }}>
           The two disagree by <strong>{(agree.relativeDiff * 100).toFixed(1)}%</strong>
-          {' '}({(+agree.deltaMw).toFixed(3)} MW), {agree.higher.toUpperCase()} higher.
+          {' '}({powerMw(Math.abs(+agree.deltaMw), { digits: 3 })}), {agree.higher.toUpperCase()} higher.
           {agree.relativeDiff > 0.2 &&
             ' A gap this wide usually means one of them is forecasting from far less real history than the other — compare the sample counts above before believing either.'}
         </div>
