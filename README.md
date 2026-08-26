@@ -7,6 +7,287 @@ ECON is a high-performance Digital Twin platform designed to bridge Building Inf
 
 > **🆕 Latest Updates**
 >
+> ### 2026-08-21 — A forecast trained on another building was actuating this one
+>
+> A dashboard sweep turned up the usual crop of display defects, and one thing that was not a
+> display defect at all.
+>
+> **The serious one.** The supervised LSTM's weights encode whichever building `train.py`
+> last saw. Pointed at the house pilot it returned **2.41 MW for a building that had never
+> drawn more than 0.014 MW** — 173× — and nothing in the arithmetic objected. Two pieces of
+> state made it worse: `load-history.json` and the `GLOBAL` learned baselines both survived a
+> building change, so the zero-shot forecaster's context was one series spliced from two
+> different buildings, and the pre-cool automation's *learned* trigger was still the previous
+> building's 0.60 MW. The engine log, before the fix:
+>
+> ```
+> [precool] LSTM predicts 2.41 MW peak (learned trigger 0.60): pre-cooling until 00:46:38
+> ```
+>
+> That is a real actuation — every setpoint in the house driven down for twenty minutes — on
+> the authority of a model that had never seen it. Reporting a bad number on a dashboard is a
+> display bug; actuating on one is not. Now: state that belongs to one building is tagged
+> with that building's id and discarded on a change; every forecast is checked against the
+> building's own **observed** load range and carries that judgement; the panels lead with the
+> finding instead of the megawatts; and the pre-cool poller refuses to act both on a forecast
+> it has judged implausible **and** on any forecast at all until it has enough observation to
+> judge one. Same conditions, after:
+>
+> ```
+> [precool] REFUSING to act on the forecast: 2.41 MW is 210x the highest load this
+> building has been observed at (0.011 MW over 30 recorded samples). ...
+> ```
+>
+> **The crash nobody saw.** `housify_fixture.py` emitted `geometry.outline`; every airflow and
+> 3D consumer opens with `floor.geometry.exteriorPolygon.map(...)`. On the house fixture that
+> threw, and `AirflowWindow`'s throw reached the **root** error boundary — the entire desktop
+> console replaced by the fallback screen. `BuildingModel`'s throw was swallowed by the canvas
+> boundary and simply rendered no building at all. The generator now emits the canonical
+> fields, and `floorGeometry.js` reads either spelling and answers null rather than throwing.
+>
+> **Numbers that had quietly stopped meaning anything.** The critical-zone exclusions were
+> hardcoded as `server-room` / `mechanical` in four files; the digitizer emits `comms-room` /
+> `plant-room`, so the exclusion matched nothing and the comms room was counted as waste and
+> priced as a saving opportunity. `TelemetryPanel` computed delivered cooling against a
+> hardcoded 12 °C supply for every zone, including rooms whose DS18B20 says otherwise
+> (≈25% understated at 9 °C) — `supplyC` and `supplyReal` now ride the telemetry stream. The
+> topology AHU card had rendered the literal `500 Pa` seeded at init for the life of the
+> project while `doHardyCross()` solved the real static pressure every tick — `ahuPressurePa`
+> now streams. `MaintenanceDrawer` reversed an already-chronological series, plotting the last
+> ten minutes backwards **and inverting its least-squares slope**, so a recovering room was
+> labelled `CLIMBING`. An "Integration Score" bullet graph read 0.6 for every zone in the
+> building, from a lookup keyed on retired type names. And the forecast card's
+> "PROJECTED RAMP" was thirteen points of smoothstep easing between two real endpoints — the
+> LSTM has no trajectory to give, so the card now plots TimesFM's real horizon or shows the
+> two numbers it actually has.
+>
+> **`GET /api/library`** is the fix for the class, not just the instances. The panels needed
+> the design supply-air temperature, the plant coefficients that price a setpoint change, and
+> the list of critical zone types — all of which the engine already owns and all of which had
+> been retyped as JavaScript literals, in one case with the same number carrying two
+> incompatible justifications in two files. One endpoint, read from the same
+> `programme-library.json` the physics is evaluated with, through one hook (`useLibrary.js`).
+>
+> **The AI panel now shows its reasoning.** `/api/recommendations` has always carried the
+> learned mean and σ, the z-score, the sample count, the hour bucket, the predicted and
+> equilibrium values — and both dashboards rendered the prose message alone, leaving every
+> card unfalsifiable. `RecommendationEvidence.jsx` renders that payload verbatim: the reading
+> against its learned band, a σ-position strip, the maturity behind it, and the room's own
+> predicted trajectory. Where the identified τ is not to hand it is **recovered
+> algebraically** from the predicted and equilibrium values the engine already sends
+> (`τ = −T / ln((predicted − eq)/(now − eq))`), so the curve on screen is the engine's own
+> curve rather than a shape chosen to look plausible. `/api/rooms/models` — complete, correct
+> and with **zero consumers** since it was written — now backs a Room Models card on both
+> dashboards, including the supply-air provenance that says whether a room's cooling authority
+> was fitted against a real probe or against the library's design value.
+>
+> **Follow-on: the zero-shot model now has a vote.** Gating the bad forecast fixed the
+> symptom and left the arrangement that caused it — `precool.go` polled the *supervised*
+> endpoint exclusively, so the only actuating consumer of a forecast in the whole system was
+> wired to the one model that carries its training building in its weights, while TimesFM,
+> which reads this building's own recorded series and nothing else, had **zero influence on
+> any control decision**. It is now asked first whenever it has enough history, LSTM as
+> fallback, both through the same helpers the dashboard uses:
+>
+> ```
+> [precool] consulting TimesFM (zero-shot) (84 real samples): 0.010 MW predicted peak
+> ```
+>
+> TimesFM's nine decile heads were also being decoded in Python and dropped at the Go
+> boundary — the spread its own module argues matters most for a pre-cool decision. They now
+> reach the dashboard, where the forecast card plots the upper decile as a dashed band. The
+> trigger still compares the **central** estimate, deliberately: the learned threshold is
+> already mean + k·σ of this building's load, so triggering on an upper decile would count
+> the spread twice.
+>
+> Full defect table and reasoning: **PAPER.md §A.4.1**.
+>
+> ### 2026-07-25 — A `git pull` can no longer delete your building, and both forecasters run live in the inspector
+>
+> **The repo tracked three files the running system rewrites.** `building-data.json` and
+> `brick-ontology.json` are replaced wholesale by the blueprint importer on every deploy and
+> rollback; calibrating `programme-library.json` is that file's entire documented purpose.
+> They are tracked because a fresh clone has to boot into a working building — but that meant
+> the moment a collaborator digitized their own floorplan, their tree diverged from the
+> repository on a 448 KB generated JSON that the repository also changes. `git pull` then
+> reports a conflict, and **every obvious way out of it — checkout, reset, stash-drop, "take
+> theirs" — deletes the building they just deployed.** The learned models were protected from
+> this long ago by being gitignored; the building itself never was.
+>
+> **`server/simulation/datapath.go`** — git carries `<name>.json` as the shipped default, the
+> runtime reads `<name>.local.json` whenever it exists, and every runtime *write* goes to the
+> local copy only. `server/data/*.local.json` is gitignored, so a fresh clone falls back to
+> the default and runs, a deployment writes a file git never sees, and the tracked default
+> keeps evolving upstream without fighting anyone. Same shape as
+> `wifi_secrets.example.h → wifi_secrets.h`, applied to the files the *engine* writes rather
+> than the ones a human fills in. The engine says at boot which one it is running.
+>
+> Also gitignored: `server/data/backups/` and `building-audit.log` (one deployment's history),
+> and **`dashboard/dist/`** — 12 build artifacts were tracked, and since Vite hashes every
+> asset filename, each collaborator's `npm run build` produced a different set of tracked
+> files and a guaranteed conflict over artifacts nobody reviews.
+>
+> > **If you have already deployed your own building, do this once before pulling:**
+> > ```bash
+> > cd econ/server
+> > cp data/building-data.json  data/building-data.local.json
+> > cp data/brick-ontology.json data/brick-ontology.local.json   # if you deployed one
+> > git checkout -- data/building-data.json data/brick-ontology.json
+> > ```
+> > Same for `programme-library.json` if you have site-calibrated it. After that the tracked
+> > files are the repository's again and yours are safe in `*.local.json`. Delete a
+> > `.local.json` to fall back to the repository's version. The pull will also delete your
+> > `dashboard/dist/` — just run `npm run build` again.
+>
+> **`ECON_DATA_DIR`** now overrides the data directory, so a second engine can be run against
+> an isolated copy rather than sharing one with a live one — two engines writing the same
+> `room-dynamics.json` corrupts the learned state of both, which is a mistake this project has
+> already made once.
+>
+> **Both forecasters, live, in the inspector.** `/api/forecast/compare` had no UI consumer, so
+> nothing in the system ever showed the LSTM and TimesFM next to each other. The inspector's
+> new **forecast** tab polls both every 30 s and leads with the number that decides how much
+> either deserves to be believed: **how many real samples back it.** The LSTM's 12-step window
+> is left-padded while the engine warms up, so a confident-looking MW figure can be standing
+> on one real sample — the panel says so in amber when it is. The forecast sparkline is dashed
+> and deliberately does *not* reuse the history `Spark` component, whose stroke colour encodes
+> measured-vs-modelled provenance — a claim about evidence that no forecast can make.
+>
+> *Observed live, both fully backed (LSTM 12/12 real samples, TimesFM 512):* **2.332 MW vs
+> 1.493 MW — a 36% disagreement.** Not a warm-up artifact, and worth resolving against measured
+> outturn before either drives pre-cooling. Note `precoolLoop` currently triggers off the LSTM
+> alone.
+
+> ### 2026-07-25 — The node is configurable in the field, and its defaults are what it was compiled with
+>
+> Every tunable on the ESP32 was a compile-time `-D` flag. That is right for anything
+> deciding which *code* is linked — which sensors exist, which IR protocol, which pins — and
+> wrong for everything that is a property of the *installation*: a burden resistor's
+> calibration constant, the mains voltage, the publish cadence, how sensitive the touch pad
+> is. Those are discovered on a ladder with a multimeter, and needing a laptop, a USB cable
+> and physical access to a board that may already be in a ceiling in order to change one
+> float is how a node ends up running forever on a calibration nobody ever corrected.
+>
+> **`src/node_config.h`** — a `NodeConfig` persisted to NVS, settable over MQTT, whose
+> defaults *are* the compile-time flags. A node that is never configured behaves exactly as
+> it did before this existed; that is the design constraint, and the host tests assert it.
+>
+> ```
+> econ/config/<zone>        <- JSON, any subset of fields; {"reset":true} restores defaults
+> econ/config/<zone>/state  -> retained: effective config, which fields are overridden, cfgRev
+> ```
+>
+> ```bash
+> # recalibrate a plug clamp for a 47 Ω burden — no reflash, no ladder
+> mosquitto_pub -h <broker> -t econ/config/zone_1 -r -m '{"plugCalAPerV":42.6}'
+> ```
+>
+> Runtime-settable: `zoneLabel`, `publishIntervalMs`, `plugCalAPerV`, `plugMainsV`,
+> `acCalAPerV`, `acMainsV`, `touchEnterPct`, `touchExitPct`, `touchOccupants`,
+> `setpointMinC`, `setpointMaxC`. **`ZONE_TOPIC` deliberately stays compile-time** — it is
+> the node's identity on the bus, the key its retained LWT and command subscription hang
+> off, so changing it at runtime would orphan both.
+>
+> - **A bad value is refused, not clamped.** A calibration constant multiplies every watt
+>   the node reports, so silently clamping a fat-fingered `6060` to `500` would publish
+>   confident, wrong power forever. The node keeps its last good value and says what it
+>   rejected and why on `.../state`. Ranges are physical, not arbitrary: below 1 or above
+>   500 A/V describes no SCT-013 ever sold; a publish interval over 5 min leaves the zone
+>   unpinned more often than pinned, given the engine's 20 s staleness window.
+> - **A partly-invalid message applies nothing.** The merge happens on a copy and is
+>   validated whole, so a three-field message with one bad field leaves the node exactly as
+>   it was rather than half-configured in a state nobody asked for.
+> - **`cfgRev` closes the loop.** Recalibrating changes what `plugW` and `acW` *mean* — a
+>   step in those series is otherwise indistinguishable from a step in the load itself. Every
+>   telemetry message carries a revision counter, and the engine writes a `config-change`
+>   device event when it moves, into the same table as dropouts, because that is where
+>   someone investigating a discontinuity is already looking. It is wired on arrival, not
+>   published and left for later.
+> - **Retained config survives a reflash.** Publish with `-r` and a node that comes back with
+>   erased NVS picks its site calibration up from the broker. Replaying an identical retained
+>   message is a deliberate no-op — it does not bump `cfgRev`, so a reconnect is not recorded
+>   as a recalibration.
+> - **The stored blob is validated like wire input.** A config written by an older struct
+>   layout, or corrupted in flash, is rejected at boot and the node runs compiled defaults
+>   rather than adopting whatever the bytes happened to decode as.
+>
+> *Verified:* **13/13 firmware builds** — every sensor flag, both clamps, IR AC, Build D,
+> everything-at-once at 70.7% flash, plus the 3 negative I²C-collision tests still correctly
+> refusing to build. Compiling proves nothing about whether the rules reject what they claim
+> to, so the config logic is hardware-free and exercised on the build machine:
+> **`./test/run_host_tests.sh`**, 30 assertions, all passing.
+
+> ### 2026-07-25 — Three sensors that were only ever stored now displace the assumption they were bought to replace, and both forecasters run side by side
+>
+> An audit of the ingest path asked a narrower question than "does the measurement arrive?":
+> **does it change an engine number?** For three of the eight telemetry fields the answer was
+> no. `supplyC`, `acW` and `lux` were parsed, stored in `ZoneSim`, persisted with provenance
+> and rendered in the inspector — and then read by nothing. The engine went on evaluating the
+> exact terms those probes exist to measure against hardcoded literals.
+>
+> Each of the three turned out to be the same defect wearing a different hat: **a coefficient
+> that the programme library already owns (or documents) was duplicated as a literal in
+> `engine.go`.** So each fix is one move, not two — retire the literal to
+> `data/programme-library.json`, then let a fresh reading supersede it for that zone only.
+> That is [CLAUDE.md](CLAUDE.md) rule 2 (coefficients live in data) meeting rule 4 (an
+> identified model beats a configured constant).
+>
+> | Probe | Term it drives | Was | Now |
+> |---|---|---|---|
+> | **DS18B20** `supplyC` | AHU discharge temp in the cooling law, and the reference the RLS cooling regressor is fitted against | literal `12.0` in `tick()`, twice (live + shadow twin) | `Phys().SupplyAirDesignC`, superseded per zone by the probe |
+> | **SCT-013** `acW` | cooling electrical power | *entire* building inferred as `coolingOutputMW / plantCop` | clamped zones contribute **measured watts**; only the unmetered remainder goes through the COP curve |
+> | **BH1750** `lux` | solar heat gain | literal `SolarGainMult * 10000.0` | `Phys().SolarGainReferenceW`, scaled by measured illuminance / `daylightReferenceLux` |
+>
+> - **Measured supply air reaches the identification, not just the physics.**
+>   `RoomCondition.SupplyC` and its `supplyC()` accessor had existed since dynamics.go was
+>   written — with a comment explaining that a probe "supersedes" the design value — but
+>   `roomConditions()` never populated the field, so `supplyC()` returned the library constant
+>   100% of the time and the documented behaviour had never once executed. Cooling authority
+>   (θ₁) is the one identified coefficient whose meaning depends on what it was referenced to,
+>   so `RoomModel` now also reports **`supplyMeasuredSamples` / `supplyMeasuredFrac`**: a room
+>   fitted from evidence is no longer indistinguishable from one fitted from an assumption.
+> - **A real clamp is believed over the COP model.** `broadcast()` splits cooling electrical
+>   into a measured and a modelled part, attributing the metered zones' share of the
+>   (occupancy-driven) fresh-air load by occupancy. With nothing clamped it reduces *exactly*
+>   to the previous `coolingOutputMW / plantCop` — a regression test pins that to 1e-12. Two
+>   new series are persisted: **`plantCop`** (what the curve says) and **`measuredCop`** (what
+>   the plant is achieving, thermal delivered ÷ electrical drawn). A sustained gap between
+>   them is a commissioning finding, and it is only readable because both are stored.
+> - **Daylight is trusted only when it is uncontaminated.** A BH1750 indoors measures *total*
+>   illuminance, so with the luminaires on it is largely reading the electric lighting — whose
+>   heat is already counted in `baseHeatLoad`. Believing it there would double-count a gain,
+>   which is the same class of error as fabricating a measurement, so the reading is used only
+>   while the zone's lights are off. It is also capped at 4× the reference, so one probe in
+>   direct sun cannot run away with a zone's heat balance, and a zone with no facade aperture
+>   stays at zero however bright its sensor reads (690 of the fixture's 735 zones are interior).
+> - **A known divergence is now recorded rather than silently carried.** The library's own
+>   heat-balance contract says `solar = solarGainMultiplier × solarPeakWPerM2 × area`, but the
+>   engine has always evaluated `solarGainMultiplier × 10000 W` with **no area term** —
+>   equivalent to assuming every zone is 1000 m², where the fixture's median zone is 12.6 m².
+>   The literal was moved into the library so it is visible and site-editable; it was
+>   deliberately **not** re-scaled, because doing so drops building-wide solar from 259.5 kW to
+>   9.1 kW and that is a recalibration decision, not a refactor. `solarGainReferenceNote`
+>   carries the correct fix (scale by `exteriorWallM2` × glazing fraction) for whoever takes it.
+> - **`GET /api/forecast/compare`** — the supervised LSTM and zero-shot TimesFM now answer the
+>   same instant side by side, concurrently, each reduced to one comparable scalar (predicted
+>   peak MW; for TimesFM, the max of the horizon — the quantity the pre-cool decision actually
+>   turns on). Every response carries **how much real history backed it**, and both engines are
+>   always reported: "the LSTM is not trained" and "TimesFM could not fetch its checkpoint" are
+>   findings about the twin, not errors to swallow. Both being down is a 200 with two reasons,
+>   not a 503. *First real run:* LSTM 2.315 MW from **1 real sample of 12** (the rest padded)
+>   against TimesFM 1.511 MW from **512 real samples** — a 34.7% disagreement in which the
+>   better-evidenced engine is the one nothing was consuming.
+>
+> New coefficients in `data/programme-library.json`: `solarGainReferenceW`,
+> `daylightReferenceLux`, `copStrainSlope`, `copMin`, `copMax` — each with a sourced note.
+> New queryable series: `plantCop`, `measuredCop`, `meteredAcKw`. Tests in
+> `simulation/measured_test.go` cover every supersede/stale/implausible path, including that
+> a supply probe reading within 1 °C of setpoint is rejected rather than allowed to collapse
+> the `(setpoint − supply)` denominator in the cooling law.
+>
+> _Still ingested-only: `humidity` (stored, streamed and charted, but there is no latent-load
+> term in the balance for it to drive). Unchanged by design._
+
 > ### 2026-07-22 — The control loop now reaches real machines, and the setback depth is the room's own answer
 >
 > A scan for hardcoded and stubbed features found the control loop terminating in a no-op:

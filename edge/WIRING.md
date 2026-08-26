@@ -265,10 +265,12 @@ the bare sensor — and three of them do — the module wins, because that is wh
   **the burden is required**. (A `-030` would read `30A/1V`.) Still worth confirming there is
   no burden already inside: measure across the leads with nothing clamped — open circuit
   means fit R3 as drawn, a few tens of ohms means one is fitted and you should **omit R3**.
-  - **The jack:** snip it off and land the two bare leads, which is one less part to source.
-    If you would rather keep the clamp detachable, buy a 3.5 mm socket breakout. Either way
-    **meter which contacts are live first** — usually tip and sleeve with the ring unused,
-    but confirm rather than assume, because a silent wrong contact reads as a dead clamp.
+  - **The jack:** snip it off, but do **not** land the bare stranded leads in a breadboard —
+    join them to solid-core jumper with a CH-2 spring clamp instead (see §5, "Terminating the
+    CT"). If you would rather keep the clamp detachable, a PJ-3F07 or PJ-313 3.5 mm socket is
+    2.000₫ at caka, though neither is on 2.54 mm pitch so it wants its own scrap of perfboard.
+    Either way **meter which contacts are live first** — usually tip and sleeve with the ring
+    unused, but confirm rather than assume, because a silent wrong contact reads as a dead clamp.
 
 ### Actuator — SSR G3MB-202P (HS0996)
 
@@ -667,6 +669,75 @@ Every spec below was read off the datasheet/listing and checked against this nod
 
 ## 5. Plug-load metering — SCT-013 analog front end
 
+### Where to clamp — decide this before you buy the clamp
+
+> 🚧 **Provisional, pending a survey of the actual floor.** This section is written from
+> photographs of one Vietnamese house's electrical layout. It is the current best answer and
+> it is likely to change once the floor has been walked properly.
+>
+> <details><summary><strong>What to capture on the survey pass</strong> — the questions this
+> section cannot answer from two photographs</summary>
+>
+> Answer these and the clamp choice, the node count and the mounting all fall out. Photograph
+> **with the power on and hands off**; nothing here requires opening an enclosure.
+>
+> **At each distribution point**
+> 1. Wide shot showing **height and what you'd stand on** to reach it. Working height or ladder?
+> 2. Is it a DIN-rail enclosure with a removable cover, or a surface board with fixed boxes?
+> 3. How many breakers, and is anything **labelled** (per-room? per-circuit? nothing?)
+> 4. Is there a **sub-main** feeding just this floor, separate from the utility meter? This is
+>    the single most valuable thing to find — a reachable sub-main is the one place a 100 A
+>    clamp earns its keep.
+> 5. Conductor **diameter** at any candidate clamp point (the jaw takes 13 mm max).
+> 6. Is there a **spare socket within ~1.5 m** of the candidate point? The CT lead is 1.5 m
+>    and the node needs 5 V.
+>
+> **Around the floor**
+> 7. Every **wall socket**, and what is plugged into it. This is the plug-load inventory the
+>    twin is actually about.
+> 8. The **air conditioner**: indoor unit, its socket or hard-wired connection, and whether
+>    the outdoor unit's supply is reachable (that is the `acW` clamp).
+> 9. Anything on a **zip-cord / extension lead** — those are the easy, safe first clamp.
+> 10. Where a node could physically **live**: a shelf, a socket to power it from, WiFi signal.
+>
+> **Do not** photograph inside the utility meter enclosure, and do not open anything sealed.
+> </details>
+
+The reference designs for CT metering assume a modern consumer unit: a DIN-rail enclosure at
+chest height with accessible tails you can open a jaw around. **That is not the layout this
+system is being built into.** The observed installation is a surface-mounted board above a
+doorway at ladder height, carrying the utility kWh meter, an old breaker, and a SINOTIMER
+SVP-912 voltage protector, in an open-air/semi-outdoor space, with the conductors running
+inside aged enclosures.
+
+Three things follow from that, and only the third is about wiring:
+
+1. **Do not clamp the service main.** Reaching it means opening a utility enclosure at
+   height on a ladder. The meter is the utility's property; the tails are unfused upstream
+   of everything. Nothing this project measures is worth that.
+2. **You almost certainly do not need to.** ECON's plug-load claim is about the end use a
+   BMS cannot see — 26.4 % of energy in the Hanoi case study — and that is measured *per
+   appliance*, not at the service head. A clamp on one appliance's cord at a wall socket is
+   at working height, needs no ladder, opens no enclosure, and is a closer match to what the
+   twin actually models.
+3. **Split a zip cord, never a whole cable.** A CT must see one conductor. Clamping around
+   both live and neutral together reads ≈ 0 A, because the currents cancel — this is the
+   single most common first-day failure with a CT and it looks exactly like a dead sensor.
+   Separate the two halves of a zip-cord extension lead over a few centimetres (the
+   insulation stays intact; you are pulling them apart, not stripping them) and clamp one.
+
+**A 100 A clamp is the wrong instrument for a 60 W fan.** For per-appliance work prefer a
+small CT: hshop's 5 A ring transformer (18.000₫, 1000:1, linear to 10 A on a 100 Ω burden)
+resolves a single socket far better than a 100 A jaw, and 10 A × 220 V ≈ 2.2 kW is ample
+headroom for anything on a domestic outlet. It is a **solid ring**, so the conductor threads
+through it rather than clipping around — which is the same zip-cord split you were doing
+anyway. Calibration works out at 10 A/V (5 A ÷ 0.5 V), settable at runtime.
+
+Reserve the 100 A split-core clamp for a genuine sub-main, if a survey turns one up that is
+reachable safely.
+
+---
+
 The ESP32's ADC reads 0–3.3 V and cannot see negative voltage. A CT produces a bipolar AC
 signal, so it has to be biased to mid-rail first.
 
@@ -688,16 +759,82 @@ signal, so it has to be biased to mid-rail first.
 
 Build with `-DUSE_PLUG=1 -DPLUG_CAL_A_PER_V=60.6 -DPLUG_MAINS_V=230`.
 
+> **You do not have to get the calibration right before flashing.** Those two flags are now
+> only the *defaults*: both are settable at runtime over MQTT and persisted to NVS, so the
+> figure can be corrected against a reference meter with the board in place.
+>
+> ```bash
+> # 47 Ω burden instead of 33 Ω -> 100 A / (0.05 A × 47 Ω) ≈ 42.6 A/V
+> mosquitto_pub -h <broker> -t econ/config/zone_1 -r -m '{"plugCalAPerV":42.6}'
+> mosquitto_sub -h <broker> -t 'econ/config/zone_1/state' -C 1   # confirm it took
+> ```
+>
+> Publish it **retained** (`-r`) so the value survives a reflash or a power cut. A value
+> outside 1–500 A/V is refused rather than clamped, and the node reports why on `.../state`.
+> Each accepted change bumps `cfgRev` in telemetry, which the engine records as a
+> `config-change` device event — so the step in `plugW` at that moment is attributable to
+> the recalibration and not mistaken for the load changing. Full field list:
+> [esp32/platformio.ini](esp32/platformio.ini).
+
 > **On the bias capacitor:** OpenEnergyMonitor's reference design specifies 10 µF. A 0.1 µF
 > from a stocked ceramic assortment is fine at the ESP32's sampling rate and is what hshop
 > actually sells — the firmware's comment still says 10 µF, and either works.
->
-> **No 3.5 mm jack needed:** snip the CT's plug and land the two bare leads directly.
+
+### ⚠️ Connect the burden BEFORE you clamp — the -000 is a current source
+
+The `-000` is a **current**-output CT with no internal burden. Clamped around a live
+conductor with its leads open-circuit, the secondary has nowhere to push its current, the
+core drives toward saturation, and a real voltage appears across the open terminals. It can
+bite you and it can kill the CT.
+
+So the burden resistor is not a calibration component you add later — it is the part that
+makes the clamp safe to have on a wire at all. **Wire the burden across the terminals
+first, verify the bias node reads 1.60–1.70 V, and only then open the jaw.** Unclipping the
+CT from the conductor before disconnecting anything is the safe teardown order.
+
+The `-030` has an internal burden and does not have this failure mode. It is the safer part
+if you can find one — but see the sourcing note below: it does not appear to be stocked in
+HCMC, so plan around the `-000`.
+
+### Terminating the CT — do not land bare stranded leads in a breadboard
+
+The CT arrives with a 3.5 mm plug on a 1.5 m stranded lead. The obvious move is to snip the
+plug and push the two bare leads into the breadboard. **Don't.** Stranded wire in a
+breadboard clip is an unreliable contact, and this project has already paid for that lesson
+once: the SHT30 sat at 82.7 % arrival for a whole session, through four wrong diagnoses,
+because of bare stranded leads in breadboard clips. On the CT that same intermittency does
+not look like a broken sensor — it looks like *the appliance switched off*.
+
+Three options, in the order worth trying:
+
+| Method | Breadboard holes used | Notes |
+|---|---|---|
+| **CH-2 spring clamp** (wire-to-wire) | **0** | CT stranded lead in one end, solid-core jumper out the other; only the solid jumper enters the breadboard. **Recommended.** 2.000₫ |
+| Solder + heat-shrink to solid core | 0 | Best joint, but soldering is what we are avoiding here |
+| KF301-2P / KF128-2P screw terminal | 2 | *Fits* — 5.08 mm pitch is exactly 2 hole pitches — but its flat pins are thicker than the 0.6 mm round pins breadboard clips expect and will splay them permanently. Considered and rejected on a bench with only two breadboards. 2.000₫ |
+
+PJ-3F07 / PJ-313 3.5 mm **female** sockets (2.000₫) exist if you would rather keep the CT's
+plug intact, but their pin patterns are not 2.54 mm and do not seat cleanly in a breadboard.
+
+### Put the front end on its own mini board
+
+The bias divider, burden and cap belong on a **SYB-170 mini breadboard (6.000₫)**, not on
+the main board, with three jumpers back to it — 3V3, GND, GPIO34.
+
+Two reasons. It costs zero space on the main breadboards, which matters more than it sounds:
+an ESP32 DevKit v1 is 22.9–25.4 mm between pin rows against a breadboard's 27.9 mm a→j span,
+so it leaves one or two free rows on one side and **none** on the other, which is why the
+standard bench setup butts two boards together and straddles the seam. And it is better
+practice regardless — the bias node is a high-impedance divider that has to hold 1.60–1.70 V,
+and keeping it away from the ESP32's switching and the SSR's relay line is how it stays
+there. It is also far easier to probe on a board of its own, which is exactly what the
+commissioning step asks you to do before the CT goes on.
 
 ### SCT-013-**030** (30 A : 1 V, voltage output) — no burden
 
 Same bias divider, **omit the 33 Ω**. The clamp already outputs a voltage; adding a burden
-loads it down and under-reads. Build with `-DPLUG_CAL_A_PER_V=30.0`.
+loads it down and under-reads. Build with `-DPLUG_CAL_A_PER_V=30.0`, or set it at runtime
+with `{"plugCalAPerV":30.0}` on `econ/config/<zone>` as above.
 
 ### ⚠️ The bias divider is not optional
 
