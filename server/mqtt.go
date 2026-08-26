@@ -34,6 +34,12 @@ type telemetryMsg struct {
 	Source      string   `json:"source"`
 	TempReal    bool     `json:"tempReal"`
 	AcReal      *bool    `json:"acReal"` // nil = firmware predates the field
+	// CfgRev is the node's runtime-configuration revision (edge/esp32/src/node_config.h).
+	// It matters because a calibration change alters what plugW and acW MEAN: a step in
+	// those series after a recalibration is otherwise indistinguishable from a step in the
+	// load itself. A pointer because nil ("firmware predates runtime config") must stay
+	// distinct from 0 ("configured, never changed from the compiled defaults").
+	CfgRev *uint32 `json:"cfgRev"`
 }
 
 // startMQTT connects the Go engine to the MQTT broker so it (a) ingests real telemetry

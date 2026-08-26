@@ -2,6 +2,7 @@ import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getBuilding } from './buildingStore';
+import { toWorld, ORIGIN } from './floorGeometry';
 const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 
 // Curl noise helper
@@ -44,8 +45,8 @@ function makeNoise() {
 function pointInPolygon(px, pz, poly) {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    let xi = poly[i][0] - 20, zi = 20 - poly[i][1];
-    let xj = poly[j][0] - 20, zj = 20 - poly[j][1];
+    let xi = poly[i][0] - ORIGIN.x, zi = ORIGIN.y - poly[i][1];
+    let xj = poly[j][0] - ORIGIN.x, zj = ORIGIN.y - poly[j][1];
     let intersect = ((zi > pz) !== (zj > pz))
         && (px < (xj - xi) * (pz - zi) / (zj - zi) + xi);
     if (intersect) inside = !inside;
@@ -76,8 +77,8 @@ export default function AirflowVectorField({ simState, activeFloor, selectedZone
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     targetZones.forEach(z => {
       z.polygon.forEach(p => {
-        const x = p[0] - 20;
-        const zCoord = 20 - p[1];
+        const x = p[0] - ORIGIN.x;
+        const zCoord = ORIGIN.y - p[1];
         if (x < minX) minX = x;
         if (x > maxX) maxX = x;
         if (zCoord < minZ) minZ = zCoord;
@@ -122,8 +123,8 @@ export default function AirflowVectorField({ simState, activeFloor, selectedZone
     for (let i = 0; i < count; i++) ages[i] = Math.random();
 
     const vavCentroids = targetZones.map(z => ({
-      x: z.centroid.x - 20,
-      z: 20 - z.centroid.y,
+      x: z.centroid.x - ORIGIN.x,
+      z: ORIGIN.y - z.centroid.y,
       vavId: z.hvacMapping?.vavId,
       zoneId: z.zoneId,
       temp: simState?.zones?.[z.zoneId]?.temp || 24,

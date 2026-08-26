@@ -64,7 +64,7 @@ func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 // backupCurrent snapshots the live building + ontology before anything overwrites them.
 // Returns the backup name ("" when there was nothing to back up — first boot).
 func backupCurrent() string {
-	cur, err := os.ReadFile("./data/building-data.json")
+	cur, err := os.ReadFile(simulation.DataPath(simulation.BuildingDataFile))
 	if err != nil {
 		return ""
 	}
@@ -77,7 +77,7 @@ func backupCurrent() string {
 		log.Printf("[building] backup write: %v", err)
 		return ""
 	}
-	if onto, err := os.ReadFile("./data/brick-ontology.json"); err == nil {
+	if onto, err := os.ReadFile(simulation.DataPath(simulation.OntologyFile)); err == nil {
 		os.WriteFile(filepath.Join(backupDir, "ontology-"+name+".json"), onto, 0644)
 	}
 	pruneBackups()
@@ -204,11 +204,11 @@ func deployBuildingHandler(engine *simulation.Engine) http.HandlerFunc {
 		}
 
 		backup := backupCurrent()
-		if err := os.WriteFile("./data/building-data.json", p.BuildingData, 0644); err != nil {
+		if err := os.WriteFile(simulation.LocalPath(simulation.BuildingDataFile), p.BuildingData, 0644); err != nil {
 			log.Printf("[building] deploy persisted nothing: %v (twin IS swapped in memory)", err)
 		}
 		if len(p.Ontology) > 0 {
-			if err := os.WriteFile("./data/brick-ontology.json", p.Ontology, 0644); err != nil {
+			if err := os.WriteFile(simulation.LocalPath(simulation.OntologyFile), p.Ontology, 0644); err != nil {
 				log.Printf("[building] ontology write failed: %v", err)
 			}
 		}
@@ -283,9 +283,9 @@ func rollbackHandler(engine *simulation.Engine) http.HandlerFunc {
 		// Rolling back is itself a change: back up what we're replacing, so you can
 		// roll forward again.
 		backupCurrent()
-		os.WriteFile("./data/building-data.json", data, 0644)
+		os.WriteFile(simulation.LocalPath(simulation.BuildingDataFile), data, 0644)
 		if onto, err := os.ReadFile(filepath.Join(backupDir, "ontology-"+req.Name+".json")); err == nil {
-			os.WriteFile("./data/brick-ontology.json", onto, 0644)
+			os.WriteFile(simulation.LocalPath(simulation.OntologyFile), onto, 0644)
 		}
 		zones, floors := countBuilding(data)
 		audit("rollback", req.Name, data, zones, floors)

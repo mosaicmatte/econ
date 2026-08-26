@@ -17,7 +17,7 @@ const STORAGE_KEY = 'econ.meanLoad.v1';
  */
 export default function useMeanLoad(loadMw) {
   const acc = useRef(null);
-  const [state, setState] = useState({ meanMw: 0, hours: 0, samples: 0 });
+  const [state, setState] = useState({ meanMw: 0, hours: 0, samples: 0, peakMw: 0 });
 
   // Restore any accumulated window once, on mount.
   if (acc.current === null) {
@@ -31,7 +31,8 @@ export default function useMeanLoad(loadMw) {
     } catch {
       // A corrupt or unavailable store just means the window starts now.
     }
-    acc.current = restored || { sumMwMs: 0, ms: 0, samples: 0 };
+    acc.current = restored || { sumMwMs: 0, ms: 0, samples: 0, peakMw: 0 };
+    if (typeof acc.current.peakMw !== 'number') acc.current.peakMw = 0;
     acc.current.last = null;
   }
 
@@ -54,14 +55,21 @@ export default function useMeanLoad(loadMw) {
     }
     a.last = loadMw;
     a.lastAt = now;
+    // Highest load this building has actually been seen at. It is the only honest
+    // denominator for a "plant utilization" bar: a design nameplate would have to be
+    // synthesized from coefficients, and the panel's previous attempt at one — a fixed
+    // 3.6 MW floor — read 0.3% on a house and would have read 0.3% straight through a
+    // total plant failure. An observed peak is a fact, and it says how long it took to
+    // observe, so a reader can discount it while the window is short.
+    if (loadMw > a.peakMw) a.peakMw = loadMw;
 
     const hours = a.ms / 3_600_000;
     const meanMw = a.ms > 0 ? a.sumMwMs / a.ms : loadMw;
-    setState({ meanMw, hours, samples: a.samples });
+    setState({ meanMw, hours, samples: a.samples, peakMw: a.peakMw });
 
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        sumMwMs: a.sumMwMs, ms: a.ms, samples: a.samples,
+        sumMwMs: a.sumMwMs, ms: a.ms, samples: a.samples, peakMw: a.peakMw,
       }));
     } catch {
       // Storage full or blocked; the in-memory window still works for this session.

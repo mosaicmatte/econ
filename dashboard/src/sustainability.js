@@ -50,8 +50,14 @@ export const ZONE_MIX = (() => {
 
 // True when connected load is dominated by IT/server space — i.e. when comparing this
 // building against an *office* EUI cohort would be meaningless.
+// The `it` alternative in the old pattern was a bare two-letter substring, so it matched
+// any programme whose NAME happens to contain those letters — `kitchen` most obviously.
+// A house whose largest connected load was the kitchen would have declared itself an
+// IT-dominated building and suppressed its own EUI benchmark. Match whole hyphen- or
+// word-separated tokens, and name the programmes the digitizer actually emits.
+const IT_PROGRAMME = /(^|[-_\s])(server|comms|data|datacentre|datacenter|it)([-_\s]|$)/i;
 export const IS_IT_DOMINATED = (ZONE_MIX.dominant?.loadShare ?? 0) > 0.5
-  && /server|data|it/i.test(ZONE_MIX.dominant?.type || '');
+  && IT_PROGRAMME.test(ZONE_MIX.dominant?.type || '');
 
 // Office EUI cohort, Vietnam. Survey of 57 commercial + government office buildings
 // (Vietnam Clean Energy Program, 2015; Proc. ICEC 2021, doi:10.55066/proc-icec.2021.19).

@@ -2,6 +2,7 @@ import React, { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { exteriorPolygon, corePolygon , toWorld, ORIGIN } from './floorGeometry';
 
 // Thermal heatmap: t in [0,1] -> rgb (deep blue -> cyan -> green -> yellow -> red).
 const STOPS = [
@@ -63,8 +64,10 @@ export default function VectorFieldFlow({ floor, simState }) {
   const { arrows, count } = useMemo(() => {
     if (!floor) return { arrows: [], count: 0 };
     // local frame matches the zones: x = px-20, z = 20-py
-    const ext = floor.geometry.exteriorPolygon.map((p) => [p[0] - 20, 20 - p[1]]);
-    const core = (floor.geometry.corePolygon || []).map((p) => [p[0] - 20, 20 - p[1]]);
+    const extRaw = exteriorPolygon(floor);
+    if (!extRaw) return null;
+    const ext = extRaw.map(toWorld);
+    const core = corePolygon(floor).map(toWorld);
     const xs = ext.map((p) => p[0]), zs = ext.map((p) => p[1]);
     const minX = Math.min(...xs), maxX = Math.max(...xs);
     const minZ = Math.min(...zs), maxZ = Math.max(...zs);
@@ -75,7 +78,7 @@ export default function VectorFieldFlow({ floor, simState }) {
       const flow = simState?.vavs?.[z.hvacMapping?.vavId]?.flow ?? 4;
       const alert = !!(simState?.zones?.[z.zoneId]?.alert);
       const strength = (0.5 + 0.8 * Math.min(flow, 12) / 12) * (alert ? 2.4 : 1);
-      return { x: z.centroid.x - 20, z: 20 - z.centroid.y, strength };
+      return { x: z.centroid.x - ORIGIN.x, z: ORIGIN.y - z.centroid.y, strength };
     });
 
     // velocity field: air pushed radially outward from each diffuser, decaying with distance.

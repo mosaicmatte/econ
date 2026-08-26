@@ -1,6 +1,7 @@
 import React, { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { exteriorPolygon , toWorld, ORIGIN } from './floorGeometry';
 
 // Lightweight 3D value-noise (no external deps) used to drive a turbulent,
 // aerodynamic-looking velocity field for the airflow particles.
@@ -31,8 +32,10 @@ export default function AirflowField({ floor, intensity = 1.0 }) {
   const noise = useMemo(() => makeNoise(), []);
 
   const { bounds, positions, colors } = useMemo(() => {
-    const xs = floor.geometry.exteriorPolygon.map((p) => p[0] - 20);
-    const zs = floor.geometry.exteriorPolygon.map((p) => 20 - p[1]);
+    const ext = exteriorPolygon(floor);
+    if (!ext) return null;
+    const xs = ext.map((p) => p[0] - ORIGIN.x);
+    const zs = ext.map((p) => ORIGIN.y - p[1]);
     const b = {
       minX: Math.min(...xs), maxX: Math.max(...xs),
       minZ: Math.min(...zs), maxZ: Math.max(...zs),

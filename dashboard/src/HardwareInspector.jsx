@@ -59,8 +59,12 @@ function Spark({ points, width = 520, height = 90 }) {
   const stroke = measured === points.length ? '#4ade80' : measured === 0 ? '#f59e0b' : '#60a5fa';
   return (
     <div>
-      <svg width={width} height={height} style={{ maxWidth: '100%', display: 'block' }}>
-        <path d={d} fill="none" stroke={stroke} strokeWidth="1.5" />
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        style={{ width: '100%', height, display: 'block' }}
+      >
+        <path d={d} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
       </svg>
       <div style={S.sparkMeta}>
         <span>min {lo.toFixed(2)}</span>
@@ -203,7 +207,23 @@ export default function HardwareInspector() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const j = await r.json();
         if (alive) { setData(j); setErr(null); }
-      } catch (e) { if (alive) setErr(e.message); }
+      } catch (e) {
+        // Distinguish "the engine is down" from "the engine is up but predates this
+        // module". Both arrive here as an opaque TypeError: Go's default mux answers an
+        // unknown route with a bare 404 that carries no Access-Control-Allow-Origin, so
+        // the browser refuses to let us read it and fetch rejects exactly as it would for
+        // a refused connection. Reporting both as "cannot reach the engine — start it"
+        // sends you to restart a process that is already running and answering.
+        //
+        // /api/hardware has existed far longer than the inspector, so it is the probe:
+        // if it answers, the engine is alive and simply lacks registerDeviceRoutes.
+        let kind = 'down';
+        try {
+          const probe = await fetch(`${API_BASE}/api/hardware`);
+          if (probe.ok) kind = 'stale';
+        } catch { /* genuinely unreachable */ }
+        if (alive) setErr({ kind, detail: e.message });
+      }
     };
     tick();
     const id = setInterval(tick, POLL_MS);
@@ -246,7 +266,7 @@ export default function HardwareInspector() {
       </div>
 
       <div style={S.tabs}>
-        {['devices', 'events', 'quality'].map((t) => (
+        {['devices', 'events', 'quality', 'forecast'].map((t) => (
           <button key={t} style={S.tab(tab === t)} onClick={() => setTab(t)}>{t}</button>
         ))}
         <a href={window.location.pathname} style={S.back}>← back to console</a>
@@ -254,8 +274,21 @@ export default function HardwareInspector() {
 
       {err && (
         <div style={S.error}>
-          Cannot reach the engine at <code>{API_BASE}</code> — {err}.
-          <br />Start it with <code>cd econ/server &amp;&amp; go run .</code> (and the broker with <code>docker compose up -d mqtt</code>).
+          {err.kind === 'stale' ? (
+            <>
+              The engine at <code>{API_BASE}</code> is running, but it does not serve
+              <code> /api/devices</code> — it was built before the hardware inspector existed.
+              <br />Restart it onto a current build: <code>cd econ/server &amp;&amp; go run .</code>
+              {' '}(learned models persist to <code>data/</code>, so a restart keeps them),
+              or point the dashboard at one that has the routes with
+              {' '}<code>VITE_BACKEND_PORT=&lt;port&gt;</code>.
+            </>
+          ) : (
+            <>
+              Cannot reach the engine at <code>{API_BASE}</code> — {err.detail}.
+              <br />Start it with <code>cd econ/server &amp;&amp; go run .</code> (and the broker with <code>docker compose up -d mqtt</code>).
+            </>
+          )}
         </div>
       )}
 
@@ -287,6 +320,8 @@ export default function HardwareInspector() {
           </table>
         </div>
       )}
+
+      {tab === 'forecast' && <ForecastTab />}
 
       {tab === 'quality' && (
         <div style={S.card}>
@@ -344,6 +379,146 @@ export default function HardwareInspector() {
 }
 
 const mono = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+/**
+ * Sparkline for a FORECAST horizon: evenly-spaced future values, no timestamps and no
+ * provenance. Deliberately not the Spark component above — that one colours its stroke by
+ * measured-vs-modelled, which is a statement about evidence that no forecast can make.
+ */
+function ForecastSpark({ values, colour, width = 300, height = 60 }) {
+  if (!values || values.length < 2) return null;
+  const lo = Math.min(...values), hi = Math.max(...values);
+  const span = hi - lo || 1;
+  const d = values
+    .map((v, i) => {
+      const x = (i / (values.length - 1)) * width;
+      const y = height - ((v - lo) / span) * (height - 8) - 4;
+      return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      style={{ width: '100%', height, display: 'block' }}
+    >
+      <path d={d} fill="none" stroke={colour} strokeWidth="1.5" strokeDasharray="3 2" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+/**
+ * Both forecasters, live, over the same instant.
+ *
+ * The LSTM is supervised and only knows this building once train.py has had real history
+ * to learn from; TimesFM is a pretrained foundation model that forecasts a series it has
+ * never seen. They answer the same question with opposite trade-offs, and until this panel
+ * nothing in the system ever put their answers next to each other.
+ *
+ * The number that matters most here is not the forecast — it is `realSamples`. The LSTM's
+ * 12-step window is left-padded while the engine warms up, so a confident-looking MW figure
+ * can be standing on one real sample. Showing the peak without showing what backs it is how
+ * a forecast gets trusted more than it has earned.
+ */
+function ForecastTab() {
+  const [data, setData] = useState(null);
+  const [pending, setPending] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/forecast/compare?horizon=12`);
+        const j = await r.json();
+        if (alive) { setData(j); setPending(false); }
+      } catch (e) {
+        if (alive) { setData({ fetchError: e.message }); setPending(false); }
+      }
+    };
+    tick();
+    // Slower than the device poll: each call runs two model inferences, and the first
+    // TimesFM call may be downloading a multi-gigabyte checkpoint.
+    const id = setInterval(tick, 30000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+
+  const engines = [
+    { key: 'lstm', name: 'LSTM', kind: 'supervised · trained on this building', colour: '#60a5fa' },
+    { key: 'timesfm', name: 'TimesFM', kind: 'zero-shot · pretrained foundation model', colour: '#a78bfa' },
+  ];
+
+  if (pending) return <div style={S.card}><div style={S.empty}>asking both forecasters…</div></div>;
+  if (data?.fetchError) {
+    return <div style={S.card}><div style={S.warn}>could not reach the engine: {data.fetchError}</div></div>;
+  }
+
+  const agree = data?.agreement || {};
+
+  return (
+    <div style={S.card}>
+      <p style={{ ...S.dim, margin: '0 0 14px', maxWidth: 700, lineHeight: 1.6 }}>
+        Both engines, same instant, predicted <strong>peak building load</strong>. Neither is ground
+        truth until it is compared against measured outturn — what to weigh them by is
+        <strong> real samples</strong>, below.
+      </p>
+
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 16 }}>
+        {engines.map(({ key, name, kind, colour }) => {
+          const e = data?.[key] || {};
+          const thin = e.available && e.windowLen && e.realSamples < e.windowLen;
+          return (
+            <div key={key} style={{ ...S.chartBox, flex: '1 1 300px', marginTop: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: colour }}>{name}</span>
+                <span style={S.badge(e.available ? '#4ade80' : '#ef4444')}>
+                  {e.available ? 'LIVE' : 'UNAVAILABLE'}
+                </span>
+              </div>
+              <div style={{ ...S.dim, fontSize: 11, marginTop: 2 }}>{kind}</div>
+
+              {e.available ? (
+                <>
+                  <div style={{ fontSize: 30, fontWeight: 700, margin: '10px 0 2px' }}>
+                    {(+e.peakMw).toFixed(3)} <span style={{ fontSize: 14, color: '#9ca3af' }}>MW</span>
+                  </div>
+                  <div style={{ ...S.dim, fontSize: 11 }}>
+                    backed by <strong style={{ color: thin ? '#f59e0b' : '#4ade80' }}>
+                      {e.realSamples}{e.windowLen ? ` / ${e.windowLen}` : ''}
+                    </strong> real sample{e.realSamples === 1 ? '' : 's'}
+                    {thin && ' — the rest of the window is padding'}
+                  </div>
+                  {e.series?.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <ForecastSpark values={e.series} colour={colour} />
+                      <div style={S.sparkMeta}>
+                        <span>horizon {data.horizonMinutes} min</span>
+                        <span>step {data.stepMinutes} min</span>
+                        <span>dashed = forecast, not history</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ ...S.dim, marginTop: 10, lineHeight: 1.6, fontSize: 12 }}>{e.error}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {agree.comparable ? (
+        <div style={agree.relativeDiff > 0.2 ? S.warn : { ...S.dim, lineHeight: 1.6 }}>
+          The two disagree by <strong>{(agree.relativeDiff * 100).toFixed(1)}%</strong>
+          {' '}({(+agree.deltaMw).toFixed(3)} MW), {agree.higher.toUpperCase()} higher.
+          {agree.relativeDiff > 0.2 &&
+            ' A gap this wide usually means one of them is forecasting from far less real history than the other — compare the sample counts above before believing either.'}
+        </div>
+      ) : (
+        <div style={S.dim}>{agree.note}</div>
+      )}
+    </div>
+  );
+}
+
 const S = {
   page: { minHeight: '100vh', background: '#0b0f14', color: '#e5e7eb', fontFamily: mono, fontSize: 13, padding: 20 },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, marginBottom: 16 },

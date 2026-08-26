@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
-import { X } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { money, energyCostPerDay } from './tariff';
+import { powerMw } from './units';
 import useMeanLoad from './useMeanLoad';
 import {
   FLOOR_AREA_M2, EUI_BENCHMARK, IS_IT_DOMINATED, ZONE_MIX,
@@ -12,7 +12,7 @@ import {
 // Mobile "Impact" screen — the phone-sized face of the twin. Served automatically on
 // small viewports instead of the WebGL-heavy desktop stack, and fed entirely by the
 // same live stream: engine savings, LSTM forecast, per-level occupancy, edge nodes.
-export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareNodes = {}, onClose }) {
+export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareNodes = {} }) {
   // Same basis as the desktop panel: annual intensity comes from the mean load observed,
   // never from the instantaneous one. See useMeanLoad.
   const { meanMw, hours: observedH } = useMeanLoad(simData?.buildingLoadMw);
@@ -23,10 +23,18 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
   const health = simData.systemHealth ?? 100;
   const occupants = simData.totalOccupants ?? 0;
 
-  const savingsData = [
-    { name: 'Setbacks', value: Math.max(0.001, savedMw), color: '#3DDC84' },
-    { name: 'Grid draw', value: Math.max(0.001, loadMw), color: '#B8B8B8' },
-  ];
+  // The donut is drawn only when there is a load to divide. The floor this replaces
+  // (Math.max(0.001, …) on both slices) existed to stop Recharts rendering an empty ring,
+  // but with the engine down both slices became 0.001 and the chart drew a confident
+  // half-green donut around a "0.0%" label — a picture of a building saving half its
+  // energy, made entirely of the guard against an empty chart.
+  const hasLoad = loadMw + savedMw > 0;
+  const savingsData = hasLoad
+    ? [
+        { name: 'Setbacks', value: savedMw, color: '#3DDC84' },
+        { name: 'Grid draw', value: loadMw, color: '#B8B8B8' },
+      ]
+    : [];
 
   // Live occupancy per level (top 6), straight from the streamed zone state.
   const levelOccupancy = useMemo(() => {
@@ -40,7 +48,12 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
       .slice(0, 6);
   }, [simData.zones]);
 
-  const peak = aiForecast?.predicted_peak_load;
+  // Peak shaving is measured against the forecast peak — but only when the engine has not
+  // flagged that forecast as out of distribution for this building. Scaling a bar against
+  // a number from a model trained on a different building produces a confident 0% that
+  // means nothing, which is worse than showing no bar.
+  const peakOod = aiForecast?.implausible === true;
+  const peak = peakOod ? null : aiForecast?.predicted_peak_load;
   const peakPct = peak > 0 ? Math.max(0, Math.min(100, (loadMw / peak) * 100)) : 0;
 
   const hwList = Object.values(hardwareNodes || {});
@@ -53,7 +66,7 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
   );
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', color: '#ffffff', background: '#000000', fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif', padding: '20px', minHeight: '100dvh', overflowY: 'auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', color: '#ffffff', fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', marginBottom: '20px' }}>
         <h2 style={{ margin: 0, fontSize: '24px', fontWeight: '600' }}>ECON · Live</h2>
       </div>
@@ -73,6 +86,11 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
           <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.6)', marginBottom: '20px' }}>Share of plant load avoided right now by occupancy-driven setbacks.</div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', height: '200px' }}>
+            {!hasLoad ? (
+              <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.4)', fontSize: '14px', padding: '0 24px', lineHeight: 1.5 }}>
+                No load reported yet — waiting on the engine stream.
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -90,11 +108,14 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
+            )}
+            {hasLoad && (
             <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <span style={{ fontSize: '32px', fontWeight: 'bold' }}>{savingsPct.toFixed(1)}%</span>
               <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>{(savedMw * 1000).toFixed(0)} kW saved</span>
               <span style={{ fontSize: '11px', color: '#3DDC84', marginTop: '4px', maxWidth: '118px', textAlign: 'center', lineHeight: 1.2 }}>≈ {money(energyCostPerDay((simData.energySavedMw||0)*1000))}/day</span>
             </div>
+            )}
           </div>
         </div>
 
@@ -147,12 +168,16 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
                 <div style={{ width: `${peakPct}%`, background: peakPct > 90 ? '#FF3B30' : '#3DDC84', transition: 'width 0.5s' }} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
-                <span>Now: {loadMw.toFixed(2)} MW</span>
+                <span>Now: {powerMw(loadMw)}</span>
                 <span>Predicted peak: {peak.toFixed(2)} MW</span>
               </div>
             </>
           ) : (
-            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>Forecaster offline — start the stack's forecasting service to see the predicted peak.</div>
+            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
+              {peakOod
+                ? `The forecaster answered ${aiForecast.predicted_peak_load.toFixed(2)} MW, which the engine flagged as out of distribution for this building — ${aiForecast.plausibility} No bar is drawn against it.`
+                : "Forecaster offline — start the stack's forecasting service to see the predicted peak."}
+            </div>
           )}
         </div>
 
@@ -162,6 +187,11 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
           <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.6)', marginBottom: '20px' }}>Busiest floors right now, from the live zone stream.</div>
 
           <div style={{ height: '170px' }}>
+            {levelOccupancy.every((l) => !l.pax) ? (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.4)', fontSize: '14px', textAlign: 'center', padding: '0 20px' }}>
+                No occupancy reported on any level right now.
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={levelOccupancy} layout="vertical" margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                 <XAxis type="number" hide />
@@ -170,6 +200,7 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
                 <Bar dataKey="pax" radius={[0, 4, 4, 0]} barSize={20} fill="#3DDC84" isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
+            )}
           </div>
         </div>
 

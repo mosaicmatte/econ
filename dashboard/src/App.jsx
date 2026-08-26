@@ -17,6 +17,9 @@ import MobileImpactScreen from './MobileImpactScreen';
 import LiveWeatherBackground from './LiveWeatherBackground';
 import UIErrorBoundary from './UIErrorBoundary';
 import { API_BASE } from './api';
+import { useOpsStatus } from './useOpsStatus';
+import { useLibrary } from './useLibrary';
+import { FOOTPRINT } from './floorGeometry';
 import { rateNow, money, touPeriodLabel, touPeriod } from './tariff';
 import { SimState } from './telemetry';
 import { useDigitalTwin, FAULT_ZONES, DEFAULT_FAULT_TARGET } from './useDigitalTwin';
@@ -54,7 +57,9 @@ const ThermalNode = ({ data, selected }) => {
     <div className={`thermal-node ${selected ? 'selected' : ''} ${data.alert ? 'pulse-red-node' : ''}`} style={{ borderColor, backgroundColor: bgColor, transition: 'all 0.5s ease' }}>
       <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
       <div className="thermal-label">{data.label}</div>
-      <div className="thermal-value">{data.temp}°C</div>
+      {/* Rounded for display: the stream carries a float, and rendering it raw printed
+          things like 24.036891937255859 into a card 148 px wide. */}
+      <div className="thermal-value">{Number(data.temp ?? 0).toFixed(1)}°C</div>
       <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>{data.occupancy} PAX</div>
       <div style={{ fontSize: '7px', color: 'var(--accent-blue)', opacity: 0.8, marginTop: '2px', wordBreak: 'break-all', fontFamily: 'monospace' }}>BIM: {data.bim_asset_id?.split('-')[0]}</div>
       <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
@@ -62,14 +67,27 @@ const ThermalNode = ({ data, selected }) => {
   );
 };
 
-const AHUNode = ({ data, selected }) => (
-  <div className={`node-ahu ${selected ? 'selected' : ''} ${data.status === 'FAULT' ? 'fault' : ''}`}>
-    <div className="thermal-label" style={{ color: 'var(--accent-blue)' }}>{data.label}</div>
-    <div className="thermal-value">SP: {data.pressure?.toFixed(0) || 500} Pa</div>
-    <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>M: AUTO</div>
-    <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
-  </div>
-);
+// The AHU card. Static pressure is the engine's Hardy-Cross solve, streamed as
+// ahuPressurePa — it used to render `data.pressure?.toFixed(0) || 500`, and since nothing
+// ever wrote data.pressure, every deployment of this dashboard has displayed a literal
+// 500 Pa for the life of the project. The mode line was likewise the constant string
+// "AUTO" regardless of whether the optimizer was engaged.
+const AHUNode = ({ data, selected }) => {
+  const pa = Number(data.pressure);
+  const solved = Number.isFinite(pa) && pa > 0;
+  return (
+    <div className={`node-ahu ${selected ? 'selected' : ''} ${data.status === 'FAULT' ? 'fault' : ''}`}>
+      <div className="thermal-label" style={{ color: 'var(--accent-blue)' }}>{data.label}</div>
+      <div className="thermal-value" title={solved ? 'Static pressure from the engine’s Hardy-Cross network solve' : 'The network solver has not reported yet'}>
+        {solved ? `${pa.toFixed(0)} Pa` : '— Pa'}
+      </div>
+      <div style={{ fontSize: '9px', color: data.autoPilot === false ? 'var(--accent-yellow)' : 'var(--text-muted)' }}>
+        M: {data.autoPilot === false ? 'MANUAL' : 'AUTO'}
+      </div>
+      <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
+    </div>
+  );
+};
 
 const VAVNode = ({ data, selected }) => (
   <div className={`node-vav ${selected ? 'selected' : ''}`}>
@@ -89,7 +107,12 @@ const UnitNode = ({ data, selected }) => {
   const dev = Math.abs(temp - (data.setpoint || 24)) / (data.deadband || 2);
   const state = data.alert === true ? 'alarm' : (dev > 1 ? 'drift' : 'ok');
   const c = state === 'alarm' ? 'var(--accent-red)' : state === 'drift' ? 'var(--accent-yellow)' : 'var(--accent-green)';
-  const flowFrac = Math.max(0, Math.min(1, (data.flowVal || 0) / 0.8));
+  // Airflow bar scaled against the largest flow the building is currently delivering,
+  // which the parent passes in. It used to divide by a literal 0.8 m³/s — a plausible
+  // figure for a commercial VAV and roughly two orders of magnitude wrong for the house
+  // pilot, where every bar sat pinned at zero.
+  const flowMax = Number(data.flowMax) > 0 ? data.flowMax : 0;
+  const flowFrac = flowMax > 0 ? Math.max(0, Math.min(1, (data.flowVal || 0) / flowMax)) : 0;
   // Sides are set individually: mixing the `border` shorthand with `borderLeft` makes React
   // warn on rerender, because whichever lands last wins non-deterministically.
   const edge = `1px solid ${selected ? '#ffffff' : 'rgba(127, 139, 150, 0.35)'}`;
@@ -123,14 +146,21 @@ const UnitNode = ({ data, selected }) => {
   );
 };
 
+// Registered in nodeTypes but never instantiated — nothing in this file creates a node of
+// type 'floorplan'. Kept because the registration is harmless and the component documents
+// the plan-underlay idea, but its projection is written against the 60x40 office plate
+// (centre 30,20 at 22 px/m) and would need the shared footprint from floorGeometry.js
+// before it could be used on any other building.
 const FloorplanNode = ({ data }) => {
+  const pts = (z) => z.polygon
+    .map((p) => `${(p[0] - FOOTPRINT.cx) * 22 + 400},${(p[1] - FOOTPRINT.cy) * 22 + 300}`)
+    .join(' ');
   return (
     <div style={{ width: 800, height: 600, pointerEvents: 'none', position: 'relative' }}>
       <svg width="100%" height="100%" viewBox="0 0 800 600" preserveAspectRatio="none">
-        {data.zones && data.zones.map((z, i) => {
-          const points = z.polygon.map(p => `${(p[0] - 30) * 22 + 400},${(p[1] - 20) * 22 + 300}`).join(' ');
-          return <polygon key={i} points={points} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2" />;
-        })}
+        {data.zones && data.zones.map((z, i) => (
+          <polygon key={i} points={pts(z)} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2" />
+        ))}
       </svg>
     </div>
   );
@@ -200,21 +230,47 @@ const buildTopologyFromSim = (simState, activeFloor, ontology) => {
     .filter(z => z.level === activeFloor)
     .sort((a, b) => (a.label || a.id).localeCompare(b.label || b.id));
 
+  // Largest VAV flow anywhere in the building right now, so every unit's airflow bar is
+  // drawn against a scale this building actually reaches.
+  const flowMax = Object.values(simState.vavs || {}).reduce((m, v) => Math.max(m, v.flow || 0), 0);
+
   const PER_ROW = 9, STEP_X = 166, STEP_Y = 92;
   const gridW = Math.min(Math.max(activeZones.length, 1), PER_ROW) * STEP_X - 18;
 
   nodes.push({
     id: 'ahu-main', type: 'ahu', draggable: false,
     position: { x: gridW / 2 - 70, y: -130 },
-    data: { label: 'AHU-MAIN', status: simState.scenario === 'fault' ? 'FAULT' : 'NOMINAL', pressure: simState.ahuPressure }
+    // Status follows the building's real alarm state, not the demo scenario selector: a
+    // fault scenario that has not yet driven any zone out of band is not an AHU fault.
+    data: {
+      label: 'AHU-MAIN',
+      status: Object.values(simState.zones || {}).some(z => z.alert === true) ? 'FAULT' : 'NOMINAL',
+      pressure: simState.ahuPressure,
+      autoPilot: simState.autoPilot,
+    }
   });
+
+  // Index the feeds-relationships once. Scanning the whole ontology per zone was
+  // O(zones x relationships) on every topology rebuild — ~90 x 2,000 on a digitized floor.
+  //
+  // A plain object, not a Map: this module imports lucide-react's `Map` icon at the top,
+  // which shadows the global constructor for the whole file. `new Map()` here threw
+  // "Map is not a constructor" and took the entire console down through the error
+  // boundary. Object.create(null) also avoids inherited keys like "constructor" colliding
+  // with a zone id.
+  const feedsByZone = Object.create(null);
+  for (const r of relationships) {
+    if (r.predicate === 'brick:feeds' && typeof r.source === 'string' && r.source.startsWith('vav')
+        && feedsByZone[r.target] === undefined) {
+      feedsByZone[r.target] = r.source;
+    }
+  }
 
   activeZones.forEach((z, i) => {
     const col = i % PER_ROW, row = Math.floor(i / PER_ROW);
 
     // Topology driven by the Brick Schema semantic ontology: find the VAV feeding this zone.
-    const feedsRel = relationships.find(r => r.target === z.id && r.predicate === 'brick:feeds' && r.source.startsWith('vav'));
-    const vavId = feedsRel ? feedsRel.source : null;
+    const vavId = feedsByZone[z.id] || null;
     const v = vavId ? simState.vavs[vavId] : null;
 
     nodes.push({
@@ -231,6 +287,7 @@ const buildTopologyFromSim = (simState, activeFloor, ontology) => {
         vavId,
         vavLabel: vavId ? `VAV · ${(z.label || z.id).toUpperCase()}` : 'DIRECT',
         flowVal: v?.flow || 0,
+        flowMax,
       }
     });
 
@@ -266,6 +323,52 @@ function App() {
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
   const [leftPanelSize, setLeftPanelSize] = useState({ w: 360 });
   const [showWindSim, setShowWindSim] = useState(true);
+
+  // Recomputes safeArea on a viewport change — the insets are in pixels against
+  // window.innerWidth/Height, so a resize or rotate must re-frame.
+  const [viewportTick, setViewportTick] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    const onResize = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => setViewportTick((t) => t + 1));
+    };
+    window.addEventListener('resize', onResize);
+    return () => { window.removeEventListener('resize', onResize); cancelAnimationFrame(raf); };
+  }, []);
+
+  // What part of the 3D canvas the operator can actually see.
+  //
+  // The console paints four things over the full-bleed canvas: the AI panel on the left,
+  // the metrics dock on the right, and — stacked in the bottom-right corner — the topology
+  // window and, when open, the airflow window. Framing the building to the canvas centres
+  // it behind them, which is what "the overview gets blocked" is: the model is correctly
+  // framed for a viewport the operator cannot see most of.
+  //
+  // These are the same numbers the panels are laid out from, so the framing follows a
+  // resize or a collapse rather than being tuned once against one arrangement. The bottom
+  // inset is deliberately NOT applied: the overlays occupy only the right half of the
+  // lower area, and reserving full-width height for them would push the building up out of
+  // the frame for no gain.
+  const safeArea = useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    const GUTTER = 24;      // the docks' own offset from the viewport edge
+    const TOP_BAR = 72;     // view-mode toggle strip across the top
+    const BOTTOM_BAR = 96;  // scenario / auto-pilot bar across the bottom
+    const rightOverlay = Math.max(
+      rightPanelWidth,                                   // metrics dock
+      panelSize.w,                                       // topology window
+      showWindSim ? airflowSize.w : 0,                   // airflow window
+    );
+    return {
+      left: (isLeftPanelOpen ? leftPanelSize.w : 0) + GUTTER,
+      right: rightOverlay + GUTTER,
+      top: TOP_BAR,
+      bottom: BOTTOM_BAR,
+      viewportW: window.innerWidth,
+      viewportH: window.innerHeight,
+    };
+  }, [isLeftPanelOpen, leftPanelSize.w, rightPanelWidth, panelSize.w, airflowSize.w, showWindSim, viewportTick]);
   const [maintenanceTarget, setMaintenanceTarget] = useState(null);
   const [showImport, setShowImport] = useState(false);
   const [ontology, setOntology] = useState(null);
@@ -298,6 +401,17 @@ function App() {
   // Physical edge nodes (ESP32 / Pico): poll which zones mirror real hardware so the
   // micro-HUD can badge them. Stays an empty map when no node has ever reported.
   const [hardwareNodes, setHardwareNodes] = useState({});
+
+  // The site's coordinates, from the engine's weather feed (WEATHER_LAT/WEATHER_LON) —
+  // the same location the 2R1C envelope integrates against. The sky background used to
+  // carry Ho Chi Minh City's coordinates as literals, so relocating the building left the
+  // dashboard rendering the wrong sunrise. Falls back to the component default until the
+  // feed answers.
+  const { weather: siteWeather } = useOpsStatus(60000);
+  // Ventilation coefficients for the modelled-CO2 readout (see useLibrary).
+  const { modelledCo2 } = useLibrary();
+  const siteLat = siteWeather?.lat ?? 10.8231;
+  const siteLon = siteWeather?.lon ?? 106.6297;
   useEffect(() => {
     let alive = true;
     const load = () => fetch(`${API_BASE}/api/hardware`)
@@ -319,14 +433,32 @@ function App() {
   }, []);
 
   const onSimUpdate = useCallback((newSimData, currentScenario) => {
+    // Both of these are WHOLE-BUILDING facts, so they are computed once per frame and not
+    // once per node. Written inside the map below they were O(nodes x vavs) — on the office
+    // fixture that is 735 x 735 ≈ 540,000 operations on every websocket frame at ~30 fps,
+    // which is what made the topology view crawl.
+    let liveFlowMax = 0;
+    for (const vv of Object.values(newSimData.vavs || {})) {
+      if ((vv.flow || 0) > liveFlowMax) liveFlowMax = vv.flow || 0;
+    }
+    let anyAlarm = false;
+    for (const z of Object.values(newSimData.zones || {})) {
+      if (z.alert === true) { anyAlarm = true; break; }
+    }
+
     setNodes(nds => nds.map(n => {
       if (n.type === 'unit' && newSimData.zones[n.id]) {
           const zz = newSimData.zones[n.id];
           const v = n.data.vavId ? newSimData.vavs[n.data.vavId] : null;
-          return { ...n, data: { ...n.data, temp: zz.temp, alert: zz.alert, occupancy: zz.occupancy, flowVal: v ? v.flow : n.data.flowVal } };
+          return { ...n, data: { ...n.data, temp: zz.temp, alert: zz.alert, occupancy: zz.occupancy, flowVal: v ? v.flow : n.data.flowVal, flowMax: liveFlowMax || n.data.flowMax } };
       }
       if (n.type === 'ahu') {
-          return { ...n, data: { ...n.data, pressure: newSimData.ahuPressure } };
+          return { ...n, data: {
+            ...n.data,
+            pressure: newSimData.ahuPressure,
+            autoPilot: newSimData.autoPilot,
+            status: anyAlarm ? 'FAULT' : 'NOMINAL',
+          } };
       }
       return n;
     }));
@@ -414,7 +546,7 @@ function App() {
 
       {/* Live time-of-day sky, shared with the mobile view: golden hour, morning, afternoon,
           sunset, evening. Sits behind the transparent 3D canvas. */}
-      <LiveWeatherBackground lat={10.8231} lon={106.6297} />
+      <LiveWeatherBackground lat={siteLat} lon={siteLon} />
 
       <div className="three-d-canvas-wrapper">
         <CanvasErrorBoundary>
@@ -429,6 +561,7 @@ function App() {
               setFaultTarget(zoneId);
             }}
             viewMode={viewMode}
+            safeArea={safeArea}
           />
         </CanvasErrorBoundary>
       </div>
@@ -503,14 +636,28 @@ function App() {
                   real sensor on this zone is reporting, so the measured value wins. Zero means
                   nothing is measuring it and we say so rather than passing a model off as data. */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Users size={14}/> CO₂ {simData.zones[selectedZone].co2 > 0 ? 'Level (measured)' : 'Level (modeled)'}
-                </span>
-                <span style={{ color: 'var(--accent-green)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '14px' }}>
-                  {Math.round(simData.zones[selectedZone].co2 > 0
-                    ? simData.zones[selectedZone].co2
-                    : 400 + simData.zones[selectedZone].occupancy * 15)} ppm
-                </span>
+                {/* Measured takes precedence; the modelled figure uses the library's own
+                    ventilation coefficients rather than a 400+15n literal repeated here,
+                    on mobile and in the engine with three different values. When the
+                    library has not been read there is no modelled figure to show, and the
+                    row says so instead of inventing a plausible ppm. */}
+                {(() => {
+                  const zc = simData.zones[selectedZone].co2;
+                  const measured = zc > 0;
+                  const modelled = measured ? null : modelledCo2(simData.zones[selectedZone].occupancy);
+                  return (
+                    <>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Users size={14}/> CO₂ {measured ? 'Level (measured)' : modelled != null ? 'Level (modeled)' : 'Level'}
+                      </span>
+                      <span style={{ color: 'var(--accent-green)', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '14px' }}>
+                        {measured ? `${Math.round(zc)} ppm`
+                          : modelled != null ? `${Math.round(modelled)} ppm`
+                          : '— no sensor'}
+                      </span>
+                    </>
+                  );
+                })()}
               </div>
 
               {simData.zones[selectedZone].humidity > 0 && (
@@ -790,6 +937,7 @@ function App() {
         <MaintenanceDrawer
           zoneId={maintenanceTarget}
           simData={simData}
+          sendManualOverride={sendManualOverride}
           onClose={() => setMaintenanceTarget(null)}
         />
       )}

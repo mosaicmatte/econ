@@ -3,13 +3,25 @@ import { Activity, AlertTriangle, Zap, CheckCircle, Plug, X } from 'lucide-react
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceArea, ReferenceLine, LineChart, Line } from 'recharts';
 import { money, energyCostPerDay, peakShiftSavingPerDay, peakShiftSavingPerMonth, touPeriod, touPeriodLabel, minutesToPeak, rateStr } from './tariff';
 import { usePlugs } from './usePlugs';
+import { useLibrary } from './useLibrary';
+import ZoneProfileRows from './ZoneProfileRows';
+import useSteadyRows from './useSteadyRows';
+
+// Where the profiler stops naming rooms and starts describing a population. Two dozen rows
+// is about as many as fit before scanning them costs more than reading a scatter.
+const ZONE_ROWS_MAX = 24;
 import { API_BASE } from './api';
 
-// Supply-air temperature the engine cools toward (simulation/engine.go uses 12.0 °C in
-// the cooling law). Per-zone cooling POWER is the physical Q = ρ·V̇·cp·ΔT from the zone's
-// live VAV airflow — a real delivered-cooling figure, not the internal heat-gain constant
-// the scatter used to plot under a "cooling" label.
-const SUPPLY_C = 12.0;
+// Per-zone cooling POWER is the physical Q = ρ·V̇·cp·ΔT from the zone's live VAV airflow —
+// a real delivered-cooling figure, not the internal heat-gain constant the scatter used to
+// plot under a "cooling" label.
+//
+// ΔT needs the SUPPLY temperature, and this file used to hardcode 12.0 °C with a comment
+// asserting that was what the engine used. It stopped being true when the engine learned
+// to prefer a measured discharge probe per zone: a room whose DS18B20 reads 9 °C was being
+// charted as if it were fed 12 °C air, understating its delivered cooling by a quarter.
+// The engine now streams the supply temperature it actually used for each zone, along with
+// whether a probe measured it, so the chart computes the same ΔT the physics did.
 const AIR_RHO = 1.2;    // kg/m³
 const AIR_CP = 1.005;   // kJ/kg·K  → Q in kW when V̇ is m³/s
 
@@ -20,6 +32,8 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
   const applySuggestion = () => setAutoPilot && setAutoPilot(true);
 
   const { status: plugStatus } = usePlugs();
+  // Plant coefficients and the critical-zone list from the engine's programme library.
+  const { hvacPerDegC: perDegC, supplyDesignC, isCritical } = useLibrary();
   const [drill, setDrill] = useState(null); // {id, name, sensor} of the zone being inspected
 
   // Real autonomous-optimizer state, straight from the engine stream — not a per-card
@@ -54,11 +68,24 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
     Object.values(simData.vavs || {}).forEach((v) => {
       const z = simData.zones?.[v.targetZone];
       if (!z) return;
-      const dT = Math.max(0, (z.temp ?? 24) - SUPPLY_C);
+      // The engine's own supply temperature for this zone: the measured probe where one
+      // reports, the library's design value otherwise. Falling back to the library value
+      // covers a pre-upgrade engine that streams no supply field; when even that is
+      // unavailable the zone is skipped rather than charted against a guess.
+      const supply = z.supplyC > 0 ? z.supplyC : supplyDesignC;
+      if (!(supply > 0)) return;
+      const dT = Math.max(0, (z.temp ?? 24) - supply);
       m[v.targetZone] = AIR_RHO * (v.flow || 0) * AIR_CP * dT;
     });
     return m;
-  }, [simData]);
+  }, [simData, supplyDesignC]);
+
+  // How much of the chart is grounded in a measured discharge temperature — stated on the
+  // panel rather than left for the reader to assume.
+  const supplyMeasuredZones = useMemo(
+    () => Object.values(simData.zones || {}).filter((z) => z.supplyReal).length,
+    [simData.zones],
+  );
 
   // Zone performance: every zone plotted as (how far it has drifted from its setpoint) vs
   // (the cooling power it is actually drawing). Every value is streamed — no synthetic
@@ -69,6 +96,7 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
   //   centre          -> inside the deadband               = healthy
   const perf = useMemo(() => {
     const g = { healthy: [], overcooled: [], starved: [], struggling: [], alarm: [] };
+    const rows = [];
     let wasteKw = 0;
     let maxDb = 2;
     Object.values(simData.zones || {}).forEach((z) => {
@@ -81,17 +109,32 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
         x: Number(dev.toFixed(2)), y: Number(coolKw.toFixed(1)), id: z.id, name: z.label || z.id,
         sensor: (z.co2 || 0) > 0 || (z.humidity || 0) > 0,
       };
+      // The same classification the scatter colours by, recorded per zone so the row view
+      // can show it without re-deriving it.
+      let state = 'healthy';
+      if (z.alert === true || z.alert === 'REMEDIATING') state = 'alarm';
+      else if (dev > db) state = coolKw > 1 ? 'struggling' : 'starved';
+      else if (dev < -db) state = 'overcooled';
+      rows.push({
+        id: z.id, name: z.label || z.id, state,
+        temp: z.temp ?? sp, setpoint: sp, deadband: db, dev, coolKw,
+        occupancy: z.occupancy ?? 0, plugShed: !!z.plugShed, sensor: pt.sensor,
+      });
+
       if (z.alert === true || z.alert === 'REMEDIATING') g.alarm.push(pt);
       else if (dev > db) (coolKw > 1 ? g.struggling : g.starved).push(pt);
       else if (dev < -db) {
         g.overcooled.push(pt);
-        // Electrical waste of overcooling: ~5% of the zone's cooling electrical per °C
-        // below the deadband's lower edge.
-        wasteKw += (Math.abs(dev) - db) * 0.05 * (coolKw / cop);
+        // Electrical waste of overcooling, per °C below the deadband's lower edge. The
+        // per-°C fraction is a plant coefficient and comes from the engine's programme
+        // library; when the library is unreachable the waste is left at zero and the
+        // panel says the figure is unavailable, rather than pricing it against a
+        // literal typed here.
+        if (perDegC != null) wasteKw += (Math.abs(dev) - db) * perDegC * (coolKw / cop);
       } else g.healthy.push(pt);
     });
-    return { ...g, wasteKw, maxDb };
-  }, [simData, cop, coolingByZone]);
+    return { ...g, rows, wasteKw: perDegC != null ? wasteKw : null, maxDb };
+  }, [simData, cop, coolingByZone, perDegC]);
 
   const sensorCount = useMemo(
     () => Object.values(simData.zones || {}).filter(z => (z.co2 || 0) > 0 || (z.humidity || 0) > 0).length,
@@ -103,8 +146,10 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
   const faultZoneId = isFault ? faultTarget : null;
   const faultZone = faultZoneId ? simData.zones[faultZoneId] : null;
 
+  // Critical types come from the engine's library (see useLibrary), not a list typed
+  // here — the pair this replaces named zone types the digitizer no longer emits.
   const unoccupiedWasting = Object.values(simData.zones || {})
-    .filter(z => z.occupancy === 0 && z.type !== 'server-room' && z.type !== 'mechanical' && (coolingByZone[z.id] || 0) > 0.5)
+    .filter(z => z.occupancy === 0 && isCritical(z.type) === false && (coolingByZone[z.id] || 0) > 0.5)
     .slice(0, 1);
   const outOfBand = Object.values(simData.zones || {}).filter(z => z.temp > z.setpoint + z.deadband && activeScenario !== 'fault');
 
@@ -112,10 +157,12 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
   // electrical it is drawing (thermal cooling / plant COP), no fabricated lighting constant.
   const zoneWasteKw = (z) => (coolingByZone[z.id] || 0) / cop;
   const rateLabel = touPeriodLabel(touPeriod()); // current EVN TOU band, e.g. "normal hours"
-  // Cooling load a 1°C deadband widen / pre-cool shifts OFF the daily peak window: ~5% of
-  // cooling electrical (a standard ~3–5%-per-°C HVAC rule of thumb). The value is the peak-vs-
-  // normal rate gap on that shifted energy, not a (non-existent in Vietnam) demand charge.
-  const shedKw = 0.05 * coolingElectricalKw;
+  // Cooling load a 1°C deadband widen / pre-cool shifts OFF the daily peak window. The
+  // fraction is the library's hvacLoadPerDegCFraction — a building coefficient, so it
+  // lives in data with its provenance rather than as a literal repeated across panels.
+  // The value is the peak-vs-normal rate gap on that shifted energy, not a (non-existent
+  // in Vietnam) demand charge. Null when the library has not answered.
+  const shedKw = perDegC != null ? perDegC * coolingElectricalKw : null;
   // Peak-shaving advice is driven by the EVN TOU clock, not a hardcoded load threshold:
   // relevant while cao điểm is running or within 90 minutes of it.
   const tou = touPeriod();
@@ -127,11 +174,17 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
   // per zone type) and a fixed "blast radius" no computation produced — the bar and the
   // percentage taught operators to trust precision that did not exist. The evidence shown
   // now is the zone's real overtemp and the real count of zones currently in alarm.
+  // Matched on substrings of the zone type, not on exact legacy names. The three names
+  // this tested for — server-room, open-office, perimeter — included two the current
+  // digitizer does not emit, so on the live fixture every room fell through to the
+  // catch-all and a comms room was diagnosed as a chilled-water valve.
   const getRCA = (zone) => {
     if (!zone) return { cause: 'unknown equipment' };
-    if (zone.type === 'server-room') return { cause: 'CRAC unit compressor failure' };
-    if (zone.type === 'open-office') return { cause: 'VAV box damper stuck closed' };
-    if (zone.type === 'perimeter') return { cause: 'perimeter radiant heater stuck ON' };
+    const t = (zone.type || '').toLowerCase();
+    if (/comms|server|data/.test(t)) return { cause: 'CRAC unit compressor failure' };
+    if (/office|meeting|conference/.test(t)) return { cause: 'VAV box damper stuck closed' };
+    if (/perimeter/.test(t)) return { cause: 'perimeter radiant heater stuck ON' };
+    if (/plant|mechanical/.test(t)) return { cause: 'plant-room extract fan failure' };
     return { cause: 'upstream chilled water valve failure' };
   };
 
@@ -140,6 +193,17 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
   const faultOverC = faultZone ? faultZone.temp - (faultZone.setpoint + (faultZone.deadband ?? 1)) : 0;
 
   const chartH = isMobile ? 300 : 260;
+
+  // Which view the profiler shows.
+  //
+  // The scatter reads the POPULATION — where the mass sits, which corner holds outliers.
+  // That needs a population. Below roughly two dozen zones every point lands inside the
+  // deadband shading, the quadrants are empty, and the axes imply a distribution that a
+  // handful of points cannot show; the same five numbers are better read as five rooms.
+  // Above it, naming every room stops being possible and the scatter is the better tool.
+  const useRows = perf.rows.length > 0 && perf.rows.length <= ZONE_ROWS_MAX;
+  // Sampled and stably ordered for reading — see useSteadyRows.
+  const steadyRows = useSteadyRows(perf.rows);
   const fontBig = isMobile ? '13px' : '11px';
 
   return (
@@ -164,12 +228,32 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <div style={{ fontSize: '10px', fontWeight: 'bold', color: 'var(--text-secondary)', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Activity size={12} color="var(--accent-blue)" />
-            ZONE PERFORMANCE — COOLING kW vs °C FROM SETPOINT
+            {useRows ? 'ZONE PERFORMANCE — EACH ROOM AGAINST ITS OWN BAND' : 'ZONE PERFORMANCE — COOLING kW vs °C FROM SETPOINT'}
           </div>
-          <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>tap a point →</span>
+          <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>{useRows ? 'tap a row →' : 'tap a point →'}</span>
+        </div>
+        {/* Where the ΔT behind every Y value came from. Delivered cooling is only as good
+            as the supply temperature it is computed against, so the chart states how much
+            of itself is measured rather than assumed. */}
+        <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginBottom: '6px', lineHeight: 1.4 }}>
+          {useRows
+            ? `${perf.rows.length} zones — each drawn against its OWN setpoint and deadband, worst first. `
+            : `${perf.rows.length} zones as a population; the quadrants are the diagnosis. `}
+          Cooling is Q = ρ·V̇·cp·(T<sub>room</sub> − T<sub>supply</sub>) at each zone's live airflow.{' '}
+          {supplyMeasuredZones > 0
+            ? <span style={{ color: 'var(--accent-green)' }}>{supplyMeasuredZones} zone{supplyMeasuredZones === 1 ? '' : 's'} using a measured discharge probe</span>
+            : <span>No discharge probe reporting — every ΔT uses the library's {supplyDesignC != null ? `${supplyDesignC.toFixed(0)} °C ` : ''}design supply temperature</span>}.
         </div>
 
-        <div style={{ height: chartH, background: 'rgba(0,0,0,0.4)', borderRadius: '8px', padding: '12px', border: '1px solid var(--border-glass)' }}>
+        <div style={{
+          height: useRows ? 'auto' : chartH, maxHeight: useRows ? chartH + 120 : undefined,
+          overflowY: useRows ? 'auto' : undefined,
+          background: 'rgba(0,0,0,0.4)', borderRadius: '8px',
+          padding: useRows ? '6px' : '12px', border: '1px solid var(--border-glass)',
+        }}>
+          {useRows ? (
+            <ZoneProfileRows rows={steadyRows} isMobile={isMobile} onSelect={(r) => setDrill({ id: r.id, name: r.name, sensor: r.sensor })} />
+          ) : (
           <ResponsiveContainer width="100%" height="100%">
             <ScatterChart margin={{ top: 10, right: 10, bottom: 0, left: 0 }} onClick={handleChartClick} style={{ cursor: 'pointer' }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
@@ -195,6 +279,7 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
               <Scatter name="Alarm" data={perf.alarm} fill="var(--accent-red)" isAnimationActive={false} onClick={setDrill} />
             </ScatterChart>
           </ResponsiveContainer>
+          )}
         </div>
 
         {/* Legend doubles as the read-out: each colour is a count and a decision. */}
@@ -224,7 +309,7 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
           />
         )}
 
-        {perf.overcooled.length > 0 && perf.wasteKw > 0.5 && (
+        {perf.overcooled.length > 0 && perf.wasteKw != null && perf.wasteKw > 0.5 && (
           <div style={{ marginTop: '8px', fontSize: '10px', color: 'var(--accent-blue)', lineHeight: 1.4 }}>
             {perf.overcooled.length} zones are cooled past their deadband — ≈ {perf.wasteKw.toFixed(0)} kW of avoidable
             plant draw, about {money(energyCostPerDay(perf.wasteKw))}/day at {rateLabel}. Raising those setpoints is free money.
@@ -347,9 +432,11 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
                   <div style={{ fontSize: fontBig, color: 'var(--text-primary)', marginTop: '4px', lineHeight: 1.4 }}>
                     Building load {(simData.buildingLoadMw || 0).toFixed(2)} MW — the 17:30–22:30 peak band ({rateStr('peak')}/kWh) is the costly window.
                     <div style={{ marginTop: '4px', color: autoPilot ? 'var(--accent-green)' : 'var(--text-secondary)' }}>
-                      {autoPilot
-                        ? `Pre-cooling shifts ≈ ${shedKw.toFixed(0)} kW of cooling out of peak into normal-rate hours — saving ≈ ${money(peakShiftSavingPerDay(shedKw))}/day (${money(peakShiftSavingPerMonth(shedKw))}/month).`
-                        : `Widen deadbands 1°C / pre-cool before 17:30 → shift ≈ ${shedKw.toFixed(0)} kW off peak, saving ≈ ${money(peakShiftSavingPerDay(shedKw))}/day (${money(peakShiftSavingPerMonth(shedKw))}/month).`}
+                      {shedKw == null
+                        ? 'The size of the shift is not shown: it depends on the plant coefficient in the engine’s programme library, which this dashboard could not read.'
+                        : autoPilot
+                          ? `Pre-cooling shifts an estimated ${shedKw.toFixed(0)} kW of cooling out of peak into normal-rate hours — about ${money(peakShiftSavingPerDay(shedKw))}/day (${money(peakShiftSavingPerMonth(shedKw))}/month) at the rate gap. The ${(perDegC * 100).toFixed(0)}%-per-°C figure is the library's planning estimate, not a measured coast.`
+                          : `Widen deadbands 1°C / pre-cool before 17:30 → shift an estimated ${shedKw.toFixed(0)} kW off peak, about ${money(peakShiftSavingPerDay(shedKw))}/day (${money(peakShiftSavingPerMonth(shedKw))}/month) at the rate gap.`}
                     </div>
                   </div>
                 </div>

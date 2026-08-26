@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { UploadCloud, FileCheck2, AlertTriangle, Building2, Loader2, History, KeyRound } from 'lucide-react';
-import { API_BASE } from './api';
+import { API_BASE, getAdminToken, setAdminToken } from './api';
 
 // Blueprint -> twin, in two explicit steps so nothing deploys sight-unseen:
 //   1) DIGITIZE: upload a DXF / PDF / image (or, on a phone, photograph the paper
@@ -24,7 +24,9 @@ export default function BlueprintImportPanel({ onClose, mobile = false }) {
   // Operational guardrails: the server may require an admin token for anything that
   // replaces the running building (ECON_ADMIN_TOKEN). We only ask for it after a 401,
   // so the demo flow stays frictionless and the commercial flow stays gated.
-  const [token, setToken] = useState('');
+  // Seeded from the shared operator token (api.js) so a token already entered elsewhere
+  // in this browser is not asked for again. It still only becomes visible after a 401.
+  const [token, setToken] = useState(() => getAdminToken());
   const [needToken, setNeedToken] = useState(false);
   const [backups, setBackups] = useState([]);
   const [restoring, setRestoring] = useState(null);
@@ -226,7 +228,7 @@ export default function BlueprintImportPanel({ onClose, mobile = false }) {
             <div style={{ ...label, display: 'flex', alignItems: 'center', gap: '6px' }}><KeyRound size={11} /> ADMIN TOKEN</div>
             <input
               style={input} type="password" value={token} placeholder="X-Admin-Token"
-              onChange={(e) => setToken(e.target.value)} autoComplete="off"
+              onChange={(e) => { setToken(e.target.value); setAdminToken(e.target.value); }} autoComplete="off"
             />
           </div>
         )}

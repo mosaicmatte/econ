@@ -394,6 +394,13 @@ type zoneDynamics struct {
 	// still accumulates until it clears the bar.
 	LastThermalDrv []float64 `json:"lastThDrv,omitempty"`
 	LastCo2Drv     []float64 `json:"lastCoDrv,omitempty"`
+
+	// How many ACCEPTED thermal updates were regressed against a measured discharge
+	// temperature rather than the library's design value. Cooling authority is the one
+	// coefficient whose meaning depends on what it was referenced to, so a room fitted
+	// against a probe and one fitted against an assumption are not the same result — and
+	// without this counter they are indistinguishable in the output.
+	SupplyMeasuredN int `json:"supplyMeasuredN,omitempty"`
 }
 
 func newZoneDynamics() *zoneDynamics {
@@ -535,6 +542,9 @@ func (d *Dynamics) observeRoom(zd *zoneDynamics, c RoomCondition, now float64) {
 				1.0,
 			}
 			zd.Thermal.update(x, dTdt, thermalPrior)
+			if c.SupplyC > 0 {
+				zd.SupplyMeasuredN++
+			}
 		} else {
 			zd.Thermal.Skipped++
 		}
@@ -615,6 +625,12 @@ type RoomModel struct {
 	CoolingAuthority float64 `json:"coolingAuthority"` // −θ1, per hour per unit flow·ΔT
 	PerOccupantC     float64 `json:"perOccupantC"`     // θ2, °C/h per person
 	ThermalResidual  float64 `json:"thermalResidual"`  // mean |error| in °C/h
+	// Provenance of the cooling term: how many accepted samples were referenced to a
+	// MEASURED discharge temperature, and what share of the fit that is. A room at 0 was
+	// identified entirely against the library's design supply temperature — still a real
+	// fit, but its cooling authority inherits whatever error that assumption carries.
+	SupplyMeasuredSamples int     `json:"supplyMeasuredSamples"`
+	SupplyMeasuredFrac    float64 `json:"supplyMeasuredFrac"`
 
 	Co2Samples     int     `json:"co2Samples"`
 	Co2Ready       bool    `json:"co2Ready"`
@@ -649,6 +665,11 @@ func (d *Dynamics) RoomModels(labels map[string]string) []RoomModel {
 			Co2Residual:     zd.Co2.ResEma,
 			ThermalTheta:    append([]float64(nil), zd.Thermal.Theta...),
 			Co2Theta:        append([]float64(nil), zd.Co2.Theta...),
+
+			SupplyMeasuredSamples: zd.SupplyMeasuredN,
+		}
+		if zd.Thermal.N > 0 {
+			m.SupplyMeasuredFrac = float64(zd.SupplyMeasuredN) / float64(zd.Thermal.N)
 		}
 		if m.Label == "" {
 			m.Label = zone
@@ -672,6 +693,23 @@ func (d *Dynamics) RoomModels(labels map[string]string) []RoomModel {
 
 // Coverage reports how many rooms have an identified (trusted) model vs. how many are
 // still being identified — the honest maturity readout, matching Baselines.Coverage.
+// RetainZones drops identified models for rooms the current building does not contain, and
+// reports how many it removed. Same reasoning as Baselines.RetainZones: a model for a room
+// that is gone is never consulted, but it is counted, and "4 rooms identified" in a
+// five-room house should mean four of THOSE rooms.
+func (d *Dynamics) RetainZones(keep map[string]bool) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	dropped := 0
+	for zone := range d.rooms {
+		if !keep[zone] {
+			delete(d.rooms, zone)
+			dropped++
+		}
+	}
+	return dropped
+}
+
 func (d *Dynamics) Coverage() (identified, learning int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

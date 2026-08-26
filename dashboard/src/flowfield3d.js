@@ -16,8 +16,9 @@
 // Anisotropic 7-point Poisson  ∇²φ = S  (Gauss–Seidel), velocity v = ∇φ.
 // ============================================================================
 import { buildFlowField, pointInPoly, flowKeyOf } from './flowfield';
+import { exteriorPolygon, toWorld, ORIGIN } from './floorGeometry';
 
-const toLocal = (p) => [p[0] - 20, 20 - p[1]];
+const toLocal = (p) => toWorld(p);
 
 export { flowKeyOf };
 
@@ -26,7 +27,9 @@ export function buildFlowField3D(floor, simState, opts = {}) {
   const f2 = buildFlowField(floor, simState); // 2D structures + feature positions (local coords)
   if (!f2) return null;
 
-  const ext = floor.geometry.exteriorPolygon.map(toLocal);
+  const extRaw = exteriorPolygon(floor);
+  if (!extRaw) return null; // no envelope to solve against — the caller renders an empty state
+  const ext = extRaw.map(toLocal);
   const zonesPoly = floor.zones.map((z) => ({ poly: z.polygon.map(toLocal), type: z.zoneType }));
   const { minX, maxX, minZ, maxZ } = f2.grid;
   const W = maxX - minX, D = maxZ - minZ;

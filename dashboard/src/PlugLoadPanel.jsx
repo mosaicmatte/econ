@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Plug, PowerOff, ShieldAlert, Gauge, KeyRound, Moon } from 'lucide-react';
 import { usePlugs } from './usePlugs';
 import { money, TARIFF } from './tariff';
-import { GRID_EF_KG_PER_KWH, IS_IT_DOMINATED } from './sustainability';
+import { GRID_EF_KG_PER_KWH, IS_IT_DOMINATED, ZONE_MIX } from './sustainability';
 
 // Plug-load management (APLC) — the end use a conventional BMS neither meters nor
 // controls. In the Hanoi office-tower case study this project benchmarks against
@@ -74,7 +74,10 @@ export default function PlugLoadPanel({ simData }) {
         </div>
         {IS_IT_DOMINATED && (
           <div style={{ fontSize: '8px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-            This building's load is server-room-dominated, so its plug share reads low against the office cohort.
+            {/* Names the programme the mix analysis actually found, rather than asserting
+                "server-room" — which was wrong the moment the digitizer renamed the type
+                that triggers this line. */}
+            This building's load is {(ZONE_MIX.dominant?.loadShare * 100).toFixed(0)}% {ZONE_MIX.dominant?.type}, so its plug share reads low against the office cohort.
           </div>
         )}
         <div style={S.row}>

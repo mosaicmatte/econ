@@ -65,12 +65,43 @@
     ],
     "airDensityKgPerM3": 1.2,
     "solarPeakWPerM2": 10.0,
+    "solarGainReferenceW": 10000.0,
+    "solarGainReferenceNote": [
+      "Solar gain for a zone whose aperture multiplier is 1.0. This records, rather than",
+      "fixes, a KNOWN DIVERGENCE: the heat-balance contract at the top of this file says",
+      "solar = solarGainMultiplier x solarPeakWPerM2 x area, but engine.go has always",
+      "evaluated solarGainMultiplier x 10000 W with no area term at all -- equivalent to",
+      "assuming every zone is 1000 m2, where the fixture's median zone is 12.6 m2. The",
+      "literal was moved here so it is visible and site-editable; it was NOT re-scaled,",
+      "because doing so drops building-wide solar from 259.5 kW to 9.1 kW and that is a",
+      "recalibration decision, not a refactor. Only 45 of 735 zones have any aperture.",
+      "Correct fix: scale by exteriorWallM2 x glazing fraction and recalibrate this figure",
+      "as a facade irradiance, then delete this key."
+    ],
+    "daylightReferenceLux": 1000.0,
+    "daylightReferenceNote": "Indoor illuminance corresponding to solarGainReferenceW, so a BH1750 reading divided by this is a pure scaling ratio on that zone's solar term (simulation/engine.go solarGainW). Used only while the zone's lights are OFF -- an indoor lux sensor under lit luminaires is measuring electric lighting, whose heat is already in baseHeatLoad.",
     "designCop": 3.6,
-    "designCopNote": "Plant COP at nominal lift; simulation/engine.go degrades from this as the building is strained.",
+    "designCopNote": "Plant COP at nominal lift; simulation/engine.go degrades from this as the building is strained. Superseded, for the portion of the building on a real AC clamp, by the COP measured as thermal delivered over electrical drawn.",
+    "copStrainSlope": 0.35,
+    "copMin": 2.2,
+    "copMax": 3.8,
+    "copCurveNote": "How far COP falls per degC of average zone strain, and the bounds on the resulting curve. Previously literals in engine.go broadcast().",
     "equivalentFullLoadHoursPerYr": 3000,
     "eflhNote": "Office EFLH for a Vietnamese commercial building on a ~11 h day, 5.5 d week, year-round cooling. Converts a design-day peak to an annual intensity for the cohort check.",
     "supplyAirDesignC": 12.0,
     "supplyAirNote": "Design AHU discharge. Superseded per zone by a measured supply-air probe when one reports (edge/esp32 SUPPLY_C).",
+    "supplyAirDesignAch": 6.0,
+    "supplyAirDesignAchNote": "Design supply-air rate for comfort cooling, in air changes per hour of the zone's own volume. It is what sizes each VAV: the network solver needs a per-box design flow, and without one it split a FIXED fan capacity evenly across however many boxes the building happened to have — 21.9 m3/s through each of a house's two VAVs, ~150,000 m3/h for 72 m2. 4-8 ACH is the usual band for sensible cooling; raise it for high-gain spaces once the plant has been balanced.",
+    "ahuDesignPressurePa": 480.0,
+    "ahuDesignPressureNote": "Design AHU static pressure the VAV resistances are referenced to, and the operating point the fan curve is scaled to hit for THIS building.",
+    "hvacLoadPerDegCFraction": 0.05,
+    "hvacLoadPerDegCNote": "Fractional change in cooling ELECTRICAL draw per degC of setpoint or deadband relaxation. The widely-replicated commercial-HVAC rule of thumb is 3-5%/degC; 5% is the upper end and is used both to price overcooling and to size what a pre-cool window can coast off the evening peak. Recalibrate per site once the plant has been metered across a setpoint change.",
+    "precoolShiftFraction": 0.05,
+    "precoolShiftNote": "Fraction of the plant's current cooling ELECTRICAL draw a thermal-mass pre-charge can shift out of the EVN cao diem window. Same order as hvacLoadPerDegCFraction because a pre-cool window is in effect a ~1 degC setpoint depression held ahead of the peak. This is an estimate until the building has been measured coasting; the UI must label it as one.",
+    "outdoorCo2Ppm": 400.0,
+    "outdoorCo2Note": "Ambient outdoor CO2. The floor every indoor concentration is measured from; an urban Vietnamese site runs a little above the global background, so recalibrate from a sensor left outdoors rather than assuming the textbook 420.",
+    "co2PpmPerOccupantSteady": 15.0,
+    "co2PpmPerOccupantNote": "Steady-state CO2 rise per occupant in a zone ventilated at outdoorAirLPerSPerPerson. Used ONLY to display a modelled concentration where no NDIR sensor reports, and every surface that shows it must label it as modelled — a fabricated ppm on a channel that implies measurement is exactly what rule 1 forbids.",
     "nonHvacBaseWPerM2": 9.0,
     "nonHvacBaseNote": [
       "Lighting + fans + lifts + pumps as a floor-area-scaled baseline, replacing a fixed",
@@ -203,6 +234,76 @@
       "critical": true,
       "note": "AHU / riser plant. Ventilated, not comfort-conditioned. Critical: never swept, never set back.",
       "perFloor": 1
+    },
+    "kitchen": {
+      "lightingWPerM2": 6.0,
+      "fixedEquipmentW": 120,
+      "setpointC": 28.0,
+      "deadbandC": 3.0,
+      "areaPerOccupantM2": 15.0,
+      "facadeExposed": true,
+      "critical": false,
+      "lightingSource": "Residential LED tube/strip as observed on site — roughly half the 9 W/m2 office LPD",
+      "note": "Vietnamese tube-house rear service space. fixedEquipmentW is the always-on residential base (fridge duty-cycle average + RO purifier standby). Cooking is bottled gas here and adds NO electrical load."
+    },
+    "living": {
+      "lightingWPerM2": 5.0,
+      "fixedEquipmentW": 40,
+      "setpointC": 27.0,
+      "deadbandC": 2.5,
+      "areaPerOccupantM2": 8.0,
+      "facadeExposed": true,
+      "critical": false,
+      "note": "Setpoint deliberately above the 24 C office figure: HCMC residential comfort expectations sit higher and the AC runs intermittently rather than being held all day."
+    },
+    "bedroom": {
+      "lightingWPerM2": 4.0,
+      "fixedEquipmentW": 20,
+      "setpointC": 26.0,
+      "deadbandC": 2.0,
+      "areaPerOccupantM2": 10.0,
+      "facadeExposed": true,
+      "critical": false,
+      "note": "Not in the current ground-floor scan; defined now so an upper-floor scan needs no library change."
+    },
+    "home-office": {
+      "lightingWPerM2": 7.0,
+      "fixedEquipmentW": 80,
+      "setpointC": 26.0,
+      "deadbandC": 2.0,
+      "areaPerOccupantM2": 12.0,
+      "facadeExposed": true,
+      "critical": false,
+      "note": "A study in a house, not a commercial office: fewer occupants, lower LPD, higher setpoint. fixedEquipmentW covers the VNPT router and a desk machine idling."
+    },
+    "bathroom": {
+      "lightingWPerM2": 5.0,
+      "fixedEquipmentW": 0,
+      "setpointC": 29.0,
+      "deadbandC": 4.0,
+      "areaPerOccupantM2": null,
+      "facadeExposed": false,
+      "critical": false,
+      "note": "Unconditioned wet room. High setpoint + wide deadband keep the optimizer from ever trying to cool it."
+    },
+    "circulation": {
+      "lightingWPerM2": 4.0,
+      "fixedEquipmentW": 0,
+      "setpointC": 29.0,
+      "deadbandC": 4.0,
+      "areaPerOccupantM2": null,
+      "facadeExposed": false,
+      "critical": false,
+      "note": "Passage / stair core — residential equivalent of `corridor`, unconditioned."
     }
-  }
+  },
+  "$residentialNote": [
+    "Residential programmes added 2026-07-26 for the HCMC tube-house deployment scanned with",
+    "Polycam (tools/housify_fixture.py). The office programmes above describe a commercial",
+    "tower and do NOT transfer to a house: lighting densities are roughly half, setpoints sit",
+    "2-4 C higher, and cooking contributes no electrical load because it is bottled gas.",
+    "These densities are ENGINEERING ESTIMATES for this dwelling type, not measured values and",
+    "not code minima. They are priors for the RLS identification to supersede (rule 4), and",
+    "they are the first numbers to replace once the PZEM is actually metering the house."
+  ]
 }

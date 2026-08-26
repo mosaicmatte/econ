@@ -15,6 +15,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sort"
@@ -57,6 +58,13 @@ type device struct {
 	TempReal bool `json:"tempReal"`
 	AcReal   bool `json:"acReal"`
 	AcKnown  bool `json:"acKnown"`
+	// Node runtime-configuration revision, and how many times it has changed while we have
+	// been watching. A recalibration rewrites the meaning of this device's power series, so
+	// "when did it last change" is the first question to ask of a step in plugW that has no
+	// matching step in occupancy.
+	CfgRev     uint32 `json:"cfgRev"`
+	CfgKnown   bool   `json:"cfgKnown"`
+	CfgChanges int64  `json:"cfgChanges"`
 
 	Fields map[string]*fieldStat `json:"fields"`
 
@@ -103,6 +111,19 @@ func (r *deviceRegistry) observe(topicSuffix string, msg telemetryMsg, raw []byt
 	dev.TempReal = msg.TempReal
 	if msg.AcReal != nil {
 		dev.AcReal, dev.AcKnown = *msg.AcReal, true
+	}
+	if msg.CfgRev != nil {
+		// A revision bump means the node's calibration was changed underneath the series we
+		// are storing. Recorded as a device event, in the same table as dropouts, because
+		// that is where someone investigating a discontinuity will already be looking.
+		if dev.CfgKnown && *msg.CfgRev != dev.CfgRev {
+			dev.CfgChanges++
+			log.Printf("[devices] %q config revision %d -> %d: its calibrated series are no "+
+				"longer comparable across this point", topicSuffix, dev.CfgRev, *msg.CfgRev)
+			persistDeviceEvent(topicSuffix, "config-change",
+				fmt.Sprintf("cfgRev %d -> %d", dev.CfgRev, *msg.CfgRev))
+		}
+		dev.CfgRev, dev.CfgKnown = *msg.CfgRev, true
 	}
 	dev.lastJSON = string(raw)
 

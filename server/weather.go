@@ -31,9 +31,17 @@ func weatherCoord(env string, fallback float64) float64 {
 // once — and again if the feed goes stale — the engine integrates against its
 // climatological fallback, so a dead network degrades to exactly the behaviour the
 // engine shipped with, never to a frozen or invented reading.
+// SiteLat / SiteLon are the coordinates every weather consumer must agree on. The
+// dashboard needs them too — its sky background picks a time-of-day phase from the site's
+// sunrise and sunset — and it had them typed in as literals in two components, so a
+// deployment that moved the building with WEATHER_LAT/WEATHER_LON would have kept
+// rendering Ho Chi Minh City's sky over a building the physics had already relocated.
+func SiteLat() float64 { return weatherCoord("WEATHER_LAT", 10.8231) }
+func SiteLon() float64 { return weatherCoord("WEATHER_LON", 106.6297) }
+
 func weatherLoop(engine *simulation.Engine) {
-	lat := weatherCoord("WEATHER_LAT", 10.8231)
-	lon := weatherCoord("WEATHER_LON", 106.6297)
+	lat := SiteLat()
+	lon := SiteLon()
 	// Humidity rides along with temperature: the LSTM forecaster was trained on
 	// [.., outdoor_temp, outdoor_humidity], so the engine hands it BOTH from the same
 	// live feed the envelope physics uses — one weather truth for every consumer.
@@ -91,10 +99,14 @@ func weatherHandler(engine *simulation.Engine) http.HandlerFunc {
 		_, hum, _ := engine.OutdoorForForecast()
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"outdoorC": t,
-			"humidity": hum,    // %RH; 0 = not in the last fetch
-			"live":     live,   // false = climatological fallback in use
-			"ageSec":   age,    // -1 = never fetched
+			"humidity": hum,  // %RH; 0 = not in the last fetch
+			"live":     live, // false = climatological fallback in use
+			"ageSec":   age,  // -1 = never fetched
 			"source":   "open-meteo",
+			// Where this building is, so a client rendering anything location-dependent
+			// uses the site the physics is integrating against rather than a literal.
+			"lat": SiteLat(),
+			"lon": SiteLon(),
 		})
 	}
 }

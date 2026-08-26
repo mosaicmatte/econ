@@ -10,9 +10,10 @@ import { energyCostPerDay, money } from './tariff';
 // failure" computed FROM that randomness, an invented "88% Cert." and "+23% current",
 // and waste priced in dollars — which is exactly the demo-ware this dashboard has been
 // systematically stripped of.
-export default function MaintenanceDrawer({ zoneId, simData, onClose }) {
+export default function MaintenanceDrawer({ zoneId, simData, onClose, sendManualOverride }) {
   const zone = simData.zones[zoneId];
   const [history, setHistory] = useState(null); // null = loading, [] = none available
+  const [dispatched, setDispatched] = useState(false);
 
   // Real recent trajectory: the engine persists every zone's temperature to TimescaleDB
   // once a second; /api/history replays it. No DB just means no chart, never a fake one.
@@ -23,11 +24,15 @@ export default function MaintenanceDrawer({ zoneId, simData, onClose }) {
       .then((r) => (r.ok ? r.json() : []))
       .then((rows) => {
         if (dead) return;
-        // Rows arrive newest-first as {time, pwr: temp, co2: occupancy}; flip and rename.
+        // Rows arrive OLDEST-first: the handler runs a DESC query and prepends each row,
+        // so what comes back is already chronological. This used to .reverse() them on a
+        // comment that said they were newest-first, which plotted the last ten minutes
+        // backwards — and, worse, inverted the sign of the least-squares slope below, so
+        // a room that was recovering was labelled CLIMBING and a runaway was labelled
+        // RECOVERING. Rename the reused column; do not reorder.
         const series = (rows || [])
           .map((r) => ({ time: r.time, temp: r.pwr }))
-          .filter((r) => r.temp > 0)
-          .reverse();
+          .filter((r) => r.temp > 0);
         setHistory(series);
       })
       .catch(() => !dead && setHistory([]));
@@ -144,12 +149,28 @@ export default function MaintenanceDrawer({ zoneId, simData, onClose }) {
           </p>
         </div>
 
+        {/* This button said DISPATCH WORK ORDER and closed the drawer. There is no work-
+            order system behind it, and a maintenance console that appears to dispatch a
+            technician and does not is worse than one that admits it cannot. It now does
+            the real thing available here — floods the zone with cooling over the same
+            websocket every other override uses — and the CMMS hand-off is named as the
+            gap it is. */}
         <button
-          style={{ width: '100%', background: 'var(--accent-red)', color: '#fff', border: 'none', borderRadius: '6px', padding: '12px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', letterSpacing: '1px' }}
-          onClick={onClose}
+          style={{ width: '100%', background: dispatched ? 'transparent' : 'var(--accent-red)', color: dispatched ? 'var(--accent-red)' : '#fff', border: dispatched ? '1px solid var(--accent-red)' : 'none', borderRadius: '6px', padding: '12px', fontSize: '12px', fontWeight: 'bold', cursor: dispatched ? 'default' : 'pointer', letterSpacing: '1px' }}
+          disabled={dispatched || !sendManualOverride}
+          onClick={() => {
+            if (!sendManualOverride) return;
+            sendManualOverride('cool', zoneId);
+            setDispatched(true);
+          }}
         >
-          DISPATCH WORK ORDER
+          {dispatched ? '✓ MAX COOLING COMMANDED' : 'FLOOD ZONE WITH COOLING'}
         </button>
+        <p style={{ margin: 0, fontSize: '9px', color: 'var(--text-secondary)', lineHeight: 1.45, textAlign: 'center' }}>
+          {dispatched
+            ? 'Override latched for 15 minutes; the optimizer resumes after that.'
+            : 'Remediates the symptom. There is no CMMS integration yet — raising the work order is still a manual step.'}
+        </p>
 
       </div>
     </div>

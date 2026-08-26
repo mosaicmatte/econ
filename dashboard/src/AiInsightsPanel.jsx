@@ -6,7 +6,12 @@ import { useOpsStatus, untilLabel } from './useOpsStatus';
 import { usePlugs } from './usePlugs';
 import { useRecommendations } from './useRecommendations';
 import { useLocalModel } from './useLocalModel';
+import { useForecastCompare } from './useForecastCompare';
+import { useLibrary } from './useLibrary';
+import { useRoomModels } from './useRoomModels';
+import RecommendationEvidence from './RecommendationEvidence';
 import { API_BASE } from './api';
+import { powerMw } from './units';
 
 // fmtEta renders a predicted time-to-breach the way an operator reads it.
 function fmtEta(sec) {
@@ -30,6 +35,16 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
   // (server/simulation/baselines.go): each scored in σ against this building's own normal
   // for the hour. These replace the old hardcoded threshold cards below.
   const { recommendations, model: recModel } = useRecommendations();
+  // Building coefficients and the critical-zone list, from the engine's programme library
+  // rather than from constants typed into this file. See useLibrary.
+  const { isCritical, precoolShift, calibrated: libCalibrated } = useLibrary();
+  // What the twin has actually identified about each room — the model behind every
+  // prediction, so a card can show its own reasoning instead of asserting a conclusion.
+  // matureAfter is deliberately taken from THIS endpoint, not from the baseline model's:
+  // the two models mature on different evidence and at different counts (baselines at 20
+  // observations, room identification at 36 accepted samples), so borrowing one figure for
+  // the other's progress bar would report a room as further along than it is.
+  const { byZone: roomModels, identified: roomsIdentified, rooms: roomList, matureAfter: roomsMatureAfter } = useRoomModels();
 
   const hwList = Object.values(hardwareNodes || {});
   const hwOnline = hwList.filter((n) => n.online).length;
@@ -39,18 +54,26 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
   const loadMw = simData.buildingLoadMw || 0;
   const savingsPct = savedMw + loadMw > 0 ? (100 * savedMw) / (savedMw + loadMw) : 0;
 
-  // Projection curve for the forecast card: eased ramp from the CURRENT live load to the
-  // LSTM's predicted peak. The two endpoints are real; the ramp is a visualization aid.
+  // The forecast card plots the series that EXISTS, and nothing else.
+  //
+  // The supervised LSTM returns one scalar — its predicted peak. It has no trajectory to
+  // give. This card used to synthesize one anyway: thirteen points eased between the live
+  // load and that peak with a smoothstep, captioned "PROJECTED RAMP", with nothing on the
+  // chart to say the shape was a rendering artifact rather than a forecast. The zero-shot
+  // forecaster does return a full horizon, so when it has answered that real series is
+  // drawn; when it has not, the card shows the two numbers it actually has.
+  const { timesfm, lstm: lstmCompare, series: tfmSeries, stepMinutes, agreement,
+          upperBand, upperQuantile, peakUpperMw } = useForecastCompare();
+  // Central path plus the zero-shot model's own upper decile, so the chart shows how wide
+  // the forecast is rather than implying a single confident line.
   const forecastSeries = useMemo(() => {
-    if (!aiForecast?.predicted_peak_load) return [];
-    const cur = loadMw;
-    const peak = aiForecast.predicted_peak_load;
-    return Array.from({ length: 13 }, (_, i) => {
-      const x = i / 12;
-      const s = x * x * (3 - 2 * x); // smoothstep ease
-      return { t: `+${i * 5}m`, mw: +(cur + (peak - cur) * s).toFixed(3) };
-    });
-  }, [aiForecast?.predicted_peak_load, loadMw]);
+    if (!tfmSeries) return [];
+    return tfmSeries.map((mw, i) => ({
+      t: `+${(i + 1) * stepMinutes}m`,
+      mw: +Number(mw).toFixed(4),
+      hi: upperBand && upperBand[i] != null ? +Number(upperBand[i]).toFixed(4) : undefined,
+    }));
+  }, [tfmSeries, upperBand, stepMinutes]);
 
   // Insights are generated from what the building is actually doing: the telemetry
   // stream, the edge-node registry, the TOU clock, and the engine's own control loops
@@ -164,7 +187,15 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
         badge: badge.text,
         badgeColor: badge.color,
         badgeTitle: badge.title,
+        // The engine ships the reasoning — learned mean and σ, sample count, the hour
+        // bucket that answered, the predicted and settling values, the identified time
+        // constant. Carry it through so the card can be opened and checked instead of
+        // being taken on faith.
+        rec,
         action: label,
+        // A card with a real remediation gets the action button AND an evidence toggle;
+        // an advisory-only card gets the toggle alone.
+        evidence: true,
         once: !!label,
         onAction: label ? () => sendManualOverride && sendManualOverride(rec.action, rec.zone) : undefined,
       });
@@ -177,14 +208,26 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
     const toPeak = minutesToPeak();
     if (tou === 'peak' || (toPeak !== null && toPeak <= 90)) {
       const hvacMw = cop > 0 ? Math.min(loadMw, (simData.coolingOutputMw || 0) / cop) : 0;
-      const shedKw = 0.05 * hvacMw * 1000; // ≈5% coast from a charged thermal mass (estimate)
+      // The shift fraction is a BUILDING coefficient, so it comes from the engine's
+      // programme library (physics.precoolShiftFraction) rather than a literal here. It
+      // had been typed in three files with three different justifications — "5% coast
+      // from a charged thermal mass" here, "~5%-per-°C deadband shave" on mobile — which
+      // is how you end up unable to say what the number means. Null until the library
+      // arrives, and the card then states the rate without pricing a shift it cannot size.
+      const shedKw = precoolShift != null ? precoolShift * hvacMw * 1000 : null;
       const windowOpen = !!precool?.active;
       generated.push({
         id: 'peak',
         type: tou === 'peak' ? 'warning' : 'info',
         icon: <TrendingDown size={18} color={tou === 'peak' ? 'var(--accent-yellow)' : 'var(--accent-blue)'} />,
         title: tou === 'peak' ? 'Peak Tariff Running Now' : `Peak Tariff in ${toPeak} min`,
-        message: `${tou === 'peak' ? 'The 17:30–22:30 peak window is charging ' + rateStr('peak') + '/kWh right now.' : `Peak rate (${rateStr('peak')}/kWh vs ${rateStr('normal')} normal) begins at 17:30.`} ${windowOpen ? `A pre-cool window is OPEN until ${untilLabel(precool.until)} — thermal mass is charging so chillers can coast.` : `Pre-cooling now charges the thermal mass at the cheaper rate — shifting ≈ ${shedKw.toFixed(0)} kW off peak saves roughly ${money(peakShiftSavingPerMonth(shedKw))}/month.`}`,
+        message: `${tou === 'peak' ? 'The 17:30–22:30 peak window is charging ' + rateStr('peak') + '/kWh right now.' : `Peak rate (${rateStr('peak')}/kWh vs ${rateStr('normal')} normal) begins at 17:30.`} ${
+          windowOpen
+            ? `A pre-cool window is OPEN until ${untilLabel(precool.until)} — thermal mass is charging so chillers can coast.`
+            : shedKw != null
+              ? `Pre-cooling now charges the thermal mass at the cheaper rate — shifting an estimated ${shedKw.toFixed(0)} kW off peak, worth roughly ${money(peakShiftSavingPerMonth(shedKw))}/month at the rate gap. The shift fraction is the library's ${(precoolShift * 100).toFixed(0)}% planning estimate, not a measured coast.`
+              : 'Pre-cooling now charges the thermal mass at the cheaper rate. The size of the shift is not shown: it depends on the plant coefficient in the engine\'s programme library, which this dashboard has not been able to read.'
+        }`,
         action: windowOpen ? 'PRE-COOLING' : 'ACTIVATE PRE-COOLING',
         done: windowOpen,
         doneLabel: `✓ OPEN UNTIL ${untilLabel(precool?.until)}`,
@@ -202,13 +245,25 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       const warmup = realN != null && realN < winLen
         ? ` Input window warming up: ${realN}/${winLen} real 5-min samples since boot.`
         : '';
+      // A forecast the engine has judged out of distribution is not reported as this
+      // building's coming peak. The LSTM is supervised, so its weights encode whichever
+      // building train.py last saw; pointed at a different one it answers with that
+      // building's numbers and nothing in the arithmetic objects. The engine checks each
+      // answer against this building's own observed load range and says so, and the card
+      // leads with the finding rather than burying it under a confident MW figure.
+      const ood = aiForecast.implausible === true;
       generated.push({
         id: 'forecast',
-        type: 'info',
+        type: ood ? 'warning' : 'info',
         expandable: true,
-        icon: <Activity size={18} color="var(--accent-blue)" />,
-        title: 'LSTM Load Forecast',
-        message: `Deep Learning model predicts an upcoming peak load of ${aiForecast.predicted_peak_load.toFixed(2)} MW over the sampled last hour. ${weatherNote}${warmup}`,
+        icon: <Activity size={18} color={ood ? 'var(--accent-yellow)' : 'var(--accent-blue)'} />,
+        title: ood ? 'LSTM Forecast Out Of Distribution' : 'LSTM Load Forecast',
+        badge: ood ? 'NOT THIS BUILDING' : undefined,
+        badgeColor: ood ? 'var(--accent-yellow)' : undefined,
+        badgeTitle: ood ? "Checked against this building's own recorded load range" : undefined,
+        message: ood
+          ? `The supervised model returns ${aiForecast.predicted_peak_load.toFixed(2)} MW, which the engine has flagged: ${aiForecast.plausibility} Retrain it on this building (backend/forecasting/train.py) or read the zero-shot forecaster instead — it needs no training and forecasts this building's own recorded series.`
+          : `Deep Learning model predicts an upcoming peak load of ${aiForecast.predicted_peak_load.toFixed(2)} MW over the sampled last hour. ${weatherNote}${warmup}`,
         action: 'VIEW PREDICTIONS'
       });
     }
@@ -257,9 +312,16 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
     // optimizer sets back instrumented zones itself; unmetered zones wait for sensors.
     // 24/7-critical types are excluded — an empty server room being cooled is correct
     // operation, not waste, exactly as the plug sweep's critical list already encodes.
-    const wastingZones = zones.filter((z) =>
-      z.occupancy === 0 && z.load > 0 && z.lightsOn !== false
-      && z.type !== 'server-room' && z.type !== 'mechanical');
+    // 24/7-critical types are excluded via the ENGINE's programme library, not a list
+    // typed here. The list that used to live here named `server-room` and `mechanical` —
+    // types this digitizer has not minted since it began emitting `comms-room` and
+    // `plant-room` — so on the current fixture it excluded nothing and this card counted
+    // the comms room as waste and priced shutting it down as a saving.
+    //
+    // While the library has not arrived isCritical returns null, and the card is withheld
+    // rather than shown with an exclusion that may be wrong.
+    const wastingZones = isCritical(zones[0]?.type) === null ? [] : zones.filter((z) =>
+      z.occupancy === 0 && z.load > 0 && z.lightsOn !== false && !isCritical(z.type));
     if (wastingZones.length > 0 && cop > 0) {
       const wasteKw = wastingZones.reduce((acc, z) => acc + z.load, 0) / cop;
       generated.push({
@@ -293,17 +355,55 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
     });
 
     return generated;
-  }, [simData, activeScenario, faultTarget, aiForecast, hwList, hwOnline, savingsPct, savedMw, loadMw, precool, weather, plugStatus, recommendations, sendManualOverride, setSelectedZone, onOpenPlugs]);
+  }, [simData, activeScenario, faultTarget, aiForecast, hwList, hwOnline, savingsPct, savedMw, loadMw, precool, weather, plugStatus, recommendations, sendManualOverride, setSelectedZone, onOpenPlugs, isCritical, precoolShift]);
 
   // ---- Inline detail sections for the expandable cards ----
   const renderDetail = (id) => {
     if (id === 'forecast') {
-      if (!forecastSeries.length) return null;
-      const peak = aiForecast.predicted_peak_load;
+      // An out-of-distribution LSTM peak is not drawn as a reference line on the chart or
+      // subtracted from the live load as "headroom": both would state that this building
+      // is heading for a number the engine has already said belongs to a different one.
+      const lstmOod = aiForecast?.implausible === true;
+      const peak = lstmOod ? null : aiForecast?.predicted_peak_load;
+      // No horizon to draw. Show what the LSTM actually produced — two numbers — rather
+      // than a curve interpolated between them.
+      if (!forecastSeries.length) {
+        const delta = peak != null ? peak - loadMw : null;
+        return (
+          <div style={{ marginTop: '6px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: '4px', columnGap: '10px' }}>
+              <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Live load</span>
+              <span style={{ fontSize: '10px', fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--text-primary)', textAlign: 'right' }}>{powerMw(loadMw)}</span>
+              <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>LSTM predicted peak</span>
+              <span style={{ fontSize: '10px', fontFamily: 'monospace', fontWeight: 'bold', color: lstmOod ? 'var(--accent-yellow)' : 'var(--accent-blue)', textAlign: 'right' }}>
+                {peak != null ? `${peak.toFixed(2)} MW`
+                  : lstmOod ? `${aiForecast.predicted_peak_load.toFixed(2)} MW · out of distribution`
+                  : '—'}
+              </span>
+              {delta != null && (
+                <>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Headroom to peak</span>
+                  <span style={{ fontSize: '10px', fontFamily: 'monospace', fontWeight: 'bold', color: delta > 0 ? 'var(--accent-yellow)' : 'var(--accent-green)', textAlign: 'right' }}>{delta >= 0 ? '+' : ''}{delta.toFixed(2)} MW</span>
+                </>
+              )}
+              <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Zero-shot horizon</span>
+              <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-muted)', textAlign: 'right' }}>
+                {timesfm ? (timesfm.available ? 'loading…' : 'unavailable') : '—'}
+              </span>
+            </div>
+            <p style={{ margin: '6px 0 0 0', fontSize: '9px', color: 'var(--text-muted)', lineHeight: 1.45 }}>
+              The supervised LSTM emits a predicted peak, not a trajectory, so there is no curve to plot.
+              {timesfm && !timesfm.available && timesfm.error ? ` The zero-shot forecaster, which does return a full horizon, is unavailable: ${timesfm.error}` : ' Start the zero-shot forecaster to see the shape of the coming hour.'}
+            </p>
+          </div>
+        );
+      }
+      const peakOfSeries = forecastSeries.reduce((m, d) => Math.max(m, d.mw), 0);
       return (
         <div style={{ marginTop: '6px' }}>
           <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginBottom: '4px', letterSpacing: '0.04em' }}>
-            PROJECTED RAMP · LIVE LOAD → PREDICTED PEAK
+            TIMESFM HORIZON · {forecastSeries.length} × {stepMinutes} MIN · PEAK {peakOfSeries.toFixed(3)} MW
+            {peakUpperMw != null && ` · ${upperQuantile?.toUpperCase()} ${Number(peakUpperMw).toFixed(3)} MW`}
           </div>
           <div style={{ width: '100%', height: 120 }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -311,10 +411,47 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
                 <XAxis dataKey="t" tick={{ fontSize: 8, fill: 'var(--text-muted)' }} tickLine={false} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} interval={3} />
                 <YAxis tick={{ fontSize: 8, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
                 <Tooltip contentStyle={{ background: 'rgba(10,10,10,0.95)', border: '1px solid var(--border-glass)', borderRadius: 6, fontSize: 10 }} labelStyle={{ color: 'var(--text-secondary)' }} formatter={(v) => [`${v} MW`, 'load']} />
-                <ReferenceLine y={peak} stroke="var(--accent-red)" strokeDasharray="4 4" label={{ value: 'PEAK', fontSize: 8, fill: 'var(--accent-red)', position: 'insideTopRight' }} />
+                {peak != null && <ReferenceLine y={peak} stroke="var(--accent-red)" strokeDasharray="4 4" label={{ value: 'LSTM PEAK', fontSize: 8, fill: 'var(--accent-red)', position: 'insideTopRight' }} />}
+                {upperBand && (
+                  <Line type="monotone" dataKey="hi" stroke="var(--accent-blue)" strokeWidth={1} strokeDasharray="3 3" strokeOpacity={0.6} dot={false} isAnimationActive={false} />
+                )}
                 <Line type="monotone" dataKey="mw" stroke="var(--accent-blue)" strokeWidth={2} dot={false} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
+          </div>
+          {/* Both forecasters, side by side. Their disagreement is the useful signal: two
+              models built on entirely different evidence converging is worth more than
+              either one alone, and their diverging is worth knowing before acting. */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: '3px', columnGap: '10px', marginTop: '6px' }}>
+            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Blue line — TimesFM (zero-shot)</span>
+            <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--accent-blue)', textAlign: 'right' }}>{timesfm?.peakMw != null ? `${timesfm.peakMw.toFixed(3)} MW peak` : '—'}</span>
+            {peakUpperMw != null && (
+              <>
+                <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }} title="The zero-shot model's own upper decile — how firm the peak is, not just where it sits">
+                  Dashed — its {upperQuantile} band
+                </span>
+                <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-muted)', textAlign: 'right' }}>
+                  {Number(peakUpperMw).toFixed(3)} MW
+                </span>
+              </>
+            )}
+            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{lstmOod ? 'LSTM (supervised)' : 'Red line — LSTM (supervised)'}</span>
+            <span style={{ fontSize: '10px', fontFamily: 'monospace', color: lstmOod ? 'var(--accent-yellow)' : 'var(--accent-red)', textAlign: 'right' }}>
+              {lstmOod ? `${aiForecast.predicted_peak_load.toFixed(2)} MW · not this building`
+                : lstmCompare?.peakMw != null ? `${lstmCompare.peakMw.toFixed(2)} MW peak`
+                : peak != null ? `${peak.toFixed(2)} MW peak` : '—'}
+            </span>
+            {agreement?.comparable && (
+              <>
+                <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>They differ by</span>
+                <span style={{
+                  fontSize: '10px', fontFamily: 'monospace', textAlign: 'right',
+                  color: agreement.relativeDiff > 0.25 ? 'var(--accent-yellow)' : 'var(--text-primary)',
+                }}>
+                  {Math.abs(agreement.deltaMw).toFixed(2)} MW ({(agreement.relativeDiff * 100).toFixed(0)}%) · {agreement.higher.toUpperCase()} higher
+                </span>
+              </>
+            )}
           </div>
         </div>
       );
@@ -326,7 +463,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
         ['Live savings', `${(savedMw * 1000).toFixed(0)} kW (${savingsPct.toFixed(1)}%)`],
         ['Utility saving', `${money(energyCostPerDay(savedMw * 1000))}/day`],
         ['Plant COP', (simData.plantCop || 0).toFixed(2)],
-        ['Cooling delivered', `${(simData.coolingOutputMw || 0).toFixed(2)} MW thermal`],
+        ['Cooling delivered', `${powerMw(simData.coolingOutputMw || 0)} thermal`],
         ['Zones simulated', `${Object.keys(simData.zones || {}).length}`],
         ['Physical nodes', `${hwList.length} (${hwOnline} online)`],
         ['Forecaster', aiForecast ? `LSTM · ${aiForecast.weather_source === 'fallback' ? 'fallback weather' : 'live weather'}` : 'offline'],
@@ -407,7 +544,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
           <Brain size={18} color="var(--accent-blue)" /> AI Operations Engine
         </h3>
         <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          Two learned models: baselines score each signal against this building’s own normal for the hour, and every room’s identified physics predicts where it is heading. Total building load is currently at <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{simData.buildingLoadMw?.toFixed(2)} MW</span>.
+          Two learned models: baselines score each signal against this building’s own normal for the hour, and every room’s identified physics predicts where it is heading. Total building load is currently at <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{powerMw(simData.buildingLoadMw || 0)}</span>.
           {recModel && (
             <span style={{ display: 'block', marginTop: '4px', color: 'var(--text-muted)', fontSize: '10px' }}>
               Baselines: {recModel.established} signal{recModel.established === 1 ? '' : 's'} established, {recModel.learning} learning (matures after {recModel.matureAfter} samples).
@@ -500,6 +637,35 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
                   : renderDetail(insight.id)
               )}
 
+              {/* The learned/predicted cards carry their own evidence: the σ position
+                  against the learned band, the identified response curve, the sample
+                  counts, and the supply-air provenance behind the fit. */}
+              {insight.evidence && isExpanded && (
+                <RecommendationEvidence
+                  rec={insight.rec}
+                  model={roomModels[insight.rec.zone]}
+                  matureAfter={recModel?.matureAfter}
+                  horizonMin={recModel?.horizonMin ?? 30}
+                  limit={insight.rec.metric === 'temp'
+                    ? (simData.zones?.[insight.rec.zone]?.setpoint ?? 0) + 1
+                    : insight.rec.metric === 'co2' ? 1000 : undefined}
+                />
+              )}
+
+              {/* Evidence toggle. A card with a real remediation keeps its action button
+                  and gains this beside it, so opening the reasoning is never a choice
+                  between reading why and being able to act. */}
+              {insight.evidence && (
+                <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '2px' }}>
+                  <button
+                    onClick={() => toggle(insight.id)}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '10px', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                  >
+                    {isExpanded ? '▴ hide the evidence' : '▾ why this fired'}
+                  </button>
+                </div>
+              )}
+
               {insight.action && (() => {
                 // Expandables toggle inline detail; the rest run their REAL action —
                 // an override, a window, a navigation. `once` actions latch as engaged;
@@ -543,6 +709,10 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
           );
         })}
       </div>
+
+      {/* What the twin has actually identified. This is the reasoning layer the panel was
+          asserting conclusions from without ever showing. */}
+      <RoomModelsCard rooms={roomList} identified={roomsIdentified} matureAfter={roomsMatureAfter} learning={recModel?.roomsLearning ?? 0} setSelectedZone={setSelectedZone} />
 
       {/* Take the intelligence offline: download the learned models + recommender. */}
       <ModelExportCard />
@@ -770,6 +940,112 @@ function AfddDriftDetail({ zoneId }) {
           </LineChart>
         </ResponsiveContainer>
       </div>
+    </div>
+  );
+}
+
+
+// RoomModelsCard renders the identified physics behind every prediction this panel makes.
+//
+// /api/rooms/models has shipped complete and correct with no consumer at all, which meant
+// the twin's genuine differentiator — that it recovers each room's own thermal and
+// ventilation constants from that room's own history — was invisible in the product built
+// on top of it. The panel could say "this room breaches in 14 minutes" but could not show
+// the time constant that produced the number, how many samples backed it, or how closely
+// the fit reproduces what the room then did.
+//
+// The provenance column is the point. A cooling authority identified entirely against the
+// library's DESIGN supply temperature is still a real fit, but it inherits that
+// assumption's error; one identified against a measured discharge probe does not. An
+// engineer deciding whether to dispatch someone on a capability finding needs to know
+// which of the two they are reading, and until this card there was nowhere to find out.
+function RoomModelsCard({ rooms = [], identified = 0, matureAfter, learning = 0, setSelectedZone }) {
+  const [open, setOpen] = useState(false);
+
+  // Nothing identified yet is a real state with a real explanation, not an empty card:
+  // identification needs a room to MOVE, so a cold start legitimately shows zero.
+  if (!rooms.length) {
+    return (
+      <div style={{ marginTop: '4px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+          <Activity size={16} color="var(--text-muted)" />
+          <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)' }}>Room Models</span>
+        </div>
+        <p style={{ margin: 0, fontSize: '10px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          No room identified yet{learning > 0 ? ` — ${learning} still learning` : ''}. Identification needs a room to actually move: the engine samples every 5 minutes of simulated time and a fit matures at {matureAfter || 36} accepted samples, so a freshly-started twin has nothing here for roughly the first three hours. That is the model being honest, not a fault.
+        </p>
+      </div>
+    );
+  }
+
+  const shown = open ? rooms : rooms.slice(0, 4);
+
+  return (
+    <div style={{ marginTop: '4px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '10px', padding: '14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+        <Activity size={16} color="var(--accent-green)" />
+        <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--accent-green)' }}>Room Models</span>
+        <span style={{ marginLeft: 'auto', fontSize: '9px', fontFamily: 'monospace', color: 'var(--text-muted)' }}>
+          {identified} identified{learning > 0 ? ` · ${learning} learning` : ''}
+        </span>
+      </div>
+      <p style={{ margin: '0 0 10px 0', fontSize: '10px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+        Recovered from each room's own history by recursive least squares — not configured, not assumed. Every prediction above is this model integrated forward.
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {shown.map((m) => (
+          <div
+            key={m.zone}
+            onClick={() => setSelectedZone && setSelectedZone(m.zone)}
+            title="Click to fly the 3D view to this room"
+            style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '8px', cursor: setSelectedZone ? 'pointer' : 'default' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', marginBottom: '4px' }}>
+              <span style={{ fontSize: '10px', fontWeight: 'bold', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.label}</span>
+              <span style={{ marginLeft: 'auto', fontSize: '8px', fontWeight: 'bold', padding: '1px 4px', borderRadius: '3px', flexShrink: 0,
+                color: m.thermalReady ? 'var(--accent-green)' : 'var(--text-muted)',
+                border: `1px solid ${m.thermalReady ? 'var(--accent-green)' : 'rgba(127,139,150,0.3)'}` }}>
+                {m.thermalReady ? 'THERMAL' : `THERMAL ${m.thermalSamples}/${matureAfter || 36}`}
+              </span>
+              <span style={{ fontSize: '8px', fontWeight: 'bold', padding: '1px 4px', borderRadius: '3px', flexShrink: 0,
+                color: m.co2Ready ? 'var(--accent-green)' : 'var(--text-muted)',
+                border: `1px solid ${m.co2Ready ? 'var(--accent-green)' : 'rgba(127,139,150,0.3)'}` }}>
+                {m.co2Ready ? 'CO₂' : 'CO₂ —'}
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: '2px', columnGap: '8px' }}>
+              {m.thermalReady && (
+                <>
+                  <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>Time constant</span>
+                  <span style={{ fontSize: '9px', fontFamily: 'monospace', color: 'var(--text-primary)', textAlign: 'right' }}>{m.timeConstantMin.toFixed(0)} min</span>
+                  <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>Fit residual</span>
+                  <span style={{ fontSize: '9px', fontFamily: 'monospace', color: 'var(--text-primary)', textAlign: 'right' }}>{m.thermalResidual.toFixed(2)} °C/h</span>
+                  <span style={{ fontSize: '9px', color: 'var(--text-muted)' }} title="Share of the cooling fit referenced to a MEASURED discharge-air probe rather than the library's design supply temperature">Supply-air basis</span>
+                  <span style={{ fontSize: '9px', fontFamily: 'monospace', textAlign: 'right', color: (m.supplyMeasuredFrac || 0) > 0 ? 'var(--accent-green)' : 'var(--accent-yellow)' }}>
+                    {(m.supplyMeasuredFrac || 0) > 0 ? `${((m.supplyMeasuredFrac) * 100).toFixed(0)}% measured` : 'design value'}
+                  </span>
+                </>
+              )}
+              {m.co2Ready && (
+                <>
+                  <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>Measured air change</span>
+                  <span style={{ fontSize: '9px', fontFamily: 'monospace', color: 'var(--text-primary)', textAlign: 'right' }}>{m.achPerHour.toFixed(1)} ACH</span>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {rooms.length > 4 && (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          style={{ marginTop: '8px', background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '10px', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+        >
+          {open ? '▴ show fewer' : `▾ show all ${rooms.length} identified rooms`}
+        </button>
+      )}
     </div>
   );
 }

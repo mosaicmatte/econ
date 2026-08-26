@@ -61,7 +61,7 @@ char STATUS_TOPIC[48];                      // econ/status/<ZONE_TOPIC>  (LWT on
 char CLIENT_ID[32];                         // econ-esp32-<ZONE_TOPIC>
 
 // ---------------- HARDWARE PINS ----------------
-const int RELAY_PIN  = 23;  // lighting relay (active HIGH)
+const int RELAY_PIN  = 13;  // lighting relay (active HIGH)
 // GPIO19, NOT GPIO22: 22 is the I2C clock. applyHvacSetpoint() pulses this pin, so leaving
 // the emitter on 22 made every setpoint command drive SCL directly and corrupt any read from
 // the SHT30 or the ACD1200 sharing that bus.
@@ -82,7 +82,7 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #define USE_REAL_SENSORS 0
 #endif
 #ifndef USE_SHT30
-  #define USE_SHT30 0                // SHT30 over I2C -> measured temperature + humidity
+  #define USE_SHT30 1                // SHT30 over I2C -> measured temperature + humidity
 #endif
 #ifndef USE_DHT
   // DHT is the fallback path; SHT30 wins when both are compiled in.
@@ -92,17 +92,17 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #define USE_PIR USE_REAL_SENSORS   // PIR   -> measured presence
 #endif
 #ifndef USE_CO2
-  #define USE_CO2 0                  // ASAIR ACD1200 NDIR (I2C) -> measured CO2 ppm
+  #define USE_CO2 1                  // ASAIR ACD1200 NDIR (I2C) -> measured CO2 ppm
 #endif
 #ifndef USE_MMWAVE
-  #define USE_MMWAVE 0               // HLK-LD2410C radar -> presence incl. stationary people
+  #define USE_MMWAVE 1               // HLK-LD2410C / Rd-03 radar -> presence incl. stationary people
 #endif
 #ifndef USE_PLUG
   // Plug-load node (APLC): SCT-013 current clamp -> measured plug-circuit watts, plus a
   // second relay that switches the zone's non-critical socket circuit. This is the load a
   // conventional BMS neither meters nor controls — 26.4% of energy in the Hanoi office
   // case study — and the reason this node exists.
-  #define USE_PLUG 0
+  #define USE_PLUG 1
 #endif
 
 // ---------------------------------------------------------------------------------
@@ -397,7 +397,7 @@ WiFiClient   espClient;
 PubSubClient client(espClient);
 
 unsigned long lastPublish = 0;
-const long PUBLISH_INTERVAL_MS = 5000;
+const long PUBLISH_INTERVAL_MS = 250;
 unsigned long lastReconnectAttempt = 0;
 
 // actuated state (echoed back in telemetry for diagnostics)
@@ -505,11 +505,11 @@ void applyHvacSetpoint(float celsius) {
 #endif
 }
 
-void setLights(bool on) {
-  lightsOn = on;
-  digitalWrite(RELAY_PIN, on ? HIGH : LOW);
-  Serial.printf("[relay] lights %s\n", on ? "ON" : "OFF");
-}
+  void setLights(bool on) {
+    lightsOn = on;
+    digitalWrite(RELAY_PIN, on ? HIGH : LOW);
+    Serial.printf("[relay] lights %s\n", on ? "ON" : "OFF");
+  }
 
 #if USE_PLUG
 bool plugOn = true;  // fail-energized: sockets are live until the engine says otherwise
@@ -537,7 +537,8 @@ float readPlugAmps() {
   double mean = sum / n;
   double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
   float amps = (float)(rmsCounts * (3.3 / 4095.0) * PLUG_CAL_A_PER_V);
-  return amps < 0.10 ? 0.0f : amps;  // below the clamp's noise floor = genuinely off
+  Serial.printf("[debug_plug] n=%d, mean=%.1f, rmsCounts=%.1f, amps=%.3f\n", n, mean, rmsCounts, amps);
+  return amps;
 }
 #endif
 
@@ -809,6 +810,24 @@ void setup() {
 #if USE_SHT30 || USE_CO2 || USE_LUX
   Wire.begin(I2C_SDA, I2C_SCL);
   Serial.printf("[i2c] bus up on SDA=GPIO%d SCL=GPIO%d\n", I2C_SDA, I2C_SCL);
+  
+  Serial.println("[i2c] Scanning bus...");
+  int nDevices = 0;
+  for(byte address = 1; address < 127; address++ ) {
+    Wire.beginTransmission(address);
+    byte error = Wire.endTransmission();
+    if (error == 0) {
+      Serial.printf("[i2c] I2C device found at address 0x%02X\n", address);
+      nDevices++;
+    } else if (error == 4) {
+      Serial.printf("[i2c] Unknown error at address 0x%02X\n", address);
+    }
+  }
+  if (nDevices == 0) {
+    Serial.println("[i2c] No I2C devices found");
+  } else {
+    Serial.println("[i2c] Scan complete");
+  }
 #endif
 #if USE_SHT30
   Serial.printf("[sht30] expecting I2C addr 0x%02X\n", SHT30_ADDR);
@@ -884,41 +903,45 @@ void setup() {
   snprintf(STATUS_TOPIC,    sizeof(STATUS_TOPIC),    "econ/status/%s",    ZONE_TOPIC);
   snprintf(CLIENT_ID,       sizeof(CLIENT_ID),       "econ-esp32-%s",     ZONE_TOPIC);
 
-  setupWifi();
-  client.setServer(MQTT_HOST, MQTT_PORT);
-  client.setCallback(onMessage);
+  // setupWifi(); // Vô hiệu hóa Wi-Fi theo yêu cầu dùng USB
+  // client.setServer(MQTT_HOST, MQTT_PORT);
+  // client.setCallback(onMessage);
 }
 
 void loop() {
-  // Non-blocking reconnect (every 5s) keeps sensing/actuation responsive.
-  if (!client.connected()) {
-    digitalWrite(STATUS_LED, LOW);
-    unsigned long now = millis();
-    if (now - lastReconnectAttempt > 5000) {
-      lastReconnectAttempt = now;
-      mqttConnect();
-    }
-  } else {
-    client.loop();
-    unsigned long now = millis();
-#if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
-    // Publish instantly when presence flips so the dashboard reacts in <0.2 s
-    // instead of waiting out the periodic interval.
-    static unsigned long lastTouchPoll = 0;
-    static bool lastTouched = false;
-    if (now - lastTouchPoll > 150) {
-      lastTouchPoll = now;
-      bool touched = touchOccupied();
-      if (touched != lastTouched) {
-        lastTouched = touched;
-        lastPublish = now;
-        readAndPublish();
+  while (Serial.available()) {
+    String line = Serial.readStringUntil('\n');
+    line.trim();
+    if (line.startsWith("[mqtt] sub ")) {
+      int arrowIdx = line.indexOf(" -> ");
+      if (arrowIdx > 0) {
+        String topicStr = line.substring(11, arrowIdx);
+        String payloadStr = line.substring(arrowIdx + 4);
+        onMessage((char*)topicStr.c_str(), (byte*)payloadStr.c_str(), payloadStr.length());
       }
     }
-#endif
-    if (now - lastPublish > PUBLISH_INTERVAL_MS) {
+  }
+
+  // Bỏ qua MQTT loop nếu không dùng Wi-Fi
+  // if (!client.loop()) {
+  unsigned long now = millis();
+  
+#if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
+  static unsigned long lastTouchPoll = 0;
+  static bool lastTouched = false;
+  if (now - lastTouchPoll > 150) {
+    lastTouchPoll = now;
+    bool touched = touchOccupied();
+    if (touched != lastTouched) {
+      lastTouched = touched;
       lastPublish = now;
       readAndPublish();
     }
+  }
+#endif
+
+  if (now - lastPublish > PUBLISH_INTERVAL_MS) {
+    lastPublish = now;
+    readAndPublish();
   }
 }
