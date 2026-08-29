@@ -94,7 +94,7 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #define USE_REAL_SENSORS 0
 #endif
 #ifndef USE_CAMERA
-  #define USE_CAMERA 1                // Camera-based ML person detection (OV7670 + TFLite Micro)
+  #define USE_CAMERA 0                // Camera-based ML person detection disabled in main loop
 #endif
 #ifndef USE_SHT30
   #define USE_SHT30 0                // SHT30 over I2C -> measured temperature + humidity
@@ -104,7 +104,7 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #define USE_DHT (USE_REAL_SENSORS && !USE_SHT30)
 #endif
 #ifndef USE_PIR
-  #define USE_PIR (USE_REAL_SENSORS && !USE_CAMERA)   // PIR -> measured presence (reused by camera D7)
+  #define USE_PIR 1                   // Dual PIR motion sensors -> measured presence
 #endif
 #ifndef USE_CO2
   #define USE_CO2 0                  // ASAIR ACD1200 NDIR (I2C) -> measured CO2 ppm
@@ -113,14 +113,12 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #define USE_MMWAVE 0               // HLK-LD2410C radar -> presence incl. stationary people
 #endif
 
-#if USE_CAMERA
-  #include "camera/camera_config.h"
-  #include "camera/tracking_payload.h"
-  #include "camera/dual_mode_comm.h"
-  #include "camera/ov7670_driver.h"
-  #include "camera/model_data.h"
-  #include "camera/person_detector.h"
-#endif
+#include "camera/camera_config.h"
+#include "camera/tracking_payload.h"
+#include "camera/dual_mode_comm.h"
+#include "camera/ov7670_driver.h"
+#include "camera/model_data.h"
+#include "camera/person_detector.h"
 #ifndef USE_PLUG
   // Plug-load node (APLC): SCT-013 current clamp -> measured plug-circuit watts, plus a
   // second relay that switches the zone's non-critical socket circuit. This is the load a
@@ -300,8 +298,24 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 #endif
 
 #if USE_PIR
+  #ifndef PIR1_PIN
+    #ifdef PIR_PIN
+      #define PIR1_PIN PIR_PIN
+    #else
+      #define PIR1_PIN 5
+    #endif
+  #endif
+  #ifndef PIR2_PIN
+    #ifdef PIR_PIN_2
+      #define PIR2_PIN PIR_PIN_2
+    #elif USE_MMWAVE
+      #define PIR2_PIN 17
+    #else
+      #define PIR2_PIN 18
+    #endif
+  #endif
   #ifndef PIR_PIN
-    #define PIR_PIN 5
+    #define PIR_PIN PIR1_PIN
   #endif
 #endif
 
@@ -422,11 +436,24 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 
 WiFiClient   espClient;
 PubSubClient client(espClient);
+WiFiUDP      udpClient;
+DualModeComm dualComm(udpClient, client, Serial);
 #if USE_CAMERA
-WiFiUDP              udpClient;
-DualModeComm         dualComm(udpClient, client, Serial);
 CameraPersonDetector cameraDetector;
 #endif
+
+// Helper to broadcast presence tracking telemetry to DualModeComm (:4210 UDP + MQTT, fallback to Serial)
+void broadcastTrackingTelemetry(bool present) {
+  PersonTrackingData trackData;
+  initTrackingData(&trackData);
+  trackData.zone_id = ZONE_TOPIC;
+  trackData.sensor_id = CLIENT_ID;
+  trackData.timestamp_ms = millis();
+  trackData.person_detected = present;
+  trackData.confidence = present ? 1.0f : 0.0f;
+  trackData.person_count = present ? 1 : 0;
+  dualComm.transmit(trackData);
+}
 
 unsigned long lastPublish = 0;
 unsigned long lastReconnectAttempt = 0;
@@ -777,33 +804,40 @@ void readAndPublish() {
 
   // --- occupancy ---
   int occupancy = 0;
+  bool present = false;
 #if USE_CAMERA
-  bool present = cameraDetector.isPersonDetected();
+  present = cameraDetector.isPersonDetected();
   #if USE_MMWAVE
     if (digitalRead(MMWAVE_PIN) == HIGH) present = true;
   #endif
   occupancy = present ? (cameraDetector.getPersonCount() > 0 ? cameraDetector.getPersonCount() : 1) : 0;
   doc["confidence"] = round(cameraDetector.getConfidence() * 100) / 100.0;
   doc["person_count"] = cameraDetector.getPersonCount();
-  // Transmit real-time tracking payload to DualModeComm (UDP broadcast :4210 + MQTT, fallback to Serial)
   cameraDetector.transmitTelemetry(dualComm);
 #elif USE_PIR || USE_MMWAVE
-  // Either sensor asserting means occupied. They fail in opposite directions — the PIR
-  // misses a person sitting still, the radar can hold on residual micro-motion after an
-  // exit — so OR-ing them errs toward "occupied", which for HVAC is the safe error: a
-  // few minutes of extra cooling, never a dark room with someone in it.
-  bool present = false;
   #if USE_PIR
-    if (digitalRead(PIR_PIN) == HIGH) present = true;
+    bool pir1 = (digitalRead(PIR1_PIN) == HIGH);
+    bool pir2 = (digitalRead(PIR2_PIN) == HIGH);
+    if (pir1 || pir2) present = true;
   #endif
   #if USE_MMWAVE
     if (digitalRead(MMWAVE_PIN) == HIGH) present = true;
   #endif
   occupancy = present ? 1 : 0;  // presence, not a headcount
+  doc["confidence"] = present ? 1.0 : 0.0;
+  doc["person_count"] = occupancy;
+  broadcastTrackingTelemetry(present);
 #elif USE_TOUCH_PRESENCE
   occupancy = touchOccupied() ? TOUCH_OCCUPANTS : 0;  // real physical input
+  present = occupancy > 0;
+  doc["confidence"] = present ? 1.0 : 0.0;
+  doc["person_count"] = occupancy;
+  broadcastTrackingTelemetry(present);
 #else
   occupancy = random(0, 6);
+  present = occupancy > 0;
+  doc["confidence"] = present ? 1.0 : 0.0;
+  doc["person_count"] = occupancy;
 #endif
   doc["occupancy"] = occupancy;
 
@@ -948,8 +982,9 @@ void setup() {
   Serial.printf("[dht] sensor on GPIO%d\n", DHT_PIN);
 #endif
 #if USE_PIR
-  pinMode(PIR_PIN, INPUT);
-  Serial.printf("[pir] presence on GPIO%d\n", PIR_PIN);
+  pinMode(PIR1_PIN, INPUT);
+  pinMode(PIR2_PIN, INPUT);
+  Serial.printf("[pir] dual PIR sensors initialized on GPIO%d and GPIO%d\n", PIR1_PIN, PIR2_PIN);
 #endif
 #if USE_MMWAVE
   pinMode(MMWAVE_PIN, INPUT);
@@ -1032,6 +1067,7 @@ void setup() {
   } else {
     Serial.println("[camera] WARNING: Camera detector initialization failed");
   }
+#endif
 
   CommConfig commCfg;
   commCfg.wifi_ssid = WIFI_SSID;
@@ -1049,30 +1085,35 @@ void setup() {
   commCfg.enable_serial_fallback = true;
   dualComm.begin(commCfg);
   dualComm.setMqttClient(&client, TELEMETRY_TOPIC);
-#endif
 }
 
 void loop() {
-#if USE_CAMERA
   // Non-blocking dual-mode communications state machine tick (<0.2ms)
   dualComm.tick();
 
-  // Non-blocking camera frame capture and ML person detection inference (~6.6 FPS)
-  static unsigned long lastCameraFrameTime = 0;
-  static bool lastPersonDetectedState = false;
-  unsigned long nowCamera = millis();
-  if (nowCamera - lastCameraFrameTime >= 150) {
-    lastCameraFrameTime = nowCamera;
-    if (cameraDetector.processFrame()) {
-      bool currentDetected = cameraDetector.isPersonDetected();
-      // Immediate telemetry burst on occupancy transition (<200ms latency)
-      if (currentDetected != lastPersonDetectedState) {
-        lastPersonDetectedState = currentDetected;
-        cameraDetector.transmitTelemetry(dualComm);
-      }
+  // Non-blocking dual PIR motion sensor polling & immediate transition dispatch
+  static unsigned long lastPirPollTime = 0;
+  static bool lastPirDetectedState = false;
+  unsigned long nowPir = millis();
+  if (nowPir - lastPirPollTime >= 50) {
+    lastPirPollTime = nowPir;
+#if USE_PIR
+    bool pir1 = (digitalRead(PIR1_PIN) == HIGH);
+    bool pir2 = (digitalRead(PIR2_PIN) == HIGH);
+    bool currentDetected = (pir1 || pir2);
+#else
+    bool currentDetected = false;
+#endif
+#if USE_MMWAVE
+    if (digitalRead(MMWAVE_PIN) == HIGH) currentDetected = true;
+#endif
+
+    // Immediate telemetry burst on occupancy transition (<200ms latency)
+    if (currentDetected != lastPirDetectedState) {
+      lastPirDetectedState = currentDetected;
+      broadcastTrackingTelemetry(currentDetected);
     }
   }
-#endif
 
   // Non-blocking reconnect (every 5s) keeps sensing/actuation responsive.
   if (!client.connected()) {

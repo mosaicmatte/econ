@@ -26,12 +26,12 @@ echo "==========================================================================
 echo "ArduinoJson: $JSON"
 echo ""
 
-echo ">>> [1/3] Running Node Config Unit Tests..."
+echo ">>> [1/6] Running Node Config Unit Tests..."
 c++ -std=c++17 -Wall -Wextra -I "$JSON" -I src -I test test/host_config_test.cpp -o "$TMP_DIR/cfgtest"
 "$TMP_DIR/cfgtest"
 
 echo ""
-echo ">>> [2/3] Running Milestone 1 Dual-Mode Communication Unit & Adversarial Tests..."
+echo ">>> [2/6] Running Milestone 1 Dual-Mode Communication Unit & Adversarial Tests..."
 c++ -std=c++17 -Wall -Wextra \
     -I "$JSON" \
     -I src \
@@ -54,8 +54,19 @@ c++ -std=c++17 -Wall -Wextra \
     -o "$TMP_DIR/advtest"
 "$TMP_DIR/advtest"
 
+c++ -std=c++17 -Wall -Wextra \
+    -I "$JSON" \
+    -I src \
+    -I src/camera \
+    -I test \
+    src/camera/tracking_payload.cpp \
+    src/camera/dual_mode_comm.cpp \
+    test/test_adversarial_m1_challenger2.cpp \
+    -o "$TMP_DIR/advtest2"
+"$TMP_DIR/advtest2"
+
 echo ""
-echo ">>> [3/3] Running Milestone 3 Main System Integration & Strict Isolation Tests..."
+echo ">>> [3/6] Running Milestone 3 Main System Integration & Strict Isolation Tests..."
 c++ -std=c++17 -Wall -Wextra \
     -I "$JSON" \
     -I src \
@@ -71,7 +82,7 @@ c++ -std=c++17 -Wall -Wextra \
 "$TMP_DIR/m3test"
 
 echo ""
-echo ">>> [4/5] Running Milestone 3 Challenger 1 Adversarial Stress & Failover Tests..."
+echo ">>> [4/6] Running Milestone 3 Challenger 1 & 2 Adversarial Stress & Failover Tests..."
 c++ -std=c++17 -Wall -Wextra \
     -I "$JSON" \
     -I src \
@@ -86,8 +97,22 @@ c++ -std=c++17 -Wall -Wextra \
     -o "$TMP_DIR/m3adv1"
 "$TMP_DIR/m3adv1"
 
+c++ -std=c++17 -Wall -Wextra \
+    -I "$JSON" \
+    -I src \
+    -I src/camera \
+    -I test \
+    src/camera/ov7670_driver.cpp \
+    src/camera/model_data.cpp \
+    src/camera/person_detector.cpp \
+    src/camera/tracking_payload.cpp \
+    src/camera/dual_mode_comm.cpp \
+    test/test_adversarial_m3_challenger2.cpp \
+    -o "$TMP_DIR/m3adv2"
+"$TMP_DIR/m3adv2"
+
 echo ""
-echo ">>> [5/5] Running Challenger 2 Full Adversarial Stress & Failover Test Suite..."
+echo ">>> [5/6] Running Challenger 2 Full Adversarial Stress & Failover Test Suite..."
 c++ -std=c++17 -Wall -Wextra \
     -I "$JSON" \
     -I src \
@@ -103,7 +128,21 @@ c++ -std=c++17 -Wall -Wextra \
 "$TMP_DIR/ch2full"
 
 echo ""
-echo ">>> [6/6] Running Milestone 2 ML Pipeline & Camera Driver Adversarial Stress Tests..."
+echo ">>> [6/6] Running Milestone 2 ML Pipeline & Camera Driver Tests..."
+c++ -std=c++17 -Wall -Wextra \
+    -I "$JSON" \
+    -I src \
+    -I src/camera \
+    -I test \
+    src/camera/ov7670_driver.cpp \
+    src/camera/model_data.cpp \
+    src/camera/person_detector.cpp \
+    src/camera/tracking_payload.cpp \
+    src/camera/dual_mode_comm.cpp \
+    test/test_m2_camera_ml.cpp \
+    -o "$TMP_DIR/m2test"
+"$TMP_DIR/m2test"
+
 c++ -std=c++17 -Wall -Wextra \
     -I "$JSON" \
     -I src \

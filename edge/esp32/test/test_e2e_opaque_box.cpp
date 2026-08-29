@@ -496,6 +496,58 @@ public:
 };
 
 } // namespace camera
+
+namespace pir {
+
+struct DualPirSensor {
+  uint8_t pin1 = 5;
+  uint8_t pin2 = 18;
+  bool last_state = false;
+
+  void init(uint8_t p1 = 5, uint8_t p2 = 18) {
+    pin1 = p1;
+    pin2 = p2;
+    pinMode(pin1, INPUT);
+    pinMode(pin2, INPUT);
+    last_state = false;
+  }
+
+  bool isOccupied() const {
+    bool p1 = (digitalRead(pin1) == HIGH);
+    bool p2 = (digitalRead(pin2) == HIGH);
+    return p1 || p2;
+  }
+
+  econ::camera::PersonTrackingData getTrackingData(const char* zone = "zone_1", const char* sensor = "esp32_pir_01") const {
+    econ::camera::PersonTrackingData data;
+    bool occupied = isOccupied();
+    data.zone_id = zone;
+    data.sensor_id = sensor;
+    data.timestamp_ms = millis();
+    data.person_detected = occupied;
+    data.confidence = occupied ? 1.0f : 0.0f;
+    data.person_count = occupied ? 1 : 0;
+    return data;
+  }
+
+  bool pollAndTransmit(econ::camera::DualModeComm& comm, const char* zone = "zone_1", const char* sensor = "esp32_pir_01") {
+    bool current = isOccupied();
+    bool transitioned = (current != last_state);
+    if (transitioned) {
+      last_state = current;
+      econ::camera::PersonTrackingData data = getTrackingData(zone, sensor);
+      return comm.transmit(data);
+    }
+    return false;
+  }
+
+  void transmitTelemetry(econ::camera::DualModeComm& comm, const char* zone = "zone_1", const char* sensor = "esp32_pir_01") const {
+    econ::camera::PersonTrackingData data = getTrackingData(zone, sensor);
+    comm.transmit(data);
+  }
+};
+
+} // namespace pir
 } // namespace econ
 
 // =============================================================================
@@ -823,57 +875,118 @@ TestOutcome test_T1_F6_05_Invalid_Buffer_Rejection() {
   return {true, ""};
 }
 
-// Feature 7: Main System Integration
+// Feature 7: Main System Integration (Dual PIR Sensors + DualModeComm)
 TestOutcome test_T1_F7_01_PIR_Replacement_Boolean() {
-  econ::camera::CameraPersonDetector detector;
-  detector.init();
-  TEST_ASSERT(!detector.isPersonDetected(), "Initial PIR replacement state is false");
+  econ::pir::DualPirSensor sensor;
+  sensor.init(5, 18);
+  clearMockPinStates();
+
+  setMockPinState(5, LOW);
+  setMockPinState(18, LOW);
+  TEST_ASSERT(!sensor.isOccupied(), "Both PIR LOW -> unoccupied");
+
+  setMockPinState(5, HIGH);
+  setMockPinState(18, LOW);
+  TEST_ASSERT(sensor.isOccupied(), "PIR1 HIGH, PIR2 LOW -> occupied");
+
+  setMockPinState(5, LOW);
+  setMockPinState(18, HIGH);
+  TEST_ASSERT(sensor.isOccupied(), "PIR1 LOW, PIR2 HIGH -> occupied");
+
+  setMockPinState(5, HIGH);
+  setMockPinState(18, HIGH);
+  TEST_ASSERT(sensor.isOccupied(), "Both PIR HIGH -> occupied");
+
+  clearMockPinStates();
   return {true, ""};
 }
 
 TestOutcome test_T1_F7_02_Detection_Polling_Loop() {
-  econ::camera::CameraPersonDetector detector;
-  detector.init();
-  TEST_ASSERT(detector.processFrame(), "processFrame cycle succeeds");
+  econ::pir::DualPirSensor sensor;
+  sensor.init(5, 18);
+  clearMockPinStates();
+
+  setMockPinState(5, HIGH);
+  TEST_ASSERT(sensor.isOccupied(), "Polling loop detects active PIR sensor state");
+  auto data = sensor.getTrackingData("zone_1", "esp32_pir_01");
+  TEST_ASSERT(data.person_detected, "Tracking payload marks person_detected: true");
+  TEST_ASSERT_EQ(1, data.person_count, "Tracking payload headcount is 1");
+  TEST_ASSERT_FLOAT_NEAR(1.0f, data.confidence, 0.01f, "Tracking payload confidence is 1.0");
+
+  clearMockPinStates();
   return {true, ""};
 }
 
 TestOutcome test_T1_F7_03_Telemetry_Transmission_Dispatch() {
-  econ::camera::CameraPersonDetector detector;
-  detector.init();
-  detector.processFrame();
+  econ::pir::DualPirSensor sensor;
+  sensor.init(5, 18);
+  clearMockPinStates();
+  setMockPinState(5, HIGH);
 
   econ::camera::DualModeComm comm;
   comm.init("Test_AP", "pass", 4210);
   comm.getUDP().clearSentPackets();
-  detector.transmitTelemetry(comm);
-  TEST_ASSERT_EQ(1, comm.getPacketsSentWiFi(), "Telemetry dispatched to comm");
+  sensor.transmitTelemetry(comm, "zone_1", "esp32_pir_01");
+
+  TEST_ASSERT_EQ(1, comm.getPacketsSentWiFi(), "Telemetry dispatched to comm via UDP broadcast");
+  auto lastPkt = comm.getUDP().getLastPacket();
+  std::string payload_str(lastPkt.payload.begin(), lastPkt.payload.end());
+  TEST_ASSERT_STR_CONTAINS(payload_str, "\"person_detected\":true", "Broadcast payload contains person_detected:true");
+  TEST_ASSERT_STR_CONTAINS(payload_str, "\"person_count\":1", "Broadcast payload contains person_count:1");
+  TEST_ASSERT_STR_CONTAINS(payload_str, "\"confidence\":1.00", "Broadcast payload contains confidence:1.00");
+
+  clearMockPinStates();
   return {true, ""};
 }
 
 TestOutcome test_T1_F7_04_Non_Blocking_Execution() {
-  econ::camera::CameraPersonDetector detector;
-  detector.init();
+  econ::pir::DualPirSensor sensor;
+  sensor.init(5, 18);
+  econ::camera::DualModeComm comm;
+  comm.init("Test_AP", "pass", 4210);
+
   auto t0 = std::chrono::high_resolution_clock::now();
-  detector.processFrame();
+  setMockPinState(5, HIGH);
+  sensor.transmitTelemetry(comm);
   auto t1 = std::chrono::high_resolution_clock::now();
   auto dur_us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-  TEST_ASSERT(dur_us < 20000, "Frame processing must execute within loop budget (<20ms)");
+  TEST_ASSERT(dur_us < 20000, "Dual PIR reading and dispatch executes in <20ms");
+
+  clearMockPinStates();
   return {true, ""};
 }
 
 TestOutcome test_T1_F7_05_State_Transition_Notification() {
-  econ::camera::CameraPersonDetector detector;
-  detector.init();
-  detector.getDriver().setSimulatedFillPattern(0);
-  detector.processFrame();
-  bool state1 = detector.isPersonDetected();
+  econ::pir::DualPirSensor sensor;
+  sensor.init(5, 18);
+  clearMockPinStates();
 
-  detector.getDriver().setSimulatedFillPattern(240);
-  detector.processFrame();
-  bool state2 = detector.isPersonDetected();
+  econ::camera::DualModeComm comm;
+  comm.init("Test_AP", "pass", 4210);
+  comm.getUDP().clearSentPackets();
 
-  TEST_ASSERT(state1 != state2, "State transitions from unoccupied to occupied");
+  // Initial state: unoccupied
+  setMockPinState(5, LOW);
+  setMockPinState(18, LOW);
+  sensor.pollAndTransmit(comm);
+
+  // Transition to occupied (PIR2 goes HIGH)
+  setMockPinState(18, HIGH);
+  bool transmitted = sensor.pollAndTransmit(comm);
+  TEST_ASSERT(transmitted, "Immediate burst transmission dispatched on transition to occupied");
+  TEST_ASSERT_EQ(1, comm.getPacketsSentWiFi(), "1 packet broadcast on transition");
+
+  // Steady state: no new burst
+  transmitted = sensor.pollAndTransmit(comm);
+  TEST_ASSERT(!transmitted, "No redundant burst when state is steady");
+
+  // Transition to unoccupied (PIR2 goes LOW)
+  setMockPinState(18, LOW);
+  transmitted = sensor.pollAndTransmit(comm);
+  TEST_ASSERT(transmitted, "Immediate burst transmission dispatched on transition to unoccupied");
+  TEST_ASSERT_EQ(2, comm.getPacketsSentWiFi(), "2 total packets broadcast across transitions");
+
+  clearMockPinStates();
   return {true, ""};
 }
 
@@ -1442,6 +1555,13 @@ TestOutcome test_T3_08_Sensor_PIR_Fallback_When_Camera_Unavailable() {
   detector.getDriver().setForceDMATimeout(true);
   bool active = detector.isPersonDetected();
   TEST_ASSERT(!active, "Safe fallback when camera is unattached");
+
+  econ::pir::DualPirSensor pir;
+  pir.init(5, 18);
+  setMockPinState(5, HIGH);
+  setMockPinState(18, LOW);
+  TEST_ASSERT(pir.isOccupied(), "Dual PIR active when camera is disabled/unavailable");
+  clearMockPinStates();
   return {true, ""};
 }
 

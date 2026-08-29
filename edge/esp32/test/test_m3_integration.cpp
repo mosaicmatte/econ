@@ -269,6 +269,70 @@ void run_suite_1_camera_occupancy_pir_replacement() {
     if (val != -128) { crop_clean = false; break; }
   }
   M3_ASSERT(crop_clean, "1.5.2 Center crop (120x120) completely excludes border clutter");
+
+  // Test 1.6: Dual PIR sensor integration & boolean OR combination
+  clearMockPinStates();
+  const int pir1_pin = 5;
+  const int pir2_pin = 18;
+
+  // (LOW, LOW) -> Unoccupied
+  setMockPinState(pir1_pin, LOW);
+  setMockPinState(pir2_pin, LOW);
+  bool pir1 = (digitalRead(pir1_pin) == HIGH);
+  bool pir2 = (digitalRead(pir2_pin) == HIGH);
+  bool present = (pir1 || pir2);
+  M3_ASSERT(!present, "1.6.1 Dual PIR (LOW, LOW) maps to unoccupied false");
+
+  // (HIGH, LOW) -> Occupied
+  setMockPinState(pir1_pin, HIGH);
+  setMockPinState(pir2_pin, LOW);
+  pir1 = (digitalRead(pir1_pin) == HIGH);
+  pir2 = (digitalRead(pir2_pin) == HIGH);
+  present = (pir1 || pir2);
+  M3_ASSERT(present, "1.6.2 Dual PIR (HIGH, LOW) maps to occupied true");
+
+  // (LOW, HIGH) -> Occupied
+  setMockPinState(pir1_pin, LOW);
+  setMockPinState(pir2_pin, HIGH);
+  pir1 = (digitalRead(pir1_pin) == HIGH);
+  pir2 = (digitalRead(pir2_pin) == HIGH);
+  present = (pir1 || pir2);
+  M3_ASSERT(present, "1.6.3 Dual PIR (LOW, HIGH) maps to occupied true");
+
+  // (HIGH, HIGH) -> Occupied
+  setMockPinState(pir1_pin, HIGH);
+  setMockPinState(pir2_pin, HIGH);
+  pir1 = (digitalRead(pir1_pin) == HIGH);
+  pir2 = (digitalRead(pir2_pin) == HIGH);
+  present = (pir1 || pir2);
+  M3_ASSERT(present, "1.6.4 Dual PIR (HIGH, HIGH) maps to occupied true");
+
+  // Telemetry payload generation from Dual PIR
+  PersonTrackingData pirTrackData;
+  initTrackingData(&pirTrackData);
+  pirTrackData.zone_id = "zone_1";
+  pirTrackData.sensor_id = "esp32_pir_01";
+  pirTrackData.timestamp_ms = 1724645000000ULL;
+  pirTrackData.person_detected = present;
+  pirTrackData.confidence = present ? 1.0f : 0.0f;
+  pirTrackData.person_count = present ? 1 : 0;
+
+  WiFiUDP pirUdp;
+  PubSubClient pirMqtt;
+  SerialShim pirSerial;
+  DualModeComm pirComm(pirUdp, pirMqtt, pirSerial);
+  CommConfig pirCfg = defaultCommConfig();
+  pirCfg.wifi_ssid = "Test_PIR_WLAN";
+  pirCfg.wifi_pass = "Pass123";
+  pirComm.begin(pirCfg);
+  WiFi.setMockStatus(WL_CONNECTED);
+  pirMqtt.setMockConnected(true);
+  pirComm.tick();
+
+  bool txOk = pirComm.transmit(pirTrackData);
+  M3_ASSERT(txOk, "1.6.5 Dual PIR tracking payload successfully transmitted via DualModeComm");
+  M3_ASSERT_EQ(1, pirUdp.getPacketCount(), "1.6.6 Exactly 1 UDP broadcast sent for Dual PIR state");
+  clearMockPinStates();
 }
 
 // =============================================================================

@@ -92,7 +92,7 @@ namespace ArduinoShimInternal {
     return u;
   }
   inline std::chrono::steady_clock::time_point& hostStartTime() {
-    static auto start = std::chrono::steady_clock::now();
+    static auto start = std::chrono::steady_clock::now() - std::chrono::milliseconds(1000);
     return start;
   }
 }
@@ -150,12 +150,29 @@ inline void delayMicroseconds(uint32_t us) {
 
 inline void yield() {}
 
-// =============================================================================
-// 3. GPIO & Hardware Stubs
-// =============================================================================
+namespace ArduinoShimInternal {
+  inline std::map<uint8_t, int>& pinStates() {
+    static std::map<uint8_t, int> states;
+    return states;
+  }
+}
+
 inline void pinMode(uint8_t, uint8_t) {}
-inline void digitalWrite(uint8_t, uint8_t) {}
-inline int digitalRead(uint8_t) { return LOW; }
+inline void digitalWrite(uint8_t pin, uint8_t val) {
+  ArduinoShimInternal::pinStates()[pin] = (int)val;
+}
+inline int digitalRead(uint8_t pin) {
+  auto& m = ArduinoShimInternal::pinStates();
+  auto it = m.find(pin);
+  if (it != m.end()) return it->second;
+  return LOW;
+}
+inline void setMockPinState(uint8_t pin, int val) {
+  ArduinoShimInternal::pinStates()[pin] = val;
+}
+inline void clearMockPinStates() {
+  ArduinoShimInternal::pinStates().clear();
+}
 inline int analogRead(uint8_t) { return 0; }
 inline void analogWrite(uint8_t, int) {}
 
