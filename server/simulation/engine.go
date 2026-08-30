@@ -2080,6 +2080,13 @@ func (e *Engine) LoadHistory() []float64 {
 	return append([]float64(nil), e.loadHist...)
 }
 
+// LastLoadMw returns the latest computed building electrical load in MW.
+func (e *Engine) LastLoadMw() float64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.lastLoadMw
+}
+
 // ForecastWindow returns the [room_temp(°C), airflow_fraction(0..1)] sequence the
 // Python forecaster expects — the REAL sampled last hour, most recent last — plus how
 // many of the timesteps are genuine samples. While the buffer is still warming up

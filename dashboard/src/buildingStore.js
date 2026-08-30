@@ -10,20 +10,49 @@
 // from the live building. The bundled copy remains solely the offline fallback, keeping
 // the 3D shell renderable with no backend.
 
-import bundled from './building-data.json';
-import { API_BASE } from './api';
+import bundledTower from './building-data.json' with { type: 'json' };
+import bundledHome from './building-data-home.json' with { type: 'json' };
+import { API_BASE } from './api.js';
 
-let current = bundled;
+
+
+let activeModelType = 'multi-level'; // 'multi-level' or 'domestic-home'
+let towerData = bundledTower;
+let homeData = bundledHome;
 let live = false;
+const listeners = new Set();
 
 export function getBuilding() {
-  return current;
+  return activeModelType === 'domestic-home' ? homeData : towerData;
+}
+
+export function getAllKnownBuildings() {
+  return [towerData, homeData];
+}
+
+export function getBuildingModelType() {
+  return activeModelType;
+}
+
+export function setBuildingModelType(type) {
+  if (type !== 'multi-level' && type !== 'domestic-home') return;
+  if (activeModelType !== type) {
+    activeModelType = type;
+    listeners.forEach((fn) => {
+      try { fn(getBuilding(), activeModelType); } catch (e) { console.error(e); }
+    });
+  }
+}
+
+export function subscribeBuildingChange(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
 }
 
 // True when the geometry came from the engine rather than the bundle — surfaces let the
 // user know when they are looking at the fallback.
 export function buildingIsLive() {
-  return live;
+  return live && activeModelType === 'multi-level';
 }
 
 export async function bootBuilding() {
@@ -34,7 +63,7 @@ export async function bootBuilding() {
     if (r.ok) {
       const j = await r.json();
       if (j && Array.isArray(j.floors) && j.floors.length > 0) {
-        current = j;
+        towerData = j;
         live = true;
       }
     }
@@ -43,5 +72,6 @@ export async function bootBuilding() {
   } finally {
     clearTimeout(timer);
   }
-  return current;
+  return getBuilding();
 }
+

@@ -1,33 +1,35 @@
 # Original User Request
 
-## 2026-08-26T04:01:19Z
+## Initial Request — 2026-08-30T01:54:04Z
 
-Update the software for an ESP32 WROOM to replace a PIR motion sensor with an OV7670 camera. The goal is to track people in real time to feed into a topology/BIM model, ensuring the architecture is extensible for future features.
+# Teamwork Project Prompt — Draft
 
-Working directory: /Users/nguyenhoangkhoi/Documents/econ/edge/esp32
+> Status: Launched
+> Goal: Fix UI bugs and add domestic home toggle
+> Requested team: A small focused team
+
+This is a single self-contained fix; keep it small and focused.
+Fix several UI bugs on the dashboard and add a toggle to switch the 3D view between the 1-level domestic home model and the full multi-level building model.
+
+Working directory: /Users/nguyenhoangkhoi/Documents/econ/dashboard
 Integrity mode: development
 
 ## Requirements
 
-### R1. Camera-Based Person Detection Module
-Implement a people detection module using the OV7670 camera and a lightweight Machine Learning model (e.g., TensorFlow Lite) suitable for the ESP32 WROOM. Ensure changes are strictly isolated to this module without modifying other parts of the existing software.
+### R1. Fix UI Rendering Bugs
+- Fix the top tab bar where text is being cut off (e.g., "PLU..." instead of the full tab name).
+- Fix the 3D visualization rendering bug where the blue connection lines/rays are misaligned, shooting off to incorrect points, or creating a chaotic web when zoomed/panned.
+- Fix the issue where the entire visualization/screen appears darkened (e.g., stuck backdrop overlay, missing ambient lighting, or incorrect opacity settings).
+- Fix the duplicated AI Load Forecast cards in the AI Insights panel. The "AI Load Forecast Trajectory" and "Load Forecast Not Yet Checked" cards currently display the exact same chart and data. Merge them or redesign the UI so they don't duplicate the chart and instead provide complementary, valuable information.
 
-### R2. Dual-Mode Communication
-The module must broadcast real-time tracking data over Wi-Fi as its primary method. It must automatically fall back to transmitting data over the USB Serial connection if Wi-Fi is unavailable or disconnected.
-
-## Verification Resources
-The project contains a PlatformIO environment (`platformio.ini`) and Wokwi simulator configurations (`wokwi.toml`).
+### R2. Add Domestic Home Toggle
+- The codebase already contains the 3D asset for a 1-level domestic home.
+- Add a UI toggle (e.g., a button or switch) below the 3D view that allows the user to switch between the 1-level domestic home model and the default full multi-level building model.
+- Wire this toggle so that the selected 3D asset is correctly loaded and rendered in the viewer.
 
 ## Acceptance Criteria
 
-### Compilation
-- [ ] Code compiles successfully via PlatformIO for the ESP32 target without errors.
-- [ ] Firmware fits within the available flash and RAM limits of the ESP32 WROOM.
-
-### Architecture
-- [ ] No files outside of the camera module's scope are modified.
-
-### Agent-as-Judge
-- [ ] An independent agent reviews the codebase and confirms that real-time Wi-Fi broadcasting is implemented.
-- [ ] An independent agent confirms that the system falls back to Serial output when Wi-Fi is disconnected.
-- [ ] An independent agent confirms the ML person detection model is properly initialized and processes camera frames.
+### Automated UI Verification
+- [ ] A Puppeteer/Playwright test script is provided or updated in the `dashboard` directory.
+- [ ] The script automatically toggles the view to the domestic home model and verifies that the UI updates (e.g., by checking for a specific DOM element, canvas state, or log).
+- [ ] The script verifies that the top tab bar renders without truncation.

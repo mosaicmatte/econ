@@ -1,4 +1,5 @@
 import base64
+import logging
 import os
 
 import numpy as np
@@ -12,6 +13,13 @@ from config import (INPUT_SIZE, HIDDEN_SIZE, NUM_LAYERS, OUTPUT_SIZE, SEQ_LEN,
 from data_loader import fetch_weather_features
 from model import PeakLoadLSTM
 from timesfm_forecaster import TIMESFM
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.DEBUG),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s"
+)
+logger = logging.getLogger("forecasting.main")
 
 app = FastAPI(title="EcoSync Forecasting API", version="1.0.0")
 
@@ -28,10 +36,10 @@ if os.path.exists(WEIGHTS_PATH) and os.path.exists(SCALER_PATH):
     model.eval()
     scaler = joblib.load(SCALER_PATH)
     MODEL_READY = True
-    print(f"[startup] loaded trained model + scaler")
+    logger.info("[startup] loaded trained model + scaler")
 else:
-    print(f"[startup] WARNING: {WEIGHTS_PATH} / {SCALER_PATH} not found — run train.py. "
-          f"/predict will return 503.")
+    logger.warning("[startup] WARNING: %s / %s not found — run train.py. /predict will return 503.",
+                   WEIGHTS_PATH, SCALER_PATH)
 
 
 class ForecastRequest(BaseModel):
@@ -118,13 +126,21 @@ def forecast_load(request: LoadForecastRequest):
     Unlike /predict this needs no trained artifacts at all, which is the entire point: it
     works on a twin's first day, from nothing but the load history the engine has already
     persisted. 503 (not a fabricated number) when TimesFM is unavailable."""
+    logger.debug("Received /forecast/load request: history_len=%d, horizon=%d, context_len=%s",
+                 len(request.history), request.horizon, request.context_len)
+    logger.debug("Input load history: %s", request.history)
     try:
-        return TIMESFM.forecast(request.history, request.horizon, request.context_len)
+        res = TIMESFM.forecast(request.history, request.horizon, request.context_len)
+        logger.debug("TimesFM forecast generated successfully: %s", res)
+        return res
     except RuntimeError as e:
+        logger.error("TimesFM runtime error: %s", e)
         raise HTTPException(status_code=503, detail=str(e))
     except ValueError as e:
+        logger.error("TimesFM validation error: %s", e)
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
+        logger.error("TimesFM unexpected error: %s", e)
         raise HTTPException(status_code=500, detail=f"TimesFM inference error: {e}")
 
 
@@ -157,7 +173,11 @@ def model_artifacts():
 
 @app.post("/predict", response_model=ForecastResponse)
 def predict_peak_load(request: ForecastRequest):
+    logger.debug("Received /predict request: seq_len=%d, outdoor_temp=%s, outdoor_humidity=%s",
+                 len(request.sensor_sequence), request.outdoor_temp, request.outdoor_humidity)
+    logger.debug("Input sensor sequence: %s", request.sensor_sequence)
     if not MODEL_READY:
+        logger.warning("Rejecting /predict request: model not trained yet")
         raise HTTPException(status_code=503,
                             detail="Model not trained: run train.py to produce weights + scaler.")
     try:
@@ -173,6 +193,9 @@ def predict_peak_load(request: ForecastRequest):
         else:
             outdoor_temp, outdoor_humidity, source = fetch_weather_features()
 
+        logger.debug("Weather features resolved for /predict: temp=%f, humidity=%f, source=%s",
+                     outdoor_temp, outdoor_humidity, source)
+
         # Combine per-timestep sensor data with the (shared) weather features.
         combined = [row + [outdoor_temp, outdoor_humidity] for row in request.sensor_sequence]
         data = np.array(combined, dtype=np.float32)
@@ -184,6 +207,8 @@ def predict_peak_load(request: ForecastRequest):
         with torch.no_grad():
             predicted_load = float(model(tensor_input).item())
 
+        logger.debug("Predicted peak load: %f MW (weather_source=%s)", predicted_load, source)
+
         return ForecastResponse(
             predicted_peak_load=predicted_load,
             outdoor_temp_used=outdoor_temp,
@@ -191,4 +216,5 @@ def predict_peak_load(request: ForecastRequest):
             weather_source=source,
         )
     except Exception as e:
+        logger.error("Prediction failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Internal prediction error: {str(e)}")

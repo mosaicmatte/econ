@@ -3,8 +3,8 @@ import { Users, Wind, Box, Zap, AlertTriangle, Activity, Settings, Map, Camera, 
 import { ReactFlow, Background, Controls, Handle, Position, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import BuildingModel, { SingleFloorLayout } from './BuildingModel';
-import { getBuilding } from './buildingStore';
-const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
+import { getBuilding, getBuildingModelType, setBuildingModelType, subscribeBuildingChange } from './buildingStore';
+
 import TelemetryPanel from './TelemetryPanel';
 import GlobalMetricsPanel from './GlobalMetricsPanel';
 import TelemetryLogs from './TelemetryLogs';
@@ -213,7 +213,7 @@ const nodeTypes = {
 // card per zone (zone + its feeding VAV merged — they map 1:1) fills a sorted grid
 // beneath it, like an equipment schedule. Replaces the old centroid-scattered boxes,
 // which overlapped unreadably on a 90-zone digitized floor.
-const buildTopologyFromSim = (simState, activeFloor, ontology) => {
+const buildTopologyFromSim = (simState, activeFloor, ontology, building = getBuilding()) => {
   const nodes = [];
   const edges = [];
 
@@ -227,8 +227,11 @@ const buildTopologyFromSim = (simState, activeFloor, ontology) => {
     predicate: r.predicate,
   }));
 
+  const floorObj = (building?.floors || []).find(f => f.level === activeFloor);
+  const floorZoneIds = new Set((floorObj?.zones || []).map(z => z.zoneId));
+
   const activeZones = Object.values(simState.zones)
-    .filter(z => z.level === activeFloor)
+    .filter(z => floorZoneIds.size > 0 ? floorZoneIds.has(z.id) : z.level === activeFloor)
     .sort((a, b) => (a.label || a.id).localeCompare(b.label || b.id));
 
   // Largest VAV flow anywhere in the building right now, so every unit's airflow bar is
@@ -305,16 +308,16 @@ const buildTopologyFromSim = (simState, activeFloor, ontology) => {
 
 
 
-// The floor that "needs attention" when the dashboard opens: the one holding the default
-// critical asset (a server room, via DEFAULT_FAULT_TARGET). Data-driven so a regenerated
-// building-data.json just works — no hard-coded level.
-const ATTENTION_FLOOR = (() => {
-  const f = buildingData.floors.find(fl => fl.zones.some(z => z.zoneId === DEFAULT_FAULT_TARGET));
-  return f ? f.level : (buildingData.floors[Math.floor(buildingData.floors.length / 2)]?.level || 1);
-})();
+function defaultFloor(bld = getBuilding()) {
+  const floors = bld?.floors || [];
+  const f = floors.find(fl => (fl.zones || []).some(z => z.zoneId === DEFAULT_FAULT_TARGET));
+  return f ? f.level : (floors[Math.floor(floors.length / 2)]?.level || 1);
+}
 
 function App() {
-  const [activeFloor, setActiveFloor] = useState(ATTENTION_FLOOR);
+  const [buildingModelType, setBuildingModelTypeState] = useState(() => getBuildingModelType());
+  const [currentBuilding, setCurrentBuilding] = useState(() => getBuilding());
+  const [activeFloor, setActiveFloor] = useState(() => defaultFloor());
   const [selectedZone, setSelectedZone] = useState(null);
   const [showAiModal, setShowAiModal] = useState(false);
   const [panelSize, setPanelSize] = useState({ w: 600, h: 400 });
@@ -322,8 +325,32 @@ function App() {
   const [rightPanelWidth, setRightPanelWidth] = useState(360);
   const [activeLeftTab, setActiveLeftTab] = useState('ai');
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
-  const [leftPanelSize, setLeftPanelSize] = useState({ w: 360 });
+  const [leftPanelSize, setLeftPanelSize] = useState({ w: 380 });
   const [showWindSim, setShowWindSim] = useState(true);
+
+  useEffect(() => {
+    const unsub = subscribeBuildingChange((b, type) => {
+      setCurrentBuilding(b);
+      setBuildingModelTypeState(type);
+    });
+    return unsub;
+  }, []);
+
+  const handleToggleBuildingModel = (type) => {
+    setBuildingModelType(type);
+    setBuildingModelTypeState(type);
+    const newBld = getBuilding();
+    setCurrentBuilding(newBld);
+    if (type === 'domestic-home') {
+      setActiveFloor(1);
+      setSelectedZone(null);
+    } else {
+      setActiveFloor(defaultFloor(newBld));
+      setSelectedZone(null);
+    }
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+  };
+
 
   // Recomputes safeArea on a viewport change — the insets are in pixels against
   // window.innerWidth/Height, so a resize or rotate must re-frame.
@@ -507,12 +534,20 @@ function App() {
   } = useDigitalTwin(onSimUpdate);
 
   const executeRemediation = () => {
+    const target = faultTarget || (failingZone?.id && failingZone.id !== 'Unknown Zone' ? failingZone.id : DEFAULT_FAULT_TARGET);
+    if (target && sendManualOverride) {
+      sendManualOverride('cool', target);
+    }
     setShowAiModal(false);
-    loadScenario('remediating');
-    setTimeout(() => {
-      loadScenario('peak');
-    }, 8000);
   };
+
+  useEffect(() => {
+    if (activeScenario === 'fault') {
+      setShowAiModal(true);
+    } else {
+      setShowAiModal(false);
+    }
+  }, [activeScenario]);
 
   // When activeFloor changes or ontology loads, completely rebuild the topology
   useEffect(() => {
@@ -521,10 +556,10 @@ function App() {
     // We pass simData to it to build initial nodes
     // Wait, buildTopologyFromSim is defined below this component? Yes.
     // We can just use simData directly.
-    const topo = buildTopologyFromSim(simData, activeFloor, ontology);
+    const topo = buildTopologyFromSim(simData, activeFloor, ontology, currentBuilding);
     setNodes(topo.nodes);
     setEdges(topo.edges);
-  }, [activeFloor, ontology]); // Only rebuild on floor or ontology change
+  }, [activeFloor, ontology, currentBuilding]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -576,6 +611,7 @@ function App() {
             }}
             viewMode={viewMode}
             safeArea={safeArea}
+            building={currentBuilding}
           />
         </CanvasErrorBoundary>
       </div>
@@ -832,7 +868,7 @@ function App() {
           "SHOW/HIDE AIRFLOW" control in the topology header. */}
       {showWindSim && (
         <AirflowWindow
-          floor={buildingData.floors.find(f => f.level === activeFloor)}
+          floor={currentBuilding?.floors?.find(f => f.level === activeFloor)}
           activeFloor={activeFloor}
           simState={simData}
           size={airflowSize}
@@ -866,7 +902,7 @@ function App() {
                 const onPointerMove = (moveEvent) => {
                   const dx = moveEvent.clientX - startX;
                   setLeftPanelSize({
-                    w: Math.max(280, Math.min(startW + dx, window.innerWidth * 0.5)),
+                    w: Math.max(300, Math.min(startW + dx, window.innerWidth * 0.5)),
                   });
                 };
                 const onPointerUp = () => {
@@ -880,28 +916,100 @@ function App() {
                 position: 'absolute', top: '50%', right: 0, transform: 'translateY(-50%)', width: 10, height: 40, cursor: 'ew-resize', zIndex: 100
               }} 
             />
-            <div style={{ display: 'flex', borderBottom: '1px solid var(--border-glass)' }}>
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border-glass)', background: 'rgba(0,0,0,0.2)', overflowX: 'auto', scrollbarWidth: 'none' }}>
               <button 
+                data-testid="tab-ai-insights"
                 onClick={() => setActiveLeftTab('ai')}
-                style={{ flex: 1, padding: '12px', background: activeLeftTab === 'ai' ? 'rgba(0, 163, 224, 0.1)' : 'transparent', color: activeLeftTab === 'ai' ? 'var(--accent-blue)' : 'var(--text-secondary)', border: 'none', borderBottom: activeLeftTab === 'ai' ? '2px solid var(--accent-blue)' : 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
+                style={{
+                  flex: '1 1 auto',
+                  padding: '10px 6px',
+                  background: activeLeftTab === 'ai' ? 'rgba(0, 163, 224, 0.12)' : 'transparent',
+                  color: activeLeftTab === 'ai' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                  border: 'none',
+                  borderBottom: activeLeftTab === 'ai' ? '2px solid var(--accent-blue)' : '2px solid transparent',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '11px',
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '0.02em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: 'fit-content',
+                  transition: 'all 0.15s ease'
+                }}
               >
                 AI INSIGHTS
               </button>
               <button 
+                data-testid="tab-profiler"
                 onClick={() => setActiveLeftTab('telemetry')}
-                style={{ flex: 1, padding: '12px', background: activeLeftTab === 'telemetry' ? 'rgba(0, 163, 224, 0.1)' : 'transparent', color: activeLeftTab === 'telemetry' ? 'var(--accent-blue)' : 'var(--text-secondary)', border: 'none', borderBottom: activeLeftTab === 'telemetry' ? '2px solid var(--accent-blue)' : 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
+                style={{
+                  flex: '1 1 auto',
+                  padding: '10px 6px',
+                  background: activeLeftTab === 'telemetry' ? 'rgba(0, 163, 224, 0.12)' : 'transparent',
+                  color: activeLeftTab === 'telemetry' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                  border: 'none',
+                  borderBottom: activeLeftTab === 'telemetry' ? '2px solid var(--accent-blue)' : '2px solid transparent',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '11px',
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '0.02em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: 'fit-content',
+                  transition: 'all 0.15s ease'
+                }}
               >
                 PROFILER
               </button>
               <button
+                data-testid="tab-logs"
                 onClick={() => setActiveLeftTab('logs')}
-                style={{ flex: 1, padding: '12px', background: activeLeftTab === 'logs' ? 'rgba(0, 163, 224, 0.1)' : 'transparent', color: activeLeftTab === 'logs' ? 'var(--accent-blue)' : 'var(--text-secondary)', border: 'none', borderBottom: activeLeftTab === 'logs' ? '2px solid var(--accent-blue)' : 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
+                style={{
+                  flex: '1 1 auto',
+                  padding: '10px 6px',
+                  background: activeLeftTab === 'logs' ? 'rgba(0, 163, 224, 0.12)' : 'transparent',
+                  color: activeLeftTab === 'logs' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                  border: 'none',
+                  borderBottom: activeLeftTab === 'logs' ? '2px solid var(--accent-blue)' : '2px solid transparent',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '11px',
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '0.02em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: 'fit-content',
+                  transition: 'all 0.15s ease'
+                }}
               >
                 LOGS
               </button>
               <button
+                data-testid="tab-plugs"
                 onClick={() => setActiveLeftTab('plugs')}
-                style={{ flex: 1, padding: '12px', background: activeLeftTab === 'plugs' ? 'rgba(0, 163, 224, 0.1)' : 'transparent', color: activeLeftTab === 'plugs' ? 'var(--accent-blue)' : 'var(--text-secondary)', border: 'none', borderBottom: activeLeftTab === 'plugs' ? '2px solid var(--accent-blue)' : 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px' }}
+                style={{
+                  flex: '1 1 auto',
+                  padding: '10px 6px',
+                  background: activeLeftTab === 'plugs' ? 'rgba(0, 163, 224, 0.12)' : 'transparent',
+                  color: activeLeftTab === 'plugs' ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                  border: 'none',
+                  borderBottom: activeLeftTab === 'plugs' ? '2px solid var(--accent-blue)' : '2px solid transparent',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '11px',
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '0.02em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: 'fit-content',
+                  transition: 'all 0.15s ease'
+                }}
               >
                 PLUGS
               </button>
@@ -1018,6 +1126,71 @@ function App() {
 
       {showImport && <BlueprintImportPanel onClose={() => setShowImport(false)} />}
 
+      {/* 3D BUILDING MODEL SELECTOR (Floating Bottom Center, above command bar) */}
+      <div
+        data-testid="building-model-toggle"
+        style={{
+          position: 'absolute',
+          bottom: '5.2rem',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 15,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          background: 'rgba(10, 16, 28, 0.85)',
+          padding: '4px 6px',
+          borderRadius: '10px',
+          border: '1px solid var(--border-glass)',
+          backdropFilter: 'blur(12px)',
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.4)',
+        }}
+      >
+        <span style={{ fontSize: '10px', fontWeight: 'bold', color: 'var(--text-secondary)', padding: '0 6px', letterSpacing: '0.04em' }}>
+          3D ASSET:
+        </span>
+        <button
+          data-testid="toggle-multilevel"
+          onClick={() => handleToggleBuildingModel('multi-level')}
+          style={{
+            padding: '5px 12px',
+            fontSize: '11px',
+            borderRadius: '6px',
+            border: 'none',
+            cursor: 'pointer',
+            background: buildingModelType === 'multi-level' ? 'var(--accent-blue)' : 'transparent',
+            color: buildingModelType === 'multi-level' ? '#ffffff' : 'var(--text-secondary)',
+            fontWeight: 'bold',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <span>🏢</span> Multi-Level Building
+        </button>
+        <button
+          data-testid="toggle-domestic-home"
+          onClick={() => handleToggleBuildingModel('domestic-home')}
+          style={{
+            padding: '5px 12px',
+            fontSize: '11px',
+            borderRadius: '6px',
+            border: 'none',
+            cursor: 'pointer',
+            background: buildingModelType === 'domestic-home' ? 'var(--accent-blue)' : 'transparent',
+            color: buildingModelType === 'domestic-home' ? '#ffffff' : 'var(--text-secondary)',
+            fontWeight: 'bold',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <span>🏠</span> 1-Level Domestic Home
+        </button>
+      </div>
+
       {/* COMMAND BAR (Floating Bottom Center) */}
       <div className="hud-command-bar">
         <button 
@@ -1039,7 +1212,10 @@ function App() {
           </select>
           <button
             className={`cmd-btn ${activeScenario === 'fault' ? 'active-fault' : ''}`}
-            onClick={() => loadScenario(`fault:${faultTarget}`, (level) => setActiveFloor(level))}
+            onClick={() => {
+              loadScenario(`fault:${faultTarget}`, (level) => setActiveFloor(level));
+              setShowAiModal(true);
+            }}
             style={{ paddingLeft: '0.5rem' }}
           >
             <AlertTriangle size={16} /> Inject

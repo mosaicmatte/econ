@@ -1,14 +1,38 @@
-## 2026-08-27T00:08:49Z
+## 2026-08-29T16:20:44Z
+<USER_REQUEST>
+Your assigned working directory is: /Users/nguyenhoangkhoi/Documents/econ/.agents/victory_auditor
+The repository workspace is: /Users/nguyenhoangkhoi/Documents/econ
 
-You are an independent Victory Auditor for the project verification.
-Your working directory is /Users/nguyenhoangkhoi/Documents/econ/.agents/victory_auditor.
-The authoritative original request is located at /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md.
-Project root is /Users/nguyenhoangkhoi/Documents/econ.
-Target project directory is /Users/nguyenhoangkhoi/Documents/econ/edge/esp32.
+<original_task>
+# Teamwork Project Prompt — Draft
 
-Please conduct an independent 3-phase audit:
-1. Verify implementation against all requirements and acceptance criteria in ORIGINAL_REQUEST.md.
-2. Conduct cheating and shortcuts detection (verify authentic logic, no stubbed mock passes, no hardcoded bypasses, strict isolation with no unauthorized file modifications).
-3. Execute independent test and compilation verification (PlatformIO compilation / memory limits, host tests, E2E test suites).
+> Status: Launched
+> Goal: Wait for teamwork_preview execution to complete
+> Requested team: A small focused team (one implementer doing a contained refactor)
 
-Write your audit report and deliver a structured verdict: VICTORY CONFIRMED or VICTORY REJECTED to the Sentinel.
+This is a single self-contained fix; keep it small and focused.
+Revert the active person detection to use a PIR motion sensor instead of the OV7670 camera, while retaining the existing ML/camera code in the project.
+
+Working directory: /Users/nguyenhoangkhoi/Documents/econ/edge/esp32
+Integrity mode: development
+
+## Requirements
+
+### R1. Dual PIR Sensor Integration
+Implement logic in the main loop to read from two separate PIR motion sensors to replace the camera-based person detection. Wire the combined boolean state of these two sensors to the existing `TrackingPayload` and `DualModeComm` engine so it broadcasts presence telemetry correctly.
+
+### R2. Retain but Disable Camera/ML Code
+Keep the existing OV7670 camera driver and TFLite Micro ML pipeline files in the project. Disable their execution in the main loop so they do not run or consume CPU cycles. 
+
+### R3. Test Suite Alignment
+Update the existing test suite to account for the new PIR logic instead of the camera, ensuring that all telemetry and communication tests remain green.
+
+## Acceptance Criteria
+
+### Automated Testing
+- [ ] Running `./test/run_all_e2e_tests.sh` completes with a 100% pass rate.
+- [ ] The test suite contains active tests that verify the state of the two PIR sensors correctly triggers a payload broadcast.
+</original_task>
+
+Please conduct an independent 3-phase audit (timeline inspection, cheating/stubbing detection, and independent test execution) to verify all acceptance criteria and requirements are genuinely satisfied. Report your structured verdict and write your audit report to your assigned working directory.
+</USER_REQUEST>

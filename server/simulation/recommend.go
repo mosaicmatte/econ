@@ -64,6 +64,25 @@ type Recommendation struct {
 	Equilibrium float64 `json:"equilibrium"` // value the room settles at if nothing changes
 }
 
+// ForecastGraphData defines the forecast graph payload embedded in RecommendationReport.
+type ForecastGraphData struct {
+	Engine         string               `json:"engine"`                  // "timesfm" | "lstm" | "fallback"
+	Series         []float64            `json:"series"`                  // forecast load trajectory in MW
+	UpperBand      []float64            `json:"upperBand,omitempty"`     // upper quantile trajectory (e.g. q9)
+	UpperQuantile  string               `json:"upperQuantile,omitempty"` // quantile head name (e.g. "q9")
+	PeakUpperMw    *float64             `json:"peakUpperMw,omitempty"`   // peak of upper band
+	LstmPeakMw     *float64             `json:"lstmPeakMw,omitempty"`    // LSTM predicted peak if available
+	StepMinutes    int                  `json:"stepMinutes"`             // cadence in minutes (e.g. 5)
+	HorizonMinutes int                  `json:"horizonMinutes"`          // total forecast horizon in minutes (e.g. 60)
+	Plausible      bool                 `json:"plausible"`               // whether forecast is within observed range
+	Plausibility   string               `json:"plausibility,omitempty"`  // human-readable plausibility assessment
+	Samples        int                  `json:"samples"`                 // number of history/context samples
+	Quantiles      map[string][]float64 `json:"quantiles,omitempty"`     // full quantile deciles if available
+}
+
+// ForecastGraph is an alias for ForecastGraphData for compatibility.
+type ForecastGraph = ForecastGraphData
+
 // RecommendationReport is the /api/recommendations payload: the ranked list plus an honest
 // readout of the model's own maturity, so a short list reads unambiguously.
 type RecommendationReport struct {
@@ -82,6 +101,7 @@ type RecommendationReport struct {
 		RoomsLearning   int `json:"roomsLearning"`
 		HorizonMin      int `json:"horizonMin"`
 	} `json:"model"`
+	Forecast *ForecastGraphData `json:"forecast,omitempty"`
 }
 
 // hourLabel renders which learned bucket answered: a clock hour ("14:00") or the

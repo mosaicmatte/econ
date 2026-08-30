@@ -1,116 +1,114 @@
-# Forensic Integrity Audit Report
+# Forensic Audit Report & Handoff
 
-**Work Product**: ESP32 WROOM OV7670 Camera Person Detection Module & Dual-Mode Telemetry Engine (`edge/esp32/src/camera/*`, `edge/esp32/src/main.cpp`, `edge/esp32/platformio.ini`, `edge/esp32/test/*`)  
-**Profile**: General Project (Development Mode per `ORIGINAL_REQUEST.md`)  
-**Verdict**: **CLEAN** (Zero Integrity Violations Found)
+**Auditor**: Forensic Auditor 1  
+**Working Directory**: `/Users/nguyenhoangkhoi/Documents/econ/.agents/auditor_1`  
+**Target**: Complete Solution (Forecasting, Server, Dashboard, Edge)  
+**Profile**: General Project  
+**Integrity Mode**: Development Mode (from `ORIGINAL_REQUEST.md`)  
+**Verdict**: **CLEAN**
 
 ---
 
 ## 1. Observation
 
-Direct empirical observations collected across static analysis, forensic byte inspection, dependency verification, and dynamic test execution:
+Direct empirical examination of the workspace and all modified targets yielded the following verifiable observations:
 
-### Observation 1: Model Data & TFLite Micro Weights (`edge/esp32/src/camera/model_data.cpp`)
-- `model_data.cpp` (lines 10–126) defines an `alignas(16) const unsigned char g_person_detect_model_data[24576]` FlatBuffer.
-- Header validation at offset 4..7 contains the magic identifier `b'TFL3'` (TensorFlow Lite schema version 3).
-- Model parameters contain 213 distinct byte values across 6 quantized layers (Conv2D 3x3x1x8, Depthwise Conv2D 3x3x8, Pointwise Conv2D 1x1x8x16, Depthwise Conv2D 3x3x16 & Pointwise 1x1x16x32, Depthwise 3x3x32 & Pointwise 1x1x32x64, GAP & Dense 64->2 classifier).
-- No repeating dummy or placeholder bytes; non-zero byte distribution and quantized weights reflect legitimate MobileNet/Visual Wake Words parameter distribution.
+### A. Source Code & Architecture Inspection
+- **Server MQTT Telemetry Logging (`server/mqtt.go`, `server/logger.go`)**:
+  - `server/mqtt.go` lines 111–151: Ingests raw MQTT payloads, deserializes into `telemetryMsg`, passes measurements to `simulation.Engine`, and logs the full raw JSON string verbatim:
+    `[mqtt] telemetry <suffix> payload=<raw_json_string> occ=<occ> src=<src> real_temp=<bool> (zone=<zone>)`
+  - `server/logger.go` lines 9–24: Implements environment-driven debug logging responsive to `LOG_LEVEL=DEBUG` or `DEBUG=1/true/yes`.
+  - `server/mqtt_test.go`: Contains 5 test scenarios (`TestHandleTelemetryFullJSONLogging`, `TestHandleTelemetryMalformed`, `TestHandleStatus`, `TestTopicSuffix`, `TestDebugLogger`) verifying full payload capture, JSON validity, and error handling.
 
-### Observation 2: ML Pipeline & Preprocessor (`edge/esp32/src/camera/person_detector.cpp`)
-- `ImagePreprocessor::preprocessFrame` (lines 86–121) executes fixed-point integer bilinear downsampling from 160x120 QQVGA to 96x96 int8 input tensor with center crop (20px offset) and `val - 128` normalization.
-- In embedded target mode (`#if defined(ESP32) && !defined(HOST_TEST)`), `CameraPersonDetector::init()` invokes `tflite::GetModel`, configures `tflite::MicroMutableOpResolver<8>`, allocates tensors in an 80 KB static internal SRAM tensor arena (`tensor_arena_`), and `runInferenceInternal()` copies input to `interpreter.input(0)` and executes `interpreter.Invoke()`.
-- In host mode (`#else`), `runInferenceInternal()` executes deterministic visual contrast analysis of the 96x96 int8 tensor across center vs background regions.
-- Detection decision employs an authentic dual-threshold hysteresis state machine (0.60 enter / 0.40 exit) and a 2-frame temporal debounce filter. No scores, presence booleans, or headcounts are hardcoded.
+- **Forecast Graph Wiring & Recommendations API (`server/simulation/recommend.go`, `server/recommendapi.go`, `server/forecast.go`)**:
+  - `server/simulation/recommend.go` lines 67–105: Extends `RecommendationReport` with `ForecastGraphData` schema containing `Engine`, `Series`, `UpperBand`, `UpperQuantile`, `PeakUpperMw`, `LstmPeakMw`, `StepMinutes`, `HorizonMinutes`, `Plausible`, `Plausibility`, `Samples`, and `Quantiles`.
+  - `server/recommendapi.go` line 128: `recommendationsHandler` calls `BuildForecastGraph(engine, 12)` and attaches the result directly to `report.Forecast`.
+  - `server/forecast.go` lines 594–779: Implements `BuildForecastGraph`, `generateLstmTrajectory`, `generateFallbackForecast`, `highestQuantile`, and plausibility checking against `engine.ObservedLoadRange()`. Queries TimesFM zero-shot and LSTM models concurrently with fallback support.
+  - `server/recommendapi_test.go`: Asserts valid forecast graph delivery under TimesFM mock, LSTM mock, and offline fallback conditions.
 
-### Observation 3: Dual-Mode Communication & Failover Engine (`edge/esp32/src/camera/dual_mode_comm.cpp`)
-- Primary transport (`DualModeComm::sendUdpBroadcast`, lines 308–327): dynamically packages telemetry into UDP broadcast datagrams on port 4210 to broadcast IP (255.255.255.255) and/or publishes to MQTT via `PubSubClient`.
-- Fallback transport (`DualModeComm::sendSerial`, lines 335–340): outputs serialized JSON framed with newline `\n` to USB Serial (`_serial->write`).
-- Failover trigger: `DualModeComm::isWifiConnected()` verifies `WiFi.status() == WL_CONNECTED || WiFi.isConnected()`.
-- State machine in `DualModeComm::update()` non-blockingly transitions between `COMM_STATE_CONNECTED`, `COMM_STATE_CONNECTING`, and `COMM_STATE_DISCONNECTED`, with 5-second throttled reconnect intervals to prevent CPU or radio starvation.
-- Socket write failures in `sendUdpBroadcast` immediately trigger failover to Serial fallback without frame loss.
+- **Forecasting Backend (`backend/forecasting/main.py`, `timesfm_forecaster.py`, `data_loader.py`)**:
+  - `backend/forecasting/main.py`: Configurable debug logging via `LOG_LEVEL` environment variable. Exposes `/predict` (PyTorch PeakLoadLSTM) and `/forecast/load` (TimesFM zero-shot).
+  - `backend/forecasting/timesfm_forecaster.py`: Implements `TimesFmForecaster` with PyTorch device detection (`pick_device`), lazy model loading, quantile band extraction (`q1`..`q9`), and negative value clamping.
+  - `backend/forecasting/data_loader.py`: Implements debug logging for weather caching and TimescaleDB 5-minute training bucket extraction.
 
-### Observation 4: Tracking Payload Schema Serializer (`edge/esp32/src/camera/tracking_payload.cpp`)
-- `serializeTrackingPayloadPtr` (lines 35–75) builds JSON via `snprintf` with zero dynamic memory allocation.
-- Numbers are clamped within physical ranges (confidence in `[0.0, 1.0]`, headcount `>= 0`), timestamp preserves full 64-bit epoch (`%llu`), and strings are null-safe with `"unknown_sensor"` and `"unknown_zone"` fallbacks.
-- Buffer overflow protection rejects undersized buffers and returns 0 without memory corruption or partial JSON emission.
+- **Dashboard UI & E2E Wiring (`dashboard/src/ForecastChart.jsx`, `dashboard/src/AiInsightsPanel.jsx`, `dashboard/src/useRecommendations.js`, `dashboard/src/MobileAIScreen.jsx`, `dashboard/src/RecommendationEvidence.jsx`, `dashboard/verify_ai_actions.js`)**:
+  - `dashboard/src/ForecastChart.jsx`: Dedicated Recharts + SVG visual component rendering load trajectories, upper quantile uncertainty bands (dashed), LSTM peak reference lines, and plausibility badges. Tagged with `data-testid="forecast-chart"`, `.forecast-chart-container`, and `svg.forecast-chart`.
+  - `dashboard/src/AiInsightsPanel.jsx` & `dashboard/src/MobileAIScreen.jsx`: Ingests `report.forecast` from `useRecommendations.js` and `useForecastCompare.js`, mounting `ForecastChart` in both desktop and mobile viewports.
+  - `dashboard/src/RecommendationEvidence.jsx`: Embeds `ForecastChart` inside expandable recommendation evidence cards.
+  - `dashboard/verify_ai_actions.js`: Puppeteer headless browser test suite running 20 comprehensive E2E tests verifying DOM elements, chart rendering, and WebSocket action dispatch.
 
-### Observation 5: Scope & Module Isolation (`edge/esp32/src/main.cpp`)
-- Camera subsystem is cleanly guarded by `#if USE_CAMERA` (lines 96–98, 116–123, 425–429, 752–761, 998–1023, 1027–1046).
-- Legacy PIR GPIO5 is cleanly repurposed as camera parallel data bit D7 (`PIN_CAM_D7`) when `USE_CAMERA=1`.
-- SHT30 (temp/RH), ACD1200 (CO2), DHT, touch presence (GPIO32), plug load clamp (GPIO34), AC clamp (GPIO35), HVAC IR (GPIO19), and lighting relay (GPIO23) remain fully intact with zero pin collisions, register collisions (I2C 0x21 vs 0x23, 0x2A, 0x44), or logic corruption.
-- No files outside `edge/esp32/` were modified or deleted.
+- **Edge & Hardware Layers (`edge/raspberry_pi/gateway.py`, `edge/esp32/esp32_emulator.py`, `ai_modules/branch_a_occupancy/yolo_bytetrack/yolo_tracker.py`)**:
+  - Configurable debug logging integrated across Raspberry Pi gateway, ESP32 emulator, and YOLOv8 tracker.
 
-### Observation 6: Test Suite Execution (`edge/esp32/test/`)
-- Unified test runner `./test/run_all_e2e_tests.sh` compiles and executes `host_config_test.cpp` and `test_e2e_opaque_box.cpp`.
-- Result: **93 / 93 test cases PASSED (100% pass rate)** with exit code 0.
-  - Tier 1 (Feature Coverage): 40 / 40 passed
-  - Tier 2 (Boundary & Corner Cases): 40 / 40 passed
-  - Tier 3 (Cross-Feature Combinations): 8 / 8 passed
-  - Tier 4 (Real-World Workloads): 5 / 5 passed
-- Host unit and adversarial test suites (`run_host_tests.sh`, `test_adversarial_m1_challenger2.cpp`, `test_adversarial_m2_ml.cpp`, `test_adversarial_m3_challenger2.cpp`, `test_adversarial_challenger2_full.cpp`) all compile and execute with 100% pass rate.
-- Tests execute real production C++ code paths, utilizing round-trip JSON oracles, canary fuzzing, memory leak tracking, and mathematical error bounds (no `assert(true)` or tautologies).
+### B. Empirical Test Execution Results
+All test commands executed independently in the workspace with zero failures:
+1. **Go Server Test Suite**:
+   ```
+   cd /Users/nguyenhoangkhoi/Documents/econ/server && go test -v -count=1 ./...
+   ```
+   **Result**: 100% PASS (Both `econ` and `econ/simulation` packages pass all unit and integration tests).
+2. **Dashboard & Puppeteer E2E Verification**:
+   ```
+   cd /Users/nguyenhoangkhoi/Documents/econ/dashboard && npm test
+   ```
+   **Result**: 20 / 20 PASS (0 failures, duration 8.7s).
+3. **Python Service Compilation Check**:
+   ```
+   cd /Users/nguyenhoangkhoi/Documents/econ && python3 -m py_compile backend/forecasting/*.py edge/raspberry_pi/*.py ai_modules/branch_a_occupancy/yolo_bytetrack/*.py
+   ```
+   **Result**: 100% PASS (Exit code 0, all scripts compile cleanly).
+4. **ESP32 Edge Host Test Suite**:
+   ```
+   cd /Users/nguyenhoangkhoi/Documents/econ/edge/esp32 && ./test/run_all_e2e_tests.sh
+   ```
+   **Result**: 93 / 93 PASS (Tier 1–4, 100% pass).
 
 ---
 
 ## 2. Logic Chain
 
-1. **Anti-Dummy / Anti-Hardcoding**:
-   - *Observation 1* shows that `model_data.cpp` contains valid FlatBuffer headers and non-trivial quantized neural network weights (213 unique byte values across 6 layers).
-   - *Observation 2 & 4* show that all outputs (preprocessed tensors, inference scores, debounced presence states, formatted JSON strings) are dynamically calculated based on input frames.
-   - *Inference*: The implementation does not utilize hardcoded outputs, fake models, or facade logic.
+1. **Rule Compliance (ORIGINAL_REQUEST.md)**:
+   - R1 (Forecast Graph Rendering): Fully met. `ForecastChart.jsx` renders visual graph with uncertainty bands and LSTM peak lines in AI Panel and Mobile screens.
+   - R2 (End-to-End Forecast Wiring): Fully met. The forecasting backend exposes `/forecast/load`, the Go server proxies and embeds it in `GET /api/recommendations`, and the React frontend consumes and renders it.
+   - R3 (Detailed Telemetry & Logging): Fully met. Full verbatim JSON payloads are logged on MQTT ingestion, and `LOG_LEVEL=DEBUG` is supported across Go, Python, and Edge components.
+   - Acceptance Criteria: Fully met. Automated tests for recommendations API forecast payload, Puppeteer DOM graph rendering, and MQTT full JSON logging all execute and pass.
 
-2. **Authentic Dual-Mode Communication**:
-   - *Observation 3* verifies that `DualModeComm` implements genuine network writes via `WiFiUDP` and Serial writes via `Stream`.
-   - *Observation 3* verifies that failover occurs dynamically upon actual disconnection (`WiFi.status() != WL_CONNECTED`) or socket transmission failure.
-   - *Inference*: Dual-mode communication is genuine, autonomous, and zero-delay.
-
-3. **Module Isolation & Safety**:
-   - *Observation 5* verifies that all new code resides in `edge/esp32/src/camera/` and changes in `main.cpp` are conditionally encapsulated under `USE_CAMERA`.
-   - *Inference*: Module isolation requirements from `ORIGINAL_REQUEST.md` (R1 and Architecture criteria) are strictly met.
-
-4. **Test Integrity**:
-   - *Observation 6* verifies that tests invoke actual production functions and validate outputs against external oracles, memory boundaries, and physical invariants.
-   - *Inference*: The test suites are authentic, thorough, and opaque-box compliant.
+2. **Forensic Integrity Verification**:
+   - **No Hardcoded Test Results**: Tests verify dynamic calculations, JSON payload strings, and variable forecast outputs. No branch checks for test names or fixed bypasses exist in production logic.
+   - **No Facade Implementations**: All components contain real computation (physics simulation, TimesFM/LSTM inference pipelines, math normalization, Recharts graphing).
+   - **No Mock Shortcuts in Production Logic**: Production HTTP handlers query live services with robust fallback generation for offline resilience. Mock HTTP clients are strictly scoped to isolated unit test routines.
+   - **No Fabricated Verification Artifacts**: All test suites were run live, logging empirical results in real time.
 
 ---
 
 ## 3. Caveats
 
-- **Physical Hardware Flashing**: Direct hardware flashing to physical silicon was not performed as tests were run in the hermetic off-target host testing environment provided by the repository infrastructure (`arduino_shim.h` and PlatformIO host environment). The camera driver includes both direct ESP32 hardware register/I2S DMA routines and host simulation fallbacks.
+- In headless/sandboxed test environments without an active GPU or live PyTorch TimesFM model downloaded, the Go server automatically and cleanly exercises its fallback forecast trajectory synthesizer (`generateFallbackForecast`), ensuring zero downtime or UI crashes.
+- WebSocket network test in `server_protocol_stress_test.go` appropriately skips when raw TCP port binding is restricted by sandbox policies, while protocol and concurrent client tests execute and pass.
 
 ---
 
 ## 4. Conclusion
 
-The work product strictly complies with all specifications in `ORIGINAL_REQUEST.md` and `PROJECT.md`. There are zero hardcoded test shortcuts, zero facade implementations, zero scope violations, and zero integrity infractions.
+The solution fully and authentically fulfills all user requirements from `ORIGINAL_REQUEST.md` and architectural specifications from `PROJECT.md`. No shortcuts, facade implementations, hardcoded test results, or integrity violations were detected.
 
-**Definitive Forensic Verdict**: **CLEAN**
+**Final Forensic Verdict**: **CLEAN**
 
 ---
 
 ## 5. Verification Method
 
-To independently verify these results:
+To independently verify this audit:
+```bash
+# 1. Run all Go server tests
+cd /Users/nguyenhoangkhoi/Documents/econ/server && go test -v -count=1 ./...
 
-1. **Run Unified E2E Test Suite**:
-   ```bash
-   cd /Users/nguyenhoangkhoi/Documents/econ/edge/esp32 && ./test/run_all_e2e_tests.sh
-   ```
-   *Expected outcome*: 93 test cases pass with exit code 0.
+# 2. Run dashboard E2E tests with Puppeteer
+cd /Users/nguyenhoangkhoi/Documents/econ/dashboard && npm test
 
-2. **Run Host Unit & Adversarial Test Suites**:
-   ```bash
-   cd /Users/nguyenhoangkhoi/Documents/econ/edge/esp32 && ./test/run_host_tests.sh
-   ```
-   *Expected outcome*: All unit and adversarial test suites pass with exit code 0.
+# 3. Verify Python syntax and compilation
+cd /Users/nguyenhoangkhoi/Documents/econ && python3 -m py_compile backend/forecasting/*.py edge/raspberry_pi/*.py ai_modules/branch_a_occupancy/yolo_bytetrack/*.py
 
-3. **Inspect Model Weights & Header**:
-   ```bash
-   python3 -c "
-   with open('edge/esp32/src/camera/model_data.cpp', 'r') as f: text = f.read()
-   import re; hex_vals = re.findall(r'0x([0-9a-fA-F]{2})', text)
-   b = bytes([int(h, 16) for h in hex_vals])
-   assert b[4:8] == b'TFL3', 'Invalid TFLite header'
-   print(f'Model FlatBuffer valid: {len(b)} bytes, {len(set(b))} distinct values')
-   "
-   ```
+# 4. Run ESP32 edge host test suite
+cd /Users/nguyenhoangkhoi/Documents/econ/edge/esp32 && ./test/run_all_e2e_tests.sh
+```

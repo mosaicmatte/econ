@@ -7,7 +7,8 @@
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview --host",
-    "dev:local": "vite"
+    "dev:local": "vite",
+    "test": "node verify_ai_actions.js"
   },
   "dependencies": {
     "@react-three/drei": "^9.106.0",

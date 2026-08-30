@@ -1,25 +1,26 @@
-# Orchestration Plan: ESP32 OV7670 Person Detection Module
+# Orchestrator Execution Plan
 
-## Objective
-Implement an OV7670 camera-based person detection module on ESP32 WROOM with dual-mode communication (Wi-Fi broadcasting + Serial fallback) strictly isolated to the camera module scope, compiling cleanly via PlatformIO within flash/RAM constraints, and verified by adversarial and forensic audit agents.
+## 1. Survey Phase
+- Spawn 3 Explorers / Spec Miners to map:
+  - Explorer 1 (Backend & Models): Examine forecasting backend (TimeFM/LSTM), how predictions are generated and exported.
+  - Explorer 2 (Go Server & Telemetry/MQTT): Examine Go backend API routes (`GET /api/recommendations` etc.), telemetry logging, MQTT handlers, logging levels.
+  - Explorer 3 (Frontend & AI Panel / Recommendations UI): Examine React/Vue/Next.js/HTML dashboard, AI panel, recommendations UI, chart rendering libraries, and test/verification scripts.
 
-## Phase 0: Survey & Architecture Discovery
-1. Spawn 3 Explorers / Spec Miners:
-   - Explorer 1: Inspect `/Users/nguyenhoangkhoi/Documents/econ/edge/esp32` existing codebase structure, PIR sensor implementation, build system (`platformio.ini`), dependencies, memory budgets, and pinouts.
-   - Explorer 2: Inspect OV7670 camera drivers, ESP32 camera compatibility/pins, and lightweight ML model (TFLite Micro / person detection) on ESP32 WROOM (SRAM / Flash limits).
-   - Explorer 3: Inspect communication layer (Wi-Fi broadcasting UDP/MQTT/WebSocket/HTTP vs Serial fallback) and interface integration with existing sensor architecture.
-2. Synthesize findings into `/Users/nguyenhoangkhoi/Documents/econ/PROJECT.md` with Feature Inventory and Module Boundaries.
+## 2. Decomposition & Architecture Mapping (PROJECT.md)
+- Synthesize findings into `PROJECT.md` with Feature Inventory, Milestones, and Interface Contracts.
+- Initialize `TEST_INFRA.md`.
 
-## Phase 1: Milestone Decomposition & Implementation
-- Track A: Dual-Mode Communication & Data Format (Wi-Fi broadcast with automatic USB Serial fallback)
-- Track B: Camera Driver & ML Person Detection Inference Pipeline (OV7670 + TFLite Micro / person detection)
-- Track C: Integration, Isolation Verification & Build/Resource Optimization
+## 3. Parallel Dual-Track Execution
+- **Track A (E2E Testing)**: Test Writer / E2E Test Suite for automated verification:
+  - API endpoint integration tests
+  - UI programmatic chart verification script
+  - MQTT telemetry full JSON payload log validator
+- **Track B (Implementation)**:
+  - Forecasting & Model Data Output
+  - Go Server Proxy & Telemetry Verbosity
+  - Frontend Chart Rendering in AI Panel & Recommendations
+  - Integration & Verification
 
-## Phase 2: Verification, E2E Testing, & Audit
-- Reviewers: Code completeness, isolation, architecture compliance.
-- Challengers: Empirical edge case testing, Wi-Fi disconnect/reconnect fallback testing, ML inference verification, memory/resource checks.
-- Forensic Auditor: Integrity verification against hardcoded outputs, dummy mocks, and requirement circumvention.
-
-## Phase 3: Final Reporting
-- Synthesize all findings and gate results.
-- Send completion report to Sentinel parent.
+## 4. Adversarial Coverage Hardening & Acceptance Gates
+- Reviewers, Challengers, and Forensic Auditor verification.
+- Pass 100% acceptance criteria.

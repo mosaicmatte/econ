@@ -245,6 +245,7 @@ export default function MobileApp() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '10px' }}>
           
           <MenuItem
+            dataTestId="mobile-menu-ai"
             icon={<Brain size={20} color="#4A90E2" />}
             title="AI & Automation"
             onClick={() => setActiveModal('ai')}
@@ -421,9 +422,10 @@ export default function MobileApp() {
   );
 }
 
-function MenuItem({ icon, title, onClick, highlight, bottomText, hideChevron }) {
+function MenuItem({ icon, title, onClick, highlight, bottomText, hideChevron, dataTestId }) {
   return (
     <div 
+      data-testid={dataTestId}
       onClick={onClick}
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',

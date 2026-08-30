@@ -1,32 +1,30 @@
-# BRIEFING — 2026-08-26T04:01:28Z
+# BRIEFING — 2026-08-30T08:54:00Z
 
 ## Mission
-Monitor project orchestration, run liveness/progress checks, and trigger Victory Audit upon completion.
+Fix UI rendering bugs (top tab bar cutoff, 3D connection rays misalignment, screen darkening, duplicated forecast cards) and add domestic home 3D toggle on dashboard with automated UI verification, routed via SWE Light.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/sentinel
-- Orchestrator: 6848b659-e430-4aa8-9ca3-ab02a9ba213d
-- Victory Auditor: f413af34-39b5-4df1-b989-008d9993c15a
+- Orchestrator: cbe67e4d-7a1d-4046-9844-43e221630c72
+- Victory Auditor: [to be spawned on victory claim]
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
 - Victory Audit is MANDATORY before reporting completion
-- No code writing or problem analysis
-- Keep context ultra-light
+- Must not write code, analyze problems, or make technical decisions
 
 ## User Context
-- **Last user request**: Update ESP32 WROOM software to replace PIR sensor with OV7670 camera and TFLite people detection with dual-mode communication (Wi-Fi / Serial).
+- **Last user request**: Fix UI bugs and add domestic home toggle on dashboard (single self-contained fix, small focused team) with automated UI verification.
 - **Pending clarifications**: none
-- **Delivered results**:
-  - ESP32 OV7670 camera capture & TFLite Micro person detection pipeline
-  - Dual-mode communication (Wi-Fi UDP/MQTT broadcast + automatic USB Serial fallback)
-  - Full module isolation in `src/camera/` with 0 legacy sensor regressions
-  - PlatformIO build passing and fitting ESP32 WROOM Flash/RAM
-  - 93/93 E2E test cases passing, 89/89 unit tests passing
+- **Delivered results**: none
 
 ## Project Status
 - **Phase**: complete
+- **Route**: SWE Light (teamwork_preview_swe)
+- **Active Orchestrator**: cbe67e4d-7a1d-4046-9844-43e221630c72 (completed)
+- **Crons**: cancelled (task-53, task-55)
+- **Victory Auditor**: 90a4f373-c4ed-4406-afbf-dd43db220c02 (completed)
 
 ## Victory Audit Status
 - **Triggered**: yes
@@ -34,4 +32,8 @@ Monitor project orchestration, run liveness/progress checks, and trigger Victory
 - **Retry count**: 0
 
 ## Artifact Index
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md — Original User Request
+- /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md — Authoritative record of user requests
+- /Users/nguyenhoangkhoi/Documents/econ/.agents/sentinel/BRIEFING.md — Sentinel persistent briefing
+- /Users/nguyenhoangkhoi/Documents/econ/.agents/sentinel/handoff.md — Sentinel handoff report
+- /Users/nguyenhoangkhoi/Documents/econ/.agents/swe_3/handoff.md — SWE Light Orchestrator handoff
+- /Users/nguyenhoangkhoi/Documents/econ/.agents/victory_auditor_sentinel_2/handoff.md — Victory Auditor handoff report

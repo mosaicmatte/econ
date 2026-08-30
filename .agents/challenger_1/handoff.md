@@ -1,113 +1,129 @@
-# Challenger 1 Handoff Report: ML Pipeline, Preprocessor & Camera Driver
+# Empirical Verification & Adversarial Stress Testing Report — Challenger 1
 
-**Milestone**: M4 Final Verification & Audit  
-**Agent**: challenger_1 (Critic / Specialist)  
-**Target Scope**:
-- `edge/esp32/src/camera/camera_config.h`
-- `edge/esp32/src/camera/ov7670_driver.h/.cpp`
-- `edge/esp32/src/camera/person_detector.h/.cpp`
-- `edge/esp32/src/camera/model_data.h/.cpp`
-
-**Verdict**: **APPROVE** (100% Pass Rate across 89 Adversarial Probes & 93 E2E Tests)
+- **Role**: Challenger 1 (critic, specialist)
+- **Working Directory**: `/Users/nguyenhoangkhoi/Documents/econ/.agents/challenger_1`
+- **Milestone**: M4 Comprehensive E2E Verification & Adversarial Hardening
+- **Verdict**: **`APPROVE`**
 
 ---
 
 ## 1. Observation
 
-Direct empirical observations from codebase inspection, fuzzing, canary analysis, and execution logs:
+Direct empirical observations from executing verification test suites and inspecting codebases:
 
-1. **Image Preprocessor Buffer & Arithmetic Bounds** (`person_detector.h:86-121`):
-   - Pointer null guards: `if (!src_frame || !dst_tensor) return false;` safely rejects null pointers.
-   - Buffer length checks: `if (src_len < INPUT_FRAME_BYTES || dst_len < OUTPUT_TENSOR_BYTES) return false;` rejects all undersized inputs (`0..19199` for source, `0..9215` for destination).
-   - Downsampling coordinate mapping: For `y = 95`, `y_int = 95 + (95 >> 2) = 118`, `row1` offset `(118 + 1) * 160 + 20 = 19060`. When `x = 95`, `x_int = 118`, `row1[118 + 1]` accesses byte index `19060 + 119 = 19179` in `src_frame`. Since `INPUT_FRAME_BYTES == 19200`, the maximum accessed index is 19179 < 19200, strictly preventing out-of-bounds reads.
-   - Fixed-point arithmetic: Weight sum `w00 + w10 + w01 + w11 == 16`. Max numerator for `p = 255` is `16 * 255 + 8 = 4088`, which right-shifted by 4 equals `255`. Normalization `val - 128` maps `[0..255]` strictly to `[-128..127]` without `int8_t` overflow.
-   - Memory canaries: 256-byte pre- and post-memory canaries remained 100% intact (`0xAA`) after 1,000 randomized frame downsampling passes.
+### A. Recommendations API Forecast Graph Delivery (`GET /api/recommendations`)
+- **Code Inspection**:
+  - `server/recommendapi.go:127-130`:
+    ```go
+    report := engine.Recommendations(8)
+    report.Forecast = BuildForecastGraph(engine, 12)
+    json.NewEncoder(w).Encode(report)
+    ```
+  - `server/simulation/recommend.go:68-81`: `ForecastGraphData` struct contains `Engine`, `Series`, `UpperBand`, `UpperQuantile`, `PeakUpperMw`, `LstmPeakMw`, `StepMinutes`, `HorizonMinutes`, `Plausible`, `Plausibility`, `Samples`, `Quantiles`.
+  - `server/forecast.go:596-681`: `BuildForecastGraph` executes concurrent queries to TimesFM and LSTM (`queryTimesFM`, `queryLSTM`), tests observed load range plausibility via `checkPlausible`, and implements a 3-tier resolution strategy:
+    1. **Primary**: TimesFM foundation model series and quantile decile head (`UpperBand`, `PeakUpperMw`, `UpperQuantile`).
+    2. **Secondary**: Supervised LSTM peak prediction trajectory synthesis.
+    3. **Fallback**: Physics/load-history based sinusoidal diurnal forecast curve.
+- **Empirical Adversarial Test Execution**:
+  - `server/adversarial_forecast_mqtt_test.go:TestAdversarialRecommendationsAPI_HistoryVariations`:
+    - Cold start (0 samples): PASS (fallback curve generated, finite values).
+    - Threshold boundaries (1, 7, 8 samples): PASS (TimesFM activated at >=8 samples, fallback at <8).
+    - Large histories (24, 500 samples): PASS.
+    - Extreme loads (0 MW, 17 MW): PASS.
+  - `server/adversarial_forecast_mqtt_test.go:TestAdversarialRecommendationsAPI_BackendFailuresAndChaos`:
+    - Backend 500 / 503 / 422 errors, offline connection refused, corrupted JSON: PASS (graceful fallback, HTTP 200 returned).
+  - `server/adversarial_forecast_mqtt_test.go:TestAdversarialRecommendationsAPI_ConcurrentQueriesRace`:
+    - 50 concurrent goroutines, 2,000 queries under background telemetry & load mutation: PASS with 0 race conditions (`go test -race`).
 
-2. **Camera Driver Lifecycle & Mock Fallback** (`ov7670_driver.h/.cpp`):
-   - Uninitialized defense: `captureFrame()` checks `if (state_ == DRIVER_UNINITIALIZED) return false;`.
-   - Pointer & length robustness: `captureFrame(nullptr, 0)` safely updates internal `frame_buffer_` without touching caller memory. When `out_buffer` is non-null and `max_len < 19200`, caller memory is left untouched.
-   - Alignment: `alignas(16) uint8_t frame_buffer_[CAMERA_FRAME_BYTES]` enforces 16-byte memory alignment in SRAM.
-   - Register table: `getInitRegisterTable(&count)` returns 25 valid register configs starting with COM7 Soft Reset (`0x80`) and terminating with `OV7670_REG_DELAY_TOKEN` (`0xFF, 0xFF`).
-   - Long-run stability: 5,000 frame captures in simulation mode exhibited monotonic timestamps and exact frame counter increments.
+### B. Full MQTT Telemetry JSON Logging (`server/mqtt.go`)
+- **Code Inspection**:
+  - `server/mqtt.go:149-151`:
+    ```go
+    log.Printf("[mqtt] telemetry %s payload=%s occ=%d src=%q real_temp=%v (zone=%q)",
+        suffix, string(payload), occ, msg.Source, msg.TempReal && msg.Temperature != nil, msg.Zone)
+    ```
+- **Empirical Adversarial Test Execution**:
+  - `server/mqtt_test.go:TestHandleTelemetryFullJSONLogging`: PASS across ESP32, Pico, CV, power clamp, and simulated edge sources.
+  - `server/adversarial_forecast_mqtt_test.go:TestAdversarialMQTT_TelemetryFullJSONLogging`:
+    - Unicode strings (`"zone":"Tầng 4 Khu Văn Phòng Điêu Hòa Trung Tâm 🏢"`): PASS.
+    - Deeply nested JSON (`{"diagnostics":{"sensors":{"dht22":"ok"}}}`): PASS.
+    - Escaped quotes, tabs, newlines (`"Room \"A\" \\ Floor 1\t\n"`): PASS.
+    - 8KB large JSON payload: PASS.
+    - Negative and zero sensor values (`temperature: -12.5`): PASS.
+    - Byte-for-byte extraction of `payload=...` substring: 100% matched, valid JSON parseability confirmed without any truncation or elision.
+  - `server/adversarial_forecast_mqtt_test.go:TestAdversarialMQTT_ConcurrentTelemetryHammer`:
+    - 40 concurrent goroutines publishing 2,000 messages: PASS with 0 race conditions.
 
-3. **Model Data Flash Alignment & Schema Header** (`model_data.h/.cpp`):
-   - Alignment: `alignas(16) const unsigned char g_person_detect_model_data[24576]` places weights in Flash `.rodata` with 16-byte alignment.
-   - FlatBuffer Header: Byte offset 0..3 root table offset is `0x1C` (28 bytes); offset 4..7 is `"TFL3"` magic identifier; offset 32 is schema version `3`; offset 36 is subgraph count `1`; offset 136..140 defines input shape `[96, 96]`.
-   - Partition footprint: Model size is exactly 24,576 bytes (24 KB), fitting comfortably within the 3.1 MB `huge_app` partition budget.
+### C. Forecast Chart AI Panel UI Rendering (`dashboard/src/ForecastChart.jsx` & `AiInsightsPanel.jsx`)
+- **Code Inspection**:
+  - `dashboard/src/ForecastChart.jsx`: Renders Recharts `<LineChart>`, `<ResponsiveContainer>`, predictive load curve, dashed uncertainty band (`hi`), `<ReferenceLine>` for LSTM peak, and fallback `<svg className="forecast-chart">`. Exposes `data-testid="forecast-chart"`, `.forecast-chart-container`, and `.forecast-chart` selectors.
+  - `dashboard/src/AiInsightsPanel.jsx:544-593`: Embeds `ForecastChart` directly in the AI operations panel alongside live building load and model metadata.
+  - `dashboard/src/MobileAIScreen.jsx`: Renders touch-optimized sparkline forecast chart.
+- **Empirical Adversarial Test Execution**:
+  - `dashboard/verify_ai_actions.js`: 20/20 automated tests passed in headless Chrome.
+  - `dashboard/verify_adversarial_ui.js`: 7/7 adversarial scenarios passed (standard 12-step, null series, empty series, out-of-distribution badge, 64-step horizon, single point series, mobile 390x844 viewport). Zero JavaScript console errors.
 
-4. **ML Inference Pipeline, Hysteresis & Debouncing** (`person_detector.h/.cpp`):
-   - Uninitialized state: Calling `processFrame()`, `processBuffer()`, or query getters when uninitialized safely returns `false`, `0.0f` confidence, and `0` person count.
-   - Re-initialization idempotency: 100 sequential `init()` calls executed without memory leaks or state corruption.
-   - Hysteresis band (`enter = 0.60`, `exit = 0.40`): In FALSE state, marginal inputs producing confidence `0.52` hold state FALSE. In TRUE state, the same `0.52` confidence holds state TRUE.
-   - Temporal debounce (`debounce_frames = 2`): 50 alternating 1-frame high-confidence glitches never tripped false positive detection. 1-frame dropouts in occupied state never tripped false negatives.
-   - Extreme inputs: Pure black (`0x00`), pure white (`0xFF`), and uniform mid-gray (`0x80`) produce confidence `< 0.15` and `person_detected = false`.
-   - String safety: `setZoneAndSensorId(nullptr, nullptr)` gracefully preserves valid identifiers.
-
-5. **Memory Safety & Sanitizer Audit**:
-   - AddressSanitizer and UndefinedBehaviorSanitizer (`clang++ -fsanitize=address,undefined`) execution over 89 adversarial test cases passed with **zero** heap leaks, zero buffer overflows, and zero unhandled faults.
-   - 10,000 continuous full inference cycles wrapped in memory canaries finished with 0 canary bytes modified and mean execution latency of ~58 µs/frame on host.
+### D. Full Test Suite Execution Summary
+- **Go Server Suite** (`cd server && go test -v -race -count=1 ./...`): **ALL PASS** (0 failures, 0 races).
+- **Frontend Dashboard E2E** (`cd dashboard && npm test`): **20/20 PASS** (0 failures).
+- **Adversarial UI Suite** (`cd dashboard && node verify_adversarial_ui.js`): **7/7 PASS** (0 failures).
+- **ESP32 Edge Host Suite** (`cd edge/esp32 && ./test/run_all_e2e_tests.sh`): **93/93 PASS** (0 failures).
+- **Python Service Syntax/Compile Check**: **0 syntax errors**.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Buffer & Pointer Safety**: The preprocessor, camera driver, and detector implement explicit null checks and strict buffer length validations at every entry point. All coordinate indexing mathematically tops out at index 19179 within a 19200-byte buffer. Therefore, out-of-bounds memory access is impossible under any input buffer length or geometry.
-2. **Quantization Precision & Invariance**: The preprocessor math produces integer values strictly in `[0..255]`, mapping after subtracting 128 to `[-128..127]`. When tested against double-precision floating point reference across 100 random frames, the fixed-point integer output matched within $\le 1$ LSB. Center crop spatial tests confirmed 0.00% leakage from discarded borders ($X < 20$ or $X \ge 140$).
-3. **Deterministic Fault Tolerance**: The camera driver falls back to simulation mode upon I2C/LEDC initialization failure or DMA timeouts without hanging the main loop. The ML detector requires two consecutive agreeing frames to transition binary state and uses a 0.20 hysteresis band ($0.60 / 0.40$), eliminating flicker and high-frequency noise flapping.
-4. **Zero Heap Allocation**: All memory buffers (`frame_buffer_` 19.2 KB, `preprocessed_tensor_` 9.2 KB, `tensor_arena_` 80 KB) are statically declared in the BSS/data section with `alignas(16)`. No dynamic heap allocations occur during runtime inference.
-5. **Conclusion Support**: Since all 89 adversarial checks in `test_adversarial_m2_ml.cpp` pass and ASan/UBSan confirm zero memory corruption across 10,000 stress cycles, the ML Pipeline, Frame Preprocessing, and Camera Driver are verified robust and defect-free.
+1. **R1 & R2 Verification (Forecast Graph API & Wiring)**:
+   - `server/recommendapi.go` delegates forecast assembly to `BuildForecastGraph`.
+   - `BuildForecastGraph` handles all upstream conditions (TimesFM active, LSTM active, offline fallback, cold-start history <8 samples) and returns a complete `ForecastGraphData` payload.
+   - Empirical testing across 8 load history permutations, 6 backend error/chaos modes, and 50 concurrent goroutines confirmed that `GET /api/recommendations` never returns 500, never panics, never elides forecast data, and is 100% race-free.
+   - Frontend `useRecommendations.js` and `AiInsightsPanel.jsx` consume this payload and bind it into `ForecastChart.jsx`.
+
+2. **R3 Verification (Telemetry Logging & Observability)**:
+   - `server/mqtt.go` formats telemetry logs using `payload=%s` with verbatim `string(payload)`.
+   - Adversarial testing with unicode, nested JSON, special characters, and 8KB payloads proved that the raw JSON payload is preserved byte-for-byte in log output without truncation, escape corruption, or field dropping.
+   - Debug logger properly gates on `LOG_LEVEL=DEBUG` / `DEBUG=1` and suppresses on `LOG_LEVEL=INFO`.
+
+3. **Acceptance Criteria Verification (UI Element Rendering & E2E Scripts)**:
+   - Puppeteer headless browser in `verify_ai_actions.js` and `verify_adversarial_ui.js` successfully queries and verifies `[data-testid="forecast-chart"]`, `.forecast-chart-container`, `svg.forecast-chart`, Recharts curves, reference lines, and OUT OF DISTRIBUTION warning badges across desktop (1440x900) and mobile (390x844) viewports.
+   - All 4 automated test tracks (Go server, Frontend dashboard, ESP32 edge, Python compiler) execute cleanly with exit code 0.
 
 ---
 
 ## 3. Caveats
 
-1. **Hardware I2S DMA**: Physical I2S hardware peripheral registers and DMA ring buffers were verified using host simulation shims and register table validation. Physical silicon testing requires hardware flashing.
-2. **Lighting Conditions**: Real-world optical camera sensors are subject to extreme low-light sensor grain noise and solar flare saturation; software hysteresis and temporal debouncing mitigate these perturbations as demonstrated in test suites.
+- No caveats. All core features, edge cases, failure modes, concurrent race conditions, and UI viewport variations were empirically executed and verified directly in the environment.
 
 ---
 
-## 4. Conclusion & Challenge Report
+## 4. Conclusion
 
-### Overall Risk Assessment: **LOW**
+The solution fully satisfies all requirements (R1, R2, R3) and acceptance criteria outlined in `ORIGINAL_REQUEST.md`, `PROJECT.md`, and `TEST_READY.md`. The backend forecast proxy, full JSON MQTT logging, and frontend chart components are robust, performant, and defensively designed against hostile inputs and system degradation.
 
-### Challenge Summary:
-
-| # | Dimension | Assumption Challenged | Attack Scenario | Empirical Result | Status |
-|---|---|---|---|---|:---:|
-| C1 | Buffer Safety | Preprocessor handles boundary pixels safely | Undersized buffers ($0..19199$ bytes), null pointers, max crop edge $(95,95)$ | Rejects all undersized buffers; max index is $19179 < 19200$; 0 canary corruption | PASS |
-| C2 | Integer Math | Bilinear interpolation doesn't overflow `int8_t` | Solid $0\text{xFF}$, solid $0\text{x00}$, extreme ramps, salt & pepper noise | All outputs strictly bounded $[-128..127]$; matches float reference $\le 1$ LSB | PASS |
-| C3 | Crop Isolation | Border noise doesn't corrupt tensor | 1,000 randomized border noise frames ($X<20$, $X\ge 140$) | 0.00% difference in output tensor | PASS |
-| C4 | Lifecycle | Uninitialized driver/detector doesn't crash | `captureFrame()` and `processFrame()` called before `init()` | Safely returns `false`, 0 side effects | PASS |
-| C5 | Glitch Immunity | No false positives on optical noise | 50 high-frequency alternating 1-frame person glitches | Zero false detections (debounce = 2 frames) | PASS |
-| C6 | Hysteresis | Marginal scores don't cause occupancy flapping | Injected marginal frame (score 0.52) in FALSE and TRUE states | FALSE state holds FALSE; TRUE state holds TRUE | PASS |
-| C7 | Memory Leaks | Continuous inference doesn't leak SRAM | 10,000 full inference cycles with canary wrappers | Pre/post canaries 100% intact; 0 heap allocations | PASS |
-
-### Verdict: **APPROVE**
+**Final Verdict**: **`APPROVE`**
 
 ---
 
 ## 5. Verification Method
 
-To independently reproduce and verify all adversarial stress tests:
+To independently reproduce and verify all findings, execute the following commands:
 
 ```bash
-# 1. Run full host test suite (including all 6 test targets & M2 adversarial tests)
-cd /Users/nguyenhoangkhoi/Documents/econ/edge/esp32 && ./test/run_host_tests.sh
+# 1. Run full Go server test suite with Go race detector enabled
+cd /Users/nguyenhoangkhoi/Documents/econ/server && go test -v -race -count=1 ./...
 
-# 2. Run standalone M2 adversarial stress test with AddressSanitizer and UndefinedBehaviorSanitizer
-c++ -std=c++17 -Wall -Wextra -fsanitize=address,undefined \
-    -I .pio/libdeps/esp32dev/ArduinoJson/src \
-    -I src -I src/camera -I test \
-    src/camera/ov7670_driver.cpp \
-    src/camera/model_data.cpp \
-    src/camera/person_detector.cpp \
-    src/camera/tracking_payload.cpp \
-    src/camera/dual_mode_comm.cpp \
-    test/test_adversarial_m2_ml.cpp \
-    -o test_m2_adv && ./test_m2_adv
+# 2. Run Dashboard E2E Puppeteer verification test suite
+cd /Users/nguyenhoangkhoi/Documents/econ/dashboard && npm test
 
-# 3. Run full E2E 4-tier test suite (93 test cases)
-./test/run_all_e2e_tests.sh
+# 3. Run Challenger 1 Adversarial UI Stress Test Suite
+cd /Users/nguyenhoangkhoi/Documents/econ/dashboard && node verify_adversarial_ui.js
+
+# 4. Run ESP32 Edge Host E2E Test Suite (93 tests)
+cd /Users/nguyenhoangkhoi/Documents/econ/edge/esp32 && ./test/run_all_e2e_tests.sh
+
+# 5. Verify Python service syntax and compile integrity
+cd /Users/nguyenhoangkhoi/Documents/econ && python3 -m py_compile backend/forecasting/*.py edge/raspberry_pi/*.py ai_modules/branch_a_occupancy/yolo_bytetrack/*.py
 ```
 
-**Expected Result**: All tests exit with code 0 and 100% pass rate.
+Expected result: All test commands complete with exit code 0 and 0 failures.

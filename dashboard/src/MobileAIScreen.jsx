@@ -5,9 +5,11 @@ import { useOpsStatus, untilLabel } from './useOpsStatus';
 import { usePlugs } from './usePlugs';
 import { useRecommendations } from './useRecommendations';
 import { useLocalModel } from './useLocalModel';
+import { useForecastCompare } from './useForecastCompare';
 import { useLibrary } from './useLibrary';
 import { useRoomModels } from './useRoomModels';
 import RecommendationEvidence from './RecommendationEvidence';
+import ForecastChart from './ForecastChart';
 import { API_BASE } from './api';
 import { powerMw, powerKw } from './units';
 
@@ -50,7 +52,58 @@ export default function MobileAIScreen({
   const { precool, weather } = useOpsStatus();
   const { status: plugStatus } = usePlugs();
   // Learned anomaly recommendations — the same σ-scored model the desktop panel shows.
-  const { recommendations, model: recModel } = useRecommendations();
+  const { recommendations, model: recModel, forecast: recForecast } = useRecommendations();
+
+  // Forecast data from live compare endpoint with fallback to embedded recommendations payload
+  const { timesfm, lstm: lstmCompare, series: tfmSeries, stepMinutes: compareStepMinutes,
+          upperBand: compareUpperBand, upperQuantile: compareUpperQuantile, peakUpperMw: comparePeakUpperMw } = useForecastCompare();
+
+  const activeForecast = useMemo(() => {
+    const rawSeries = (Array.isArray(tfmSeries) && tfmSeries.length > 0)
+      ? tfmSeries
+      : (Array.isArray(recForecast?.series) && recForecast.series.length > 0)
+        ? recForecast.series
+        : null;
+
+    const stepMin = compareStepMinutes || recForecast?.stepMinutes || 5;
+    const upper = (Array.isArray(compareUpperBand) && compareUpperBand.length > 0)
+      ? compareUpperBand
+      : (Array.isArray(recForecast?.upperBand) && recForecast.upperBand.length > 0)
+        ? recForecast.upperBand
+        : null;
+
+    const uq = compareUpperQuantile || recForecast?.upperQuantile || 'q9';
+    const peakUp = comparePeakUpperMw ?? recForecast?.peakUpperMw ?? null;
+    const lstmPeak = lstmCompare?.peakMw ?? recForecast?.lstmPeakMw ?? aiForecast?.predicted_peak_load ?? null;
+    const engineName = (timesfm?.available && tfmSeries?.length > 0)
+      ? 'timesfm'
+      : (recForecast?.engine || (aiForecast ? 'lstm' : 'fallback'));
+
+    const seriesData = rawSeries && rawSeries.length > 0
+      ? rawSeries.map((mw, i) => ({
+          t: `+${(i + 1) * stepMin}m`,
+          mw: +Number(mw).toFixed(4),
+          hi: upper && upper[i] != null ? +Number(upper[i]).toFixed(4) : undefined,
+        }))
+      : [];
+
+    const isPlausible = recForecast?.plausible ?? (aiForecast ? !aiForecast.implausible : true);
+    const plausibilityText = recForecast?.plausibility ?? aiForecast?.plausibility ?? '';
+
+    return {
+      seriesData,
+      rawSeries,
+      stepMinutes: stepMin,
+      upperBand: upper,
+      upperQuantile: uq,
+      peakUpperMw: peakUp,
+      lstmPeakMw: lstmPeak,
+      engine: engineName,
+      plausible: isPlausible,
+      plausibility: plausibilityText,
+      available: seriesData.length > 0 || lstmPeak != null,
+    };
+  }, [tfmSeries, compareStepMinutes, compareUpperBand, compareUpperQuantile, comparePeakUpperMw, lstmCompare, timesfm, recForecast, aiForecast]);
 
   const recs = useMemo(() => {
     const out = [];
@@ -59,13 +112,22 @@ export default function MobileAIScreen({
     // 1. Critical thermal runaway (worst alerting zone first).
     const alerting = zones.filter((z) => z.alert === true || z.alert === 'REMEDIATING')
       .sort((a, b) => (b.temp - b.setpoint) - (a.temp - a.setpoint));
-    if (alerting.length) {
+    if (activeScenario === 'fault' && faultTarget) {
+      out.push({
+        id: 'fault', accent: '#FF3B30', icon: <AlertTriangle size={20} color="#FF3B30" />,
+        title: 'Thermal Runaway Detected',
+        message: `Zone ${faultTarget} is experiencing a critical thermal failure. Cooling capacity is degraded.`,
+        actionLabel: 'FLOOD ZONE WITH COOLING',
+        onAction: () => sendManualOverride && sendManualOverride('cool', faultTarget),
+      });
+    } else if (alerting.length) {
       const z = alerting[0];
       out.push({
         id: 'fault', accent: '#FF3B30', icon: <AlertTriangle size={20} color="#FF3B30" />,
         title: 'Thermal Runaway Detected',
-        message: `${z.label} is at ${z.temp.toFixed(1)}°C — cooling capacity degraded. Fly the camera to the room to inspect and override.`,
-        actionLabel: 'ZOOM TO ROOM →', onAction: () => onFocusZone && onFocusZone(z.id),
+        message: `${z.label} is at ${z.temp.toFixed(1)}°C — cooling capacity degraded.`,
+        actionLabel: 'FLOOD ZONE WITH COOLING',
+        onAction: () => sendManualOverride && sendManualOverride('cool', z.id),
       });
     }
 
@@ -118,7 +180,13 @@ export default function MobileAIScreen({
           : rec.kind === 'capability' ? 'CAPABILITY'
           : rec.basis === 'learned' ? 'LEARNED' : 'ASHRAE STD',
         actionLabel: label,
-        onAction: label ? () => sendManualOverride && sendManualOverride(rec.action, rec.zone) : undefined,
+        onAction: label ? () => {
+          if (rec.action === 'precool') {
+            sendManualOverride && sendManualOverride('precool', 'GLOBAL');
+          } else {
+            sendManualOverride && sendManualOverride(rec.action, rec.zone);
+          }
+        } : undefined,
       });
     });
 
@@ -148,34 +216,31 @@ export default function MobileAIScreen({
       });
     }
 
-    // 5. LSTM forecast (informational), with input provenance: whose weather it used
-    // and whether the sampled window is still warming up after a boot.
-    if (aiForecast && aiForecast.predicted_peak_load) {
-      const src = aiForecast.weather_source === 'engine' ? '(engine’s live weather feed)'
-        : aiForecast.weather_source === 'fallback' ? '(fallback weather)' : '(live weather)';
-      const realN = aiForecast.window_real_samples;
-      const winLen = aiForecast.window_len || 12;
+    // 5. Load forecast with input provenance and active zero-shot / supervised trajectory
+    const hasForecastSignal = (aiForecast && aiForecast.predicted_peak_load) || activeForecast.available;
+    if (hasForecastSignal) {
+      const predPeak = aiForecast?.predicted_peak_load ?? activeForecast.lstmPeakMw ?? (activeForecast.rawSeries ? Math.max(...activeForecast.rawSeries) : null);
+      const src = aiForecast?.weather_source === 'engine' ? '(engine’s live weather feed)'
+        : aiForecast?.weather_source === 'fallback' ? '(fallback weather)' : '(live weather)';
+      const realN = aiForecast?.window_real_samples ?? recForecast?.samples;
+      const winLen = aiForecast?.window_len || 12;
       const warmup = realN != null && realN < winLen ? ` Window warming up: ${realN}/${winLen} real samples.` : '';
-      // Same judgement as the desktop card: a forecast the engine has flagged as out of
-      // distribution for this building is presented as a finding about the model, not as
-      // this building's coming peak.
-      const ood = aiForecast.implausible === true;
-      // And one the engine has not had enough observed load to check yet is reported as
-      // unchecked, not as clear — "not flagged" and "verified" are different states.
-      const unjudged = !ood && aiForecast.plausibility_judged === false;
+      const ood = aiForecast?.implausible === true || activeForecast.plausible === false;
+      const unjudged = !ood && aiForecast != null && aiForecast.plausibility_judged === false;
       const flagged = ood || unjudged;
       out.push({
         id: 'forecast', accent: flagged ? '#F5C242' : '#4A90E2',
         icon: <Activity size={20} color={flagged ? '#F5C242' : '#4A90E2'} />,
-        title: ood ? 'LSTM Forecast Out Of Distribution'
-          : unjudged ? 'LSTM Forecast Not Yet Checked'
-          : 'LSTM Load Forecast',
-        badge: ood ? 'NOT THIS BUILDING' : unjudged ? 'UNVERIFIED' : undefined,
+        title: ood ? 'Load Forecast Out Of Distribution'
+          : unjudged ? 'Load Forecast Not Yet Checked'
+          : `${activeForecast.engine === 'timesfm' ? 'TimesFM Zero-Shot' : 'LSTM'} Load Forecast`,
+        badge: ood ? 'NOT THIS BUILDING' : unjudged ? 'UNVERIFIED' : (activeForecast.engine === 'timesfm' ? 'TIMESFM' : 'LSTM'),
         message: ood
-          ? `The supervised model returns ${powerMw(aiForecast.predicted_peak_load)}. ${aiForecast.plausibility} Retrain it on this building, or rely on the zero-shot forecaster, which reads this building's own recorded series.`
+          ? `The model returns ${predPeak ? powerMw(predPeak) : '—'}. ${aiForecast?.plausibility || activeForecast.plausibility || 'Out of distribution.'} Retrain it on this building, or rely on the zero-shot forecaster, which reads this building's own recorded series.`
           : unjudged
-            ? `The supervised model returns ${powerMw(aiForecast.predicted_peak_load)}, but ${aiForecast.plausibility}`
-            : `Model predicts an upcoming peak of ${powerMw(aiForecast.predicted_peak_load)} ${src}.${warmup}`,
+            ? `The supervised model returns ${predPeak ? powerMw(predPeak) : '—'}, but ${aiForecast?.plausibility || 'not yet checked.'}`
+            : `Predictive model projects upcoming peak of ${predPeak ? powerMw(predPeak) : (activeForecast.peakUpperMw ? powerMw(activeForecast.peakUpperMw) : '—')} over ${activeForecast.stepMinutes * (activeForecast.seriesData.length || 12)} min horizon ${src}.${warmup}`,
+        forecast: activeForecast,
       });
     }
 
@@ -285,6 +350,55 @@ export default function MobileAIScreen({
         </div>
       </div>
 
+      {/* Visual Forecast & Predictive Load Trajectory Graph on Mobile */}
+      <div
+        style={{
+          background: 'rgba(74,144,226,0.08)',
+          border: '1px solid rgba(74,144,226,0.3)',
+          borderRadius: '16px',
+          padding: '16px',
+          marginBottom: '20px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+          <Activity size={18} color="#4A90E2" />
+          <span style={{ fontSize: '14px', fontWeight: 700, color: '#4A90E2' }}>
+            Load Forecast & Uncertainty
+          </span>
+          <span
+            style={{
+              marginLeft: 'auto',
+              fontSize: '9px',
+              fontWeight: 700,
+              padding: '2px 6px',
+              borderRadius: '4px',
+              color: '#4A90E2',
+              border: '1px solid #4A90E2',
+            }}
+          >
+            {activeForecast.engine.toUpperCase()}
+          </span>
+        </div>
+        <p style={{ margin: '0 0 6px 0', fontSize: '12px', color: 'rgba(255,255,255,0.7)', lineHeight: 1.4 }}>
+          {activeForecast.engine === 'timesfm' ? 'TimesFM zero-shot' : 'LSTM supervised'} load forecast ({activeForecast.stepMinutes * (activeForecast.seriesData.length || 12)} min) with {activeForecast.upperQuantile?.toUpperCase() || 'Q9'} upper decile band.
+        </p>
+        <ForecastChart
+          series={activeForecast.seriesData}
+          upperBand={activeForecast.upperBand}
+          upperQuantile={activeForecast.upperQuantile}
+          peakUpperMw={activeForecast.peakUpperMw}
+          lstmPeakMw={activeForecast.lstmPeakMw}
+          stepMinutes={activeForecast.stepMinutes}
+          engine={activeForecast.engine}
+          liveLoadMw={loadMw}
+          plausible={activeForecast.plausible}
+          plausibility={activeForecast.plausibility}
+          height={115}
+          compact={false}
+          showLegend={true}
+        />
+      </div>
+
       <div style={{ fontSize: '12px', fontWeight: 600, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', marginBottom: recModel ? '4px' : '12px' }}>
         Live Recommendations
       </div>
@@ -304,6 +418,7 @@ export default function MobileAIScreen({
             model={r.rec ? roomModels[r.rec.zone] : null}
             matureAfter={recModel?.matureAfter}
             horizonMin={recModel?.horizonMin ?? 30}
+            forecast={activeForecast}
             limit={r.rec?.metric === 'temp'
               ? (simData.zones?.[r.rec.zone]?.setpoint ?? 0) + 1
               : r.rec?.metric === 'co2' ? 1000 : undefined}
@@ -394,9 +509,11 @@ function ModelDownloadMobile() {
   );
 }
 
-function RecCard({ rec, done, onEngage, model, matureAfter, limit }) {
+function RecCard({ rec, done, onEngage, model, matureAfter, limit, forecast }) {
   const actionable = !!rec.onAction;
   const [showWhy, setShowWhy] = useState(false);
+  const fc = rec.forecast || (rec.id === 'forecast' ? forecast : null);
+
   return (
     <div style={{ position: 'relative', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '16px 16px 16px 20px', overflow: 'hidden' }}>
       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '4px', background: rec.accent }} />
@@ -410,6 +527,24 @@ function RecCard({ rec, done, onEngage, model, matureAfter, limit }) {
         )}
       </div>
       <p style={{ margin: '0 0 6px 0', fontSize: '13px', color: 'rgba(255,255,255,0.72)', lineHeight: 1.45 }}>{rec.message}</p>
+
+      {/* Model diagnostics for the forecast recommendation on mobile (avoiding duplicate chart) */}
+      {rec.id === 'forecast' && fc && (
+        <div style={{ marginTop: '8px', padding: '8px 10px', background: 'rgba(74, 144, 226, 0.08)', borderRadius: '8px', border: '1px solid rgba(74, 144, 226, 0.2)', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: 'rgba(255,255,255,0.6)' }}>Engine:</span>
+            <span style={{ fontWeight: 700, color: '#4A90E2', fontFamily: 'monospace' }}>{fc.engine === 'timesfm' ? 'Google TimesFM 200M' : 'Supervised LSTM'}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: 'rgba(255,255,255,0.6)' }}>Horizon:</span>
+            <span style={{ fontFamily: 'monospace', color: 'rgba(255,255,255,0.9)' }}>{(fc.seriesData?.length || 12) * (fc.stepMinutes || 5)} min</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: 'rgba(255,255,255,0.6)' }}>Peak Load:</span>
+            <span style={{ fontWeight: 700, color: '#4A90E2', fontFamily: 'monospace' }}>{fc.peakUpperMw ? powerMw(fc.peakUpperMw) : (fc.lstmPeakMw ? powerMw(fc.lstmPeakMw) : '—')}</span>
+          </div>
+        </div>
+      )}
 
       {/* A state the engine is already in, rather than something to press. Without this
           the pre-cool card went silent exactly when a window was open. */}
@@ -428,7 +563,7 @@ function RecCard({ rec, done, onEngage, model, matureAfter, limit }) {
             {showWhy ? '▴ hide the evidence' : '▾ why this fired'}
           </button>
           {showWhy && (
-            <RecommendationEvidence rec={rec.rec} model={model} matureAfter={matureAfter} limit={limit} />
+            <RecommendationEvidence rec={rec.rec} model={model} matureAfter={matureAfter} limit={limit} forecast={fc || forecast} />
           )}
         </>
       )}

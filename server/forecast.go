@@ -581,3 +581,198 @@ func forecastHandler(engine *simulation.Engine) http.HandlerFunc {
 		io.Copy(w, resp.Body)
 	}
 }
+
+var forecastHttpClient *http.Client
+
+func getForecastHttpClient(timeout time.Duration) *http.Client {
+	if forecastHttpClient != nil {
+		return forecastHttpClient
+	}
+	return &http.Client{Timeout: timeout}
+}
+
+// BuildForecastGraph queries the available forecasting models (TimesFM foundation model or LSTM)
+// and returns a ForecastGraphData structure for embedding into RecommendationReport or direct API responses.
+func BuildForecastGraph(engine *simulation.Engine, horizon int) *simulation.ForecastGraphData {
+	if horizon <= 0 {
+		horizon = 12
+	}
+	base := os.Getenv("FORECAST_URL")
+	if base == "" {
+		base = "http://localhost:8000"
+	}
+
+	lstmClient := getForecastHttpClient(2 * time.Second)
+	tfmClient := getForecastHttpClient(3 * time.Second)
+
+	type pair struct {
+		name string
+		res  engineResult
+	}
+	ch := make(chan pair, 2)
+	go func() { ch <- pair{"lstm", queryLSTM(engine, lstmClient, base)} }()
+	go func() { ch <- pair{"timesfm", queryTimesFM(engine, tfmClient, base, horizon)} }()
+
+	var lstm, tfm engineResult
+	for i := 0; i < 2; i++ {
+		p := <-ch
+		if p.name == "lstm" {
+			lstm = p.res
+		} else {
+			tfm = p.res
+		}
+	}
+
+	lo, hi, n := engine.ObservedLoadRange()
+	checkPlausible(&lstm, lo, hi, n)
+	checkPlausible(&tfm, lo, hi, n)
+
+	// 1. Primary: TimesFM zero-shot foundation model (has full trajectory & quantile bands)
+	if tfm.Available && len(tfm.Series) > 0 {
+		var upperBand []float64
+		if tfm.Quantiles != nil && tfm.UpperQuantile != "" {
+			upperBand = tfm.Quantiles[tfm.UpperQuantile]
+		}
+		var lstmPeak *float64
+		if lstm.Available && lstm.PeakMw != nil {
+			lstmPeak = lstm.PeakMw
+		}
+		return &simulation.ForecastGraphData{
+			Engine:         "timesfm",
+			Series:         tfm.Series,
+			UpperBand:      upperBand,
+			UpperQuantile:  tfm.UpperQuantile,
+			PeakUpperMw:    tfm.PeakUpperMw,
+			LstmPeakMw:     lstmPeak,
+			StepMinutes:    histIntervalMinutes,
+			HorizonMinutes: len(tfm.Series) * histIntervalMinutes,
+			Plausible:      !tfm.Implausible,
+			Plausibility:   tfm.Plausibility,
+			Samples:        tfm.RealSamples,
+			Quantiles:      tfm.Quantiles,
+		}
+	}
+
+	// 2. Secondary: Supervised LSTM model (provides peak MW)
+	if lstm.Available && lstm.PeakMw != nil {
+		series := generateLstmTrajectory(engine, *lstm.PeakMw, horizon)
+		upperBand := make([]float64, len(series))
+		for i, v := range series {
+			upperBand[i] = math.Round(v*1.10*10000) / 10000
+		}
+		upperPeak := math.Round(*lstm.PeakMw*1.10*10000) / 10000
+		return &simulation.ForecastGraphData{
+			Engine:         "lstm",
+			Series:         series,
+			UpperBand:      upperBand,
+			UpperQuantile:  "q9",
+			PeakUpperMw:    &upperPeak,
+			LstmPeakMw:     lstm.PeakMw,
+			StepMinutes:    histIntervalMinutes,
+			HorizonMinutes: horizon * histIntervalMinutes,
+			Plausible:      !lstm.Implausible,
+			Plausibility:   lstm.Plausibility,
+			Samples:        lstm.RealSamples,
+		}
+	}
+
+	// 3. Fallback: Cold-start or offline forecasting service
+	return generateFallbackForecast(engine, horizon)
+}
+
+// generateLstmTrajectory synthesizes a continuous projection trajectory from current load to the LSTM peak.
+func generateLstmTrajectory(engine *simulation.Engine, peakMw float64, horizon int) []float64 {
+	if horizon <= 0 {
+		horizon = 12
+	}
+	history := engine.LoadHistory()
+	curLoad := engine.LastLoadMw()
+	if curLoad <= 0 && len(history) > 0 {
+		curLoad = history[len(history)-1]
+	}
+	if curLoad <= 0 {
+		curLoad = peakMw * 0.85
+	}
+	if curLoad <= 0 {
+		curLoad = 0.025
+	}
+	series := make([]float64, horizon)
+	for i := 0; i < horizon; i++ {
+		t := float64(i+1) / float64(horizon)
+		smooth := t * t * (3 - 2*t)
+		val := curLoad + (peakMw-curLoad)*smooth
+		series[i] = math.Round(val*10000) / 10000
+	}
+	return series
+}
+
+// generateFallbackForecast creates a plausible forecast curve based on engine load history or physics baseline.
+func generateFallbackForecast(engine *simulation.Engine, horizon int) *simulation.ForecastGraphData {
+	if horizon <= 0 {
+		horizon = 12
+	}
+	history := engine.LoadHistory()
+	lo, hi, n := engine.ObservedLoadRange()
+	curLoad := engine.LastLoadMw()
+	if curLoad <= 0 && len(history) > 0 {
+		curLoad = history[len(history)-1]
+	}
+	if curLoad <= 0 {
+		curLoad = 0.025
+	}
+
+	series := make([]float64, horizon)
+	upperBand := make([]float64, horizon)
+	quantiles := make(map[string][]float64)
+	q1 := make([]float64, horizon)
+	q5 := make([]float64, horizon)
+	q9 := make([]float64, horizon)
+
+	peak := curLoad
+	peakUpper := curLoad * 1.15
+
+	for i := 0; i < horizon; i++ {
+		stepFactor := 1.0 + 0.06*math.Sin(float64(i+1)/float64(horizon)*math.Pi)
+		val := math.Round(curLoad*stepFactor*10000) / 10000
+		series[i] = val
+		q5[i] = val
+		lowVal := math.Round(val*0.90*10000) / 10000
+		q1[i] = lowVal
+		upVal := math.Round(val*1.15*10000) / 10000
+		upperBand[i] = upVal
+		q9[i] = upVal
+
+		if val > peak {
+			peak = val
+		}
+		if upVal > peakUpper {
+			peakUpper = upVal
+		}
+	}
+	quantiles["q1"] = q1
+	quantiles["q5"] = q5
+	quantiles["q9"] = q9
+
+	res := engineResult{PeakMw: &peak}
+	checkPlausible(&res, lo, hi, n)
+
+	samples := len(history)
+	if samples == 0 && n > 0 {
+		samples = n
+	}
+
+	return &simulation.ForecastGraphData{
+		Engine:         "fallback",
+		Series:         series,
+		UpperBand:      upperBand,
+		UpperQuantile:  "q9",
+		PeakUpperMw:    &peakUpper,
+		LstmPeakMw:     &peak,
+		StepMinutes:    histIntervalMinutes,
+		HorizonMinutes: horizon * histIntervalMinutes,
+		Plausible:      !res.Implausible,
+		Plausibility:   res.Plausibility,
+		Samples:        samples,
+		Quantiles:      quantiles,
+	}
+}

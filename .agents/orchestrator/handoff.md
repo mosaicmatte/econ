@@ -1,96 +1,66 @@
-# Final Project Orchestration Handoff Report
+# Orchestrator Final Handoff Report
 
-**Project**: ESP32 WROOM OV7670 Camera-Based Person Detection Module  
-**Working Directory**: `/Users/nguyenhoangkhoi/Documents/econ/.agents/orchestrator`  
-**Workspace Root**: `/Users/nguyenhoangkhoi/Documents/econ`  
-**Target Codebase**: `/Users/nguyenhoangkhoi/Documents/econ/edge/esp32`  
-**Parent Conversation ID**: `b4f25692-e7c5-4cfe-bbfe-9b24fe467433` (Sentinel)  
-**Date**: 2026-08-26  
-**Final Status**: **COMPLETED (ALL MILESTONES & ACCEPTANCE CRITERIA 100% VERIFIED & GATED)**
+**Project**: econ — Forecast Graph Rendering, E2E Forecast Wiring & Detailed Telemetry Logging  
+**Date**: 2026-08-30T04:15:00+07:00  
+**Status**: COMPLETE (100% Verified, Clean Audit, All Gate Approvals)
 
 ---
 
-## 1. Observation
+## 1. Observation & Executive Summary
 
-All architectural tracks and milestones specified in `ORIGINAL_REQUEST.md` and `PROJECT.md` have been executed, verified, and gated:
+All functional and non-functional requirements from `ORIGINAL_REQUEST.md` have been fulfilled:
 
-1. **Requirement R1 — Camera-Based Person Detection Module**:
-   - Implemented in `edge/esp32/src/camera/ov7670_driver.*`, `model_data.*`, `person_detector.*`, and `camera_config.h`.
-   - Driver operates in QQVGA (160x120) grayscale via I2S DMA with SCCB (I2C 0x21) configuration and 20 MHz XCLK.
-   - Preprocessor performs fixed-point integer bilinear downsampling to 96x96 int8 tensor.
-   - TensorFlow Lite for Microcontrollers (TFLite Micro) executes quantized int8 person detection in a static 80 KB internal SRAM tensor arena.
-   - Dual-threshold hysteresis (0.60 enter / 0.40 exit) and 2-frame debounce filter eliminate false triggers while continuously tracking stationary occupants.
-   - Hardware detection features graceful fallback for simulation/unattached hardware without panics.
+1. **R1: Forecast Graph Rendering**
+   - Implemented `dashboard/src/ForecastChart.jsx` providing visual rendering of TimeFM / LSTM predictive forecast series with upper decile uncertainty bands (`q9` dashed line), LSTM peak reference lines, tooltip breakdowns, and model comparison.
+   - Integrated directly into `dashboard/src/AiInsightsPanel.jsx` (AI Operations engine and expandable detail cards), `dashboard/src/MobileAIScreen.jsx` (mobile touch screen), and `dashboard/src/RecommendationEvidence.jsx` (evidence view).
 
-2. **Requirement R2 — Dual-Mode Communication**:
-   - Implemented in `edge/esp32/src/camera/dual_mode_comm.*` and `tracking_payload.*`.
-   - Primary: Real-time UDP broadcasting to `255.255.255.255:4210` and MQTT publishing to `econ/telemetry/<zone>` when Wi-Fi is connected.
-   - Fallback: Automatic zero-delay failover to USB Serial UART0 (115200 baud) with `_topic` framing whenever Wi-Fi is disconnected or unavailable.
-   - Non-blocking state machine executes in ~0.05–2.61 µs per tick, preventing camera frame pipeline stalls.
-   - Standardized JSON schema maps person presence, confidence, headcount, timestamp, zone_id, and sensor_id for BIM/topology ingestion.
+2. **R2: End-to-End Forecast Wiring**
+   - Python forecasting service (`backend/forecasting/`) exposes `POST /forecast/load` (TimesFM zero-shot) and `POST /predict` (PyTorch LSTM).
+   - Go backend server (`server/recommendapi.go`, `server/forecast.go`) queries forecaster models concurrently, assesses plausibility against observed range, and embeds structured `ForecastGraphData` inside `GET /api/recommendations`.
+   - React frontend (`dashboard/src/useRecommendations.js`) consumes and renders the graph alongside recommendations.
 
-3. **Strict Architecture & Module Isolation**:
-   - Gated in `edge/esp32/src/main.cpp` under `#if USE_CAMERA`.
-   - Legacy PIR motion reading (`digitalRead(PIR_PIN)`) is substituted with `cameraDetector.isPersonDetected()`, `getPersonCount()`, and `confidence`.
-   - All 14 existing subsystems (SHT30, ACD1200 CO2, BH1750 Lux, DS18B20, SCT-013 CT clamps, IR HVAC control, relays, capacitive touch, NVS config) remain 100% intact with zero modifications.
-   - Zero pin or I2C address collisions (SCCB 0x21, Lux 0x23, CO2 0x2A, SHT30 0x44). Legacy PIR GPIO5 cleanly repurposed as camera data line D7.
-
-4. **Compilation & Memory Fit**:
-   - Configured in `edge/esp32/platformio.ini` with `board_build.partitions = huge_app.csv` (3.0 MB application partition).
-   - PlatformIO build (`pio run -e esp32dev`) compiles successfully. Firmware binary size is ~1.62 MB (>1.38 MB free flash headroom).
-   - Static internal DRAM allocation is ~108–185 KB vs 320 KB usable DRAM (>135 KB free dynamic heap). Zero heap allocation on steady-state inference loop.
-
-5. **Dual Track Verification & Forensic Audit**:
-   - E2E 4-Tier Opaque-Box Suite (`test/run_all_e2e_tests.sh`): **93 / 93 test cases passed (100%)**.
-   - Host Unit and Integration Suite (`test/run_host_tests.sh`): 100% passed across all unit, integration, and adversarial suites.
-   - Adversarial Hardening (Tier 5): 163 adversarial checks passed across ASan/UBSan, 10,000 Wi-Fi flaps, buffer fuzzing, and rollover safety.
-   - Independent Agent-as-Judge Reviews: 2 independent reviewers confirmed all acceptance criteria (Wi-Fi broadcast, Serial failover, ML pipeline, strict isolation, resource fit).
-   - Forensic Integrity Audit: **CLEAN (0 violations)**.
+3. **R3: Detailed Telemetry & Logging**
+   - Updated `server/mqtt.go` `handleTelemetry` to output verbatim full raw JSON payloads in logs: `[mqtt] telemetry <suffix> payload=<raw_json_string> occ=<occ> src=<src> real_temp=<bool> (zone=<zone>)`.
+   - Integrated configurable debug logging (`LOG_LEVEL=DEBUG` / `DEBUG=1`) across Go server (`server/logger.go`), Python forecasting service (`backend/forecasting/main.py`), and Edge devices/gateway (`edge/raspberry_pi/gateway.py`, `edge/esp32/esp32_emulator.py`, `ai_modules/branch_a_occupancy/yolo_bytetrack/yolo_tracker.py`).
 
 ---
 
-## 2. Logic Chain
+## 2. Gate Status & Independent Verification
 
-1. *From User Request:* The user requested an isolated camera and ML person detection upgrade replacing the PIR sensor on ESP32 WROOM with dual-mode communication (Wi-Fi broadcast + Serial fallback) feeding a topology/BIM model.
-2. *From Survey & Architectural Decomposition:* The project was structured into 4 milestones + 1 parallel E2E testing track to ensure requirement-driven verification independent of implementation internals.
-3. *From Milestone Execution:*
-   - Milestone 1 established the dual-mode communication engine and BIM schema with zero heap allocation.
-   - Milestone 2 established the OV7670 driver, downsampler, and TFLite Micro int8 pipeline within ESP32 SRAM/Flash budgets.
-   - Milestone 3 integrated the modules into `main.cpp` replacing legacy PIR while strictly preserving all 14 existing sensor/HVAC subsystems.
-   - Milestone 4 executed the 93-case 4-tier E2E suite, 163 adversarial stress checks, 2 independent judge reviews, and forensic audit.
-4. *From Gate Decisions:* Every milestone was independently reviewed, challenged, and audited with unanimous `PASS`, `APPROVE`, and `CLEAN` verdicts.
+- **Forensic Auditor (`auditor_1`)**: **CLEAN** (Zero integrity violations, no dummy/facade implementations, genuine logic throughout).
+- **Reviewer 1 (`reviewer_1`)**: **APPROVE** (Code architecture, interface contracts, error handling verified).
+- **Reviewer 2 (`reviewer_2`)**: **APPROVE** (Edge cases, cold starts, out-of-distribution plausibility verified).
+- **Challenger 1 (`challenger_1`)**: **APPROVE** (Adversarial stress-testing, concurrent race detector, 8KB/unicode payload logging verified).
+- **Challenger 2 (`challenger_2`)**: **APPROVE** (Sample history permutations 0-500, chaos fallbacks, multi-tier test suites verified).
 
 ---
 
-## 3. Caveats
+## 3. Automated Test Suite Results
 
-- Tests were validated using the native host test environment with complete peripheral and Arduino shims (`edge/esp32/test/arduino_shim.h`).
-- When flashing to physical silicon, connect OV7670 according to pinout in `edge/esp32/src/camera/camera_config.h` (XCLK GPIO27, SCCB GPIO21/22, DMA D0-D7, VSYNC, HREF, PCLK) and deploy via `pio run -t upload`.
+1. **Go Server & Simulation Engine**:
+   `cd server && go test -v -count=1 ./...`
+   - Result: **100% PASS** across `econ` and `econ/simulation` (includes `TestRecommendationsApiReturnsForecastGraph`, `TestHandleTelemetryFullJSONLogging`, `TestAdversarialRecommendationsAPI_HistoryVariations`, etc.).
+
+2. **Frontend Dashboard & Puppeteer E2E Verification**:
+   `cd dashboard && npm test`
+   - Result: **20 / 20 PASS** (includes programmatic DOM chart verification, recommendations schema assertions, desktop & mobile touch screen interactions).
+
+3. **ESP32 Edge Host Tests**:
+   `cd edge/esp32 && ./test/run_all_e2e_tests.sh`
+   - Result: **93 / 93 PASS** (Tiers 1–4, 100% success).
+
+4. **Python Syntax & Compilation**:
+   `python3 -m py_compile backend/forecasting/*.py edge/raspberry_pi/*.py ai_modules/branch_a_occupancy/yolo_bytetrack/*.py`
+   - Result: **Clean Compilation (0 errors)**.
+
+5. **Frontend Production Build**:
+   `cd dashboard && npm run build`
+   - Result: **Vite production build succeeds (0 errors)**.
 
 ---
 
-## 4. Conclusion
-
-All requirements and acceptance criteria from `ORIGINAL_REQUEST.md` have been fulfilled:
-- [x] **Compilation**: Code compiles via PlatformIO for `esp32dev` target without errors; fits within Flash and RAM limits.
-- [x] **Architecture**: No files outside camera module scope modified; 100% isolation maintained.
-- [x] **Agent-as-Judge Wi-Fi**: Independent agent confirmed real-time Wi-Fi broadcasting (:4210 UDP & MQTT).
-- [x] **Agent-as-Judge Serial**: Independent agent confirmed automatic fallback to USB Serial when offline.
-- [x] **Agent-as-Judge ML**: Independent agent confirmed ML person detection model initialization, downsampling, and frame processing.
-
----
-
-## 5. Verification Method
-
-To independently execute and verify the complete test suite:
-
-```bash
-# 1. Navigate to target project directory
-cd /Users/nguyenhoangkhoi/Documents/econ/edge/esp32
-
-# 2. Run the complete 4-Tier E2E Opaque-Box Test Suite (93 test cases)
-./test/run_all_e2e_tests.sh
-
-# 3. Run all Host Unit, Integration, and Adversarial Suites
-./test/run_host_tests.sh
-```
+## 4. Key Artifacts
+- `/Users/nguyenhoangkhoi/Documents/econ/PROJECT.md` — Project architecture, feature inventory, milestones, interface contracts
+- `/Users/nguyenhoangkhoi/Documents/econ/TEST_INFRA.md` — Multi-tier test infrastructure index
+- `/Users/nguyenhoangkhoi/Documents/econ/TEST_READY.md` — E2E test suite summary
+- `/Users/nguyenhoangkhoi/Documents/econ/.agents/orchestrator/GATE_STATUS.md` — Gate verdicts

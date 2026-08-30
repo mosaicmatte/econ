@@ -27,8 +27,11 @@ LSTM path. Nothing about this module is required for the twin to run.
 """
 from __future__ import annotations
 
+import logging
 import os
 import threading
+
+logger = logging.getLogger("forecasting.timesfm")
 
 # TimesFM is an OPTIONAL dependency. Importing torch/transformers at module scope would
 # make the whole forecasting service unstartable on a machine that only wants the LSTM.
@@ -147,6 +150,7 @@ class TimesFmForecaster:
                 return False
 
             self.device = pick_device(os.getenv(ENV_DEVICE))
+            logger.debug("Attempting to load TimesFM checkpoint %s (%s) on %s", repo, variant, self.device)
             try:
                 model = cls.from_pretrained(repo)
                 # float32 everywhere: MPS has incomplete float64 support, and these models
@@ -157,19 +161,20 @@ class TimesFmForecaster:
                 except Exception as e:
                     # A device that torch advertises but cannot actually host the model is
                     # a real failure mode; fall back rather than dying.
-                    print(f"[timesfm] {self.device} unusable ({e}); falling back to CPU")
+                    logger.warning("[timesfm] %s unusable (%s); falling back to CPU", self.device, e)
                     self.device = "cpu"
                     model = model.to("cpu")
                 model.eval()
             except Exception as e:
                 self.reason = f"could not load {repo}: {e}"
+                logger.error("[timesfm] failed to load %s: %s", repo, e)
                 return False
 
             self._model = model
             self.repo_id = repo
             self.variant = variant
             self.reason = None
-            print(f"[timesfm] loaded {repo} ({variant}) on {self.device}")
+            logger.info("[timesfm] loaded %s (%s) on %s", repo, variant, self.device)
             return True
 
     # -- inference ---------------------------------------------------------
@@ -183,7 +188,10 @@ class TimesFmForecaster:
         reports its own spread is far more useful for a pre-cool decision than a bare
         number, because the decision is really about the risk of the peak, not its mean.
         """
+        logger.debug("TimesFM forecast called: history_len=%d, horizon=%d, context_len=%s",
+                     len(history), horizon, context_len)
         if not self.load():
+            logger.error("TimesFM load failed: %s", self.reason or "unavailable")
             raise RuntimeError(self.reason or "TimesFM unavailable")
         if not history:
             raise ValueError("history must be non-empty")
@@ -217,8 +225,11 @@ class TimesFmForecaster:
                         f"q{i}": [max(0.0, v) for v in col[:horizon]]
                         for i, col in enumerate(cols[1:], start=1)
                     }
-            except Exception:
+            except Exception as e:
+                logger.warning("Quantile parsing failed: %s", e)
                 quantiles = None
+
+        logger.debug("TimesFM forecast completed: point=%s, quantiles=%s", point, quantiles)
 
         return {
             "forecast": point,

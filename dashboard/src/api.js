@@ -7,12 +7,14 @@
 // renders. Derive the backend host from the page URL instead, so the API and WebSocket
 // follow wherever the page was served from. VITE_BACKEND_HOST overrides for split
 // deployments (frontend and Go engine on different machines).
+const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {};
 const backendHost =
-  import.meta.env.VITE_BACKEND_HOST ||
+  env.VITE_BACKEND_HOST ||
   (typeof window !== 'undefined' && window.location.hostname) ||
   'localhost';
 
-const BACKEND_PORT = import.meta.env.VITE_BACKEND_PORT || '8080';
+const BACKEND_PORT = env.VITE_BACKEND_PORT || '8080';
+
 
 export const API_BASE = `http://${backendHost}:${BACKEND_PORT}`;
 export const WS_URL = `ws://${backendHost}:${BACKEND_PORT}/ws`;

@@ -46,7 +46,7 @@ export function hasLayout(floor) {
 
 // --- the world origin the whole 3D layer shares -----------------------------
 
-import { getBuilding } from './buildingStore';
+import { getBuilding } from './buildingStore.js';
 
 // Every 3D and airflow surface maps a fixture point (px, py) to world (px − Ox, Oy − py).
 // That offset was the literal 20 in a dozen places, with a comment explaining that "the
@@ -60,10 +60,9 @@ import { getBuilding } from './buildingStore';
 // serves, and exported as a single constant because the model, the walls, the zones, the
 // flow solvers and the camera must all agree on it — a mismatch between any two of them
 // puts the airflow field somewhere the building is not.
-const footprint = (() => {
-  const b = getBuilding();
+export function getFootprint(b = getBuilding()) {
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const f of b.floors || []) {
+  for (const f of b?.floors || []) {
     const poly = exteriorPolygon(f);
     const pts = poly || (f.zones || []).flatMap((z) => z.polygon || []);
     for (const p of pts) {
@@ -86,15 +85,28 @@ const footprint = (() => {
     width: maxX - minX,
     depth: maxY - minY,
   };
-})();
+}
 
-export const FOOTPRINT = footprint;
+export const FOOTPRINT = {
+  get minX() { return getFootprint().minX; },
+  get maxX() { return getFootprint().maxX; },
+  get minY() { return getFootprint().minY; },
+  get maxY() { return getFootprint().maxY; },
+  get cx() { return getFootprint().cx; },
+  get cy() { return getFootprint().cy; },
+  get width() { return getFootprint().width; },
+  get depth() { return getFootprint().depth; },
+};
 
 // ORIGIN.x / ORIGIN.y are the offsets above. Read them; never re-derive them.
-export const ORIGIN = { x: footprint.cx, y: footprint.cy };
+export const ORIGIN = {
+  get x() { return getFootprint().cx; },
+  get y() { return getFootprint().cy; },
+};
 
 // toWorld maps a fixture point to the (x, z) the 3D scene draws it at. The y flip is part
 // of the convention: fixture y grows "down" the plan, world z grows toward the viewer.
 export function toWorld(p) {
   return [p[0] - ORIGIN.x, ORIGIN.y - p[1]];
 }
+

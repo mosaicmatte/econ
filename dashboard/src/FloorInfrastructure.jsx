@@ -52,21 +52,50 @@ export default function FloorInfrastructure({ floor, simState, viewMode = 'hybri
     const ahu = field.panel;
 
     const cyan = [], red = [], amber = [], orange = [];
-    // HVAC: AHU + supply duct star + diffuser boxes
-    cyan.push(box(ahu.x, yCeil - 0.3, ahu.z, 2.2, 1.0, 1.6));
-    field.diffusers.forEach((d) => {
-      const bucket = d.alert ? red : cyan;
-      bucket.push(run(ahu.x, ahu.z, d.x, d.z, yCeil, 0.28, 0.28));
-      bucket.push(box(d.x, yCeil, d.z, 0.9, 0.18, 0.9));
-    });
-    // returns low near the core
+    // HVAC: AHU + Orthogonal Supply Duct Trunk & Branch Feeders + Diffuser Terminal Boxes
+    cyan.push(box(ahu.x, yCeil - 0.25, ahu.z, 2.4, 0.8, 1.8));
+
+    // Determine bounding span for the main corridor trunk duct
+    if (field.diffusers && field.diffusers.length > 0) {
+      let minX = ahu.x, maxX = ahu.x;
+      field.diffusers.forEach((d) => {
+        if (d.x < minX) minX = d.x;
+        if (d.x > maxX) maxX = d.x;
+      });
+
+      // Main supply trunk duct along the corridor / central axis
+      cyan.push(run(minX, ahu.z, maxX, ahu.z, yCeil, 0.38, 0.32));
+
+      // Clean orthogonal branch ducts from the main trunk to each zone's diffuser
+      field.diffusers.forEach((d) => {
+        const bucket = d.alert ? red : cyan;
+        if (Math.abs(d.z - ahu.z) > 0.3) {
+          bucket.push(run(d.x, ahu.z, d.x, d.z, yCeil, 0.22, 0.2));
+        }
+        bucket.push(box(d.x, yCeil, d.z, 0.85, 0.16, 0.85));
+      });
+    }
+
+    // Returns low near the core
     field.returns.forEach((r) => orange.push(box(r.x, 0.4, r.z, 1.0, 0.5, 1.0)));
-    // Electrical: panel + cable trays + junction boxes
-    amber.push(box(ahu.x + 1.6, 1.4, ahu.z, 0.4, 1.6, 1.0));
-    field.electrical.forEach((e) => {
-      amber.push(run(ahu.x + 1.6, ahu.z, e.x2, e.z2, yTray, 0.12, 0.08));
-      amber.push(box(e.x2, yTray - 0.2, e.z2, 0.3, 0.4, 0.3));
-    });
+
+    // Electrical: panel + orthogonal ceiling cable trays + junction boxes
+    amber.push(box(ahu.x + 1.4, 1.4, ahu.z, 0.4, 1.6, 1.0));
+    if (field.electrical && field.electrical.length > 0) {
+      let minX = ahu.x + 1.4, maxX = ahu.x + 1.4;
+      field.electrical.forEach((e) => {
+        if (e.x2 < minX) minX = e.x2;
+        if (e.x2 > maxX) maxX = e.x2;
+      });
+      amber.push(run(minX, ahu.z, maxX, ahu.z, yTray, 0.15, 0.1));
+      field.electrical.forEach((e) => {
+        if (Math.abs(e.z2 - ahu.z) > 0.3) {
+          amber.push(run(e.x2, ahu.z, e.x2, e.z2, yTray, 0.1, 0.08));
+        }
+        amber.push(box(e.x2, yTray - 0.15, e.z2, 0.3, 0.35, 0.3));
+      });
+    }
+
 
     // Sensors (per non-corridor zone): instanced matrices
     const sensorZones = field.zones.filter((z) => z.type !== 'corridor');

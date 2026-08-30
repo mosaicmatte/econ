@@ -1,4 +1,5 @@
 import React from 'react';
+import ForecastChart from './ForecastChart';
 
 // The evidence behind one recommendation.
 //
@@ -76,11 +77,11 @@ function TrajectoryStrip({ now, equilibrium, tauMin, etaSec, limit, unit }) {
   const limY = Number.isFinite(limit) ? H - ((limit - lo) / rng) * H : null;
   const etaX = etaSec > 0 ? Math.min(W, ((etaSec / 60) / horizonMin) * W) : null;
   return (
-    <div style={{ marginTop: '6px' }}>
+    <div data-testid="forecast-chart" className="forecast-chart-container forecast-chart" style={{ marginTop: '6px' }}>
       <div style={{ fontSize: '8px', color: 'var(--text-muted)', marginBottom: '2px', letterSpacing: '0.04em' }}>
         IDENTIFIED RESPONSE · τ {tauMin.toFixed(0)} MIN · NEXT {horizonMin.toFixed(0)} MIN
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: '34px', display: 'block', overflow: 'visible' }}>
+      <svg className="forecast-chart" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: '34px', display: 'block', overflow: 'visible' }}>
         {limY !== null && (
           <line x1="0" y1={limY} x2={W} y2={limY} stroke="var(--accent-red)" strokeWidth="0.6" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />
         )}
@@ -119,7 +120,7 @@ const hourLabel = (h) => (h === 24 || h == null ? 'all-hours' : `${String(h).pad
 // predictHorizonSec, reported as model.horizonMin). It is what makes the identified time
 // constant recoverable from the predicted value below, so it must be the engine's figure
 // and not a number assumed here.
-export default function RecommendationEvidence({ rec, model, matureAfter, limit, horizonMin = 30 }) {
+export default function RecommendationEvidence({ rec, model, matureAfter, limit, horizonMin = 30, forecast = null }) {
   if (!rec) return null;
   const unit = rec.unit || '';
   const learned = rec.basis === 'learned' && rec.sigma > 0;
@@ -191,6 +192,8 @@ export default function RecommendationEvidence({ rec, model, matureAfter, limit,
   })();
   const tauMin = (model?.thermalReady && rec.metric === 'temp' ? model.timeConstantMin : 0) || recoveredTau;
 
+  const isLoadRec = rec.metric === 'buildingLoadMw' || rec.metric === 'load' || rec.zone === 'GLOBAL';
+
   return (
     <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--border-glass)' }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: '3px', columnGap: '10px' }}>
@@ -199,6 +202,27 @@ export default function RecommendationEvidence({ rec, model, matureAfter, limit,
       {learned && <SigmaStrip value={rec.value} baseline={rec.baseline} sigma={rec.sigma} deviation={rec.deviation} unit={unit} />}
       {rec.kind === 'prediction' && (
         <TrajectoryStrip now={rec.value} equilibrium={rec.equilibrium} tauMin={tauMin} etaSec={rec.etaSec} limit={limit} unit={unit} />
+      )}
+      {(isLoadRec && (forecast?.available || (forecast?.seriesData && forecast.seriesData.length > 0))) && (
+        <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid var(--border-glass)' }}>
+          <div style={{ fontSize: '8px', color: 'var(--text-muted)', marginBottom: '3px', letterSpacing: '0.04em' }}>
+            PREDICTIVE LOAD TRAJECTORY & PEAK FORECAST
+          </div>
+          <ForecastChart
+            series={forecast?.seriesData || forecast?.series}
+            upperBand={forecast?.upperBand}
+            upperQuantile={forecast?.upperQuantile || 'q9'}
+            peakUpperMw={forecast?.peakUpperMw}
+            lstmPeakMw={forecast?.lstmPeakMw}
+            stepMinutes={forecast?.stepMinutes || 5}
+            engine={forecast?.engine || 'timesfm'}
+            liveLoadMw={isLoadRec ? rec.value : null}
+            plausible={forecast?.plausible}
+            height={90}
+            compact={true}
+            showLegend={true}
+          />
+        </div>
       )}
     </div>
   );

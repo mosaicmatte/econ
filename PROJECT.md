@@ -1,101 +1,69 @@
-# Project: ESP32 WROOM OV7670 Person Detection Module
+# Project: econ — Forecast Graph Rendering, E2E Wiring & Detailed Telemetry Logging
 
 ## Architecture
-The system upgrades the ESP32 WROOM edge node by replacing a binary PIR motion sensor with an OV7670 camera and an on-device lightweight Machine Learning model (TensorFlow Lite Micro) for real-time person detection, coupled with a dual-mode communication engine (Wi-Fi real-time broadcast + automatic USB Serial fallback).
-
-```
-                      +-----------------------------+
-                      |   OV7670 Camera Hardware    |
-                      |  (I2S DMA / SCCB / Grayscale)|
-                      +--------------+--------------+
-                                     | QQVGA Frame (19.2 KB)
-                                     v
-                      +-----------------------------+
-                      |   Image Preprocessor        |
-                      |  (Crop / Downsample 96x96)  |
-                      +--------------+--------------+
-                                     | 96x96 int8 Tensor
-                                     v
-                      +-----------------------------+
-                      |   TFLite Micro Inference    |
-                      | (int8 VWW Model, 80KB Arena)|
-                      +--------------+--------------+
-                                     | Person Score / Headcount
-                                     v
-                      +-----------------------------+
-                      | Tracking Payload Serializer |
-                      |    (Topology/BIM JSON)      |
-                      +--------------+--------------+
-                                     |
-               +---------------------+---------------------+
-               |                                           |
-      (Wi-Fi Connected)                           (Wi-Fi Disconnected)
-               v                                           v
-+-------------------------------+             +-------------------------------+
-|  Wi-Fi Broadcast Transport    |             |  USB Serial Fallback Transport|
-| (UDP Broadcast :4210 + MQTT)  |             |  (UART0 115200 Framed JSON)   |
-+-------------------------------+             +-------------------------------+
-```
+- **Forecasting Backend** (`backend/forecasting/`): Python FastAPI service running PyTorch PeakLoadLSTM and Google TimesFM zero-shot models. Exposes `/predict` (scalar peak MW) and `/forecast/load` (univariate load series + quantile deciles).
+- **Go Server & Engine** (`server/`): High-concurrency physics simulation engine, MQTT broker client, REST API router, and FlatBuffers WebSocket stream. Proxies forecast queries, serves `GET /api/recommendations`, and ingests MQTT telemetry from edge devices.
+- **Frontend Dashboard** (`dashboard/`): React 18 + Vite dashboard with 3D canvas, P&ID flow schematic, AI Insights Panel (`AiInsightsPanel.jsx`), Telemetry Panel, and Mobile UI (`MobileAIScreen.jsx`). Uses Recharts and SVG sparklines.
+- **Edge Layer** (`edge/`, `ai_modules/`): ESP32 firmware, Raspberry Pi failsafe gateway, RP2040 Pico bridge, and YOLOv8 occupancy tracker publishing telemetry to MQTT.
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | Dual-Mode Comm Engine | Non-blocking Wi-Fi UDP Broadcast (:4210) & MQTT transport with auto-reconnect | M1 | ORIGINAL_REQUEST R2 |
-| 2 | Serial Fallback Engine | Automatic zero-delay failover to USB Serial (UART0 115200 baud) when offline | M1 | ORIGINAL_REQUEST R2 |
-| 3 | Tracking Payload Schema | Standardized JSON payload mapping presence, count, and confidence for BIM model | M1 | ORIGINAL_REQUEST R1, R2 |
-| 4 | OV7670 Camera Driver | I2S DMA frame capture, SCCB I2C config, 20MHz XCLK generation with simulation fallback | M2 | ORIGINAL_REQUEST R1 |
-| 5 | TFLite Micro ML Pipeline | Int8 quantized person detection model running in ~80KB tensor arena on ESP32 SRAM | M2 | ORIGINAL_REQUEST R1 |
-| 6 | Frame Preprocessor | Downsampling/scaling QQVGA (160x120) to 96x96 int8 input tensor | M2 | ORIGINAL_REQUEST R1 |
-| 7 | Main System Integration | Seamless substitution of PIR sensor reading with ML person detector in main loop | M3 | ORIGINAL_REQUEST R1 |
-| 8 | Strict Module Isolation | Changes strictly confined to camera module scope without altering other sensor drivers | M3 | ORIGINAL_REQUEST R1, Arch |
-| 9 | PlatformIO Build & Partitions | Clean compilation for ESP32 target with partition optimization (huge_app / fits limits) | M3 | ORIGINAL_REQUEST Comp |
-| 10 | Dual Track Verification | Passing 100% E2E tests, adversarial stress tests, reviewer approvals, and clean forensic audit | M4 | ORIGINAL_REQUEST Judge |
+| 1 | Full MQTT Telemetry JSON Logging | Log full raw JSON payloads for all incoming MQTT telemetry in Go server | M1 | ORIGINAL_REQUEST §R3 |
+| 2 | Configurable Debug Logging across Services | Enable debug-level logging across Go server, Python forecasting, and Edge services | M1 | ORIGINAL_REQUEST §R3 |
+| 3 | MQTT Telemetry Logging Automated Test | Automated test asserting full JSON payloads appear in server logs | M1 | ORIGINAL_REQUEST §Acceptance Criteria |
+| 4 | Forecast Graph in RecommendationReport Schema | Extend Go RecommendationReport struct with ForecastGraph schema (series, peak, quantiles, horizon) | M2 | ORIGINAL_REQUEST §R2 |
+| 5 | Recommendations API Forecast Data Delivery | Wire `GET /api/recommendations` to fetch and embed forecast graph data from forecasting backend | M2 | ORIGINAL_REQUEST §R2 |
+| 6 | Recommendations API Forecast Integration Test | Automated test verifying `GET /api/recommendations` returns valid forecast graph data | M2 | ORIGINAL_REQUEST §Acceptance Criteria |
+| 7 | AI Panel Forecast Graph Component | Render visual chart/graph of TimesFM/LSTM forecast directly in AI Panel | M3 | ORIGINAL_REQUEST §R1 |
+| 8 | Recommendations UI & Mobile Forecast Integration | Wire recommendations hook and mobile AI screen to display forecast graphs | M3 | ORIGINAL_REQUEST §R1, §R2 |
+| 9 | Programmatic UI Verification Script | Puppeteer automated test verifying forecast graph element renders in DOM | M4 | ORIGINAL_REQUEST §Acceptance Criteria |
+| 10 | 100% E2E Verification & Adversarial Hardening | Full multi-tier test suite pass with zero regressions | M4 | ORIGINAL_REQUEST §Acceptance Criteria |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| 1 | Dual-Mode Communication | `src/camera/dual_mode_comm.*`, `src/camera/tracking_payload.*`, host tests | none | DONE |
-| 2 | Camera Driver & ML Pipeline | `src/camera/ov7670_driver.*`, `src/camera/model_data.*`, `src/camera/person_detector.*`, host tests | none | DONE |
-| 3 | Main Integration & Isolation | `src/main.cpp` integration, `platformio.ini`, resource fit verification | M1, M2 | DONE |
-| 4 | Final Verification & Audit | E2E test execution, adversarial tests, independent judge reviews, forensic audit | M3 | DONE |
+| M1 | Backend Telemetry & Debug Logging | `server/mqtt.go`, `server/mqtt_test.go`, `backend/forecasting/`, `edge/raspberry_pi/`, `ai_modules/` | none | DONE |
+| M2 | End-to-End Forecast API Integration | `server/simulation/recommend.go`, `server/recommendapi.go`, `server/recommendapi_test.go`, `server/forecast.go` | M1 | DONE |
+| M3 | Frontend Forecast Graph Rendering | `dashboard/src/AiInsightsPanel.jsx`, `dashboard/src/useRecommendations.js`, `dashboard/src/MobileAIScreen.jsx` | M2 | DONE |
+| M4 | Comprehensive E2E Verification & Adversarial Hardening | `dashboard/verify_ai_actions.js`, multi-tier E2E tests, review, audit | M1, M2, M3 | DONE |
 
 ## Interface Contracts
-### `TrackingPayload` ↔ `DualModeComm`
-```cpp
-struct PersonTrackingData {
-  bool person_detected;
-  float confidence; // 0.0 to 1.0
-  int person_count;
-  unsigned long timestamp_ms;
-  const char* zone_id;
-  const char* sensor_id;
-};
-
-// Serialization to JSON buffer
-size_t serializeTrackingPayload(const PersonTrackingData& data, char* buffer, size_t max_len);
+### Forecast Graph in Recommendations Payload
+`GET /api/recommendations` response JSON contract:
+```json
+{
+  "recommendations": [ ... ],
+  "model": { ... },
+  "forecast": {
+    "engine": "timesfm" | "lstm" | "fallback",
+    "series": [0.021, 0.023, 0.024, ...],
+    "upperBand": [0.025, 0.028, ...],
+    "upperQuantile": "q9",
+    "peakUpperMw": 0.034,
+    "lstmPeakMw": 0.029,
+    "stepMinutes": 5,
+    "horizonMinutes": 60,
+    "plausible": true,
+    "samples": 8
+  }
+}
 ```
 
-### `CameraPersonDetector` ↔ `main.cpp`
-```cpp
-class CameraPersonDetector {
-public:
-  bool init();
-  bool processFrame();
-  bool isPersonDetected() const;
-  float getConfidence() const;
-  int getPersonCount() const;
-  const PersonTrackingData& getLatestData() const;
-  void transmitTelemetry(DualModeComm& comm);
-};
+### MQTT Telemetry Log Format Contract
+In `server/mqtt.go`:
+```
+[mqtt] telemetry <suffix> payload=<raw_json_string> occ=<occ> src=<src> real_temp=<bool> (zone=<zone>)
 ```
 
 ## Code Layout
-- `edge/esp32/src/camera/camera_config.h` — OV7670 pin definitions and resolution constants
-- `edge/esp32/src/camera/ov7670_driver.h/.cpp` — Hardware driver, SCCB I2C configuration, DMA frame buffer
-- `edge/esp32/src/camera/model_data.h/.cpp` — Quantized int8 TFLite Micro person detection model weights
-- `edge/esp32/src/camera/person_detector.h/.cpp` — TFLite Micro interpreter, tensor arena, downsampling, inference engine
-- `edge/esp32/src/camera/tracking_payload.h/.cpp` — BIM/topology telemetry schema serializer
-- `edge/esp32/src/camera/dual_mode_comm.h/.cpp` — Non-blocking Wi-Fi UDP/MQTT broadcaster + USB Serial fallback
-- `edge/esp32/src/main.cpp` — Isolated integration of camera module replacing legacy PIR
-- `edge/esp32/platformio.ini` — Target environment, library dependencies, partition table
-- `edge/esp32/test/` — Host and E2E unit/integration tests
+- `server/mqtt.go`: MQTT client telemetry handling & logging
+- `server/mqtt_test.go`: MQTT telemetry logging verification test
+- `server/simulation/recommend.go`: `RecommendationReport` and `ForecastGraphData` struct definitions
+- `server/recommendapi.go`: `GET /api/recommendations` HTTP handler
+- `server/recommendapi_test.go`: Recommendations API integration test
+- `backend/forecasting/main.py`: Python FastAPI logging & endpoints
+- `dashboard/src/AiInsightsPanel.jsx`: AI Insights Panel forecast chart rendering
+- `dashboard/src/useRecommendations.js`: Frontend recommendations hook
+- `dashboard/src/MobileAIScreen.jsx`: Mobile AI panel forecast rendering
+- `dashboard/verify_ai_actions.js`: Puppeteer E2E verification test suite

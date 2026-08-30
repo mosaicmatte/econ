@@ -1,24 +1,23 @@
-# BRIEFING — 2026-08-27T00:12:00Z
+# BRIEFING — 2026-08-29T16:22:30Z
 
 ## Mission
-Independently audit and verify the completion claims for the ESP32 project under edge/esp32 against ORIGINAL_REQUEST.md.
+Independently verify claimed completion of reverting active person detection to dual PIR motion sensors while retaining camera/ML code in edge/esp32.
 
 ## 🔒 My Identity
 - Archetype: victory_auditor
 - Roles: critic, specialist, auditor, victory_verifier
 - Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/victory_auditor
-- Original parent: b4f25692-e7c5-4cfe-bbfe-9b24fe467433
-- Target: full project (edge/esp32)
+- Original parent: 4588fe48-8330-4e59-8a01-ff78554bfff0
+- Target: full project
 
 ## 🔒 Key Constraints
 - Audit-only — do NOT modify implementation code
 - Trust NOTHING — verify everything independently
-- Strict isolation: verify no unauthorized file modifications outside boundary
-- Verify all requirements in ORIGINAL_REQUEST.md
+- Integrity mode: development (check facade, hardcoded outputs, fake verification)
 
 ## Current Parent
-- Conversation ID: b4f25692-e7c5-4cfe-bbfe-9b24fe467433
-- Updated: 2026-08-27T00:08:49Z
+- Conversation ID: 4588fe48-8330-4e59-8a01-ff78554bfff0
+- Updated: 2026-08-29T16:22:30Z
 
 ## Audit Scope
 - **Work product**: /Users/nguyenhoangkhoi/Documents/econ/edge/esp32
@@ -26,29 +25,26 @@ Independently audit and verify the completion claims for the ESP32 project under
 - **Audit type**: victory audit
 
 ## Audit Progress
-- **Phase**: reporting
-- **Checks completed**:
-  - Phase A: Timeline & Provenance Audit (VERIFIED & CLEAN)
-  - Phase B: Integrity & Forensic Check (CLEAN — 0 violations, no shortcuts, no hardcoded results)
-  - Phase C: Independent Test Execution & Compilation (PIO config, SRAM/Flash sizing, 93/93 E2E test cases passed, 89/89 unit/adversarial checks passed, 74/74 full challenger checks passed)
-- **Findings so far**: All requirements (R1, R2) and acceptance criteria (Compilation, Architecture, Agent-as-Judge) are 100% satisfied.
+- **Phase**: completed / reported
+- **Checks completed**: Phase A (Timeline & Provenance Audit), Phase B (Forensic Integrity Check), Phase C (Independent Test Execution)
+- **Checks remaining**: None
+- **Findings so far**: CLEAN — VERDICT: VICTORY CONFIRMED
 
 ## Key Decisions Made
-- Confirmed full compliance with ORIGINAL_REQUEST.md and issued VICTORY CONFIRMED verdict.
+- Confirmed genuine implementation of dual PIR logic in `main.cpp`
+- Verified retention of camera/ML driver files and proper runtime disablement via `USE_CAMERA=0`
+- Independently ran `./test/run_all_e2e_tests.sh` and `./test/run_host_tests.sh` with 100% pass rates
 
 ## Artifact Index
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/victory_auditor/DISPATCH.md
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/victory_auditor/BRIEFING.md
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/victory_auditor/handoff.md
+- /Users/nguyenhoangkhoi/Documents/econ/.agents/victory_auditor/BRIEFING.md — Persistent context & state
+- /Users/nguyenhoangkhoi/Documents/econ/.agents/victory_auditor/DISPATCH.md — Dispatch log
+- /Users/nguyenhoangkhoi/Documents/econ/.agents/victory_auditor/handoff.md — Handoff report
+- /Users/nguyenhoangkhoi/Documents/econ/.agents/victory_auditor/REPORT.md — Structured Victory Audit Report
 
 ## Attack Surface
-- **Hypotheses tested**:
-  - Buffer overflow / bounds violations during frame downsampling & JSON serialization -> Checked with canaries, ASan, and 1,000 randomized vectors (PASS).
-  - Memory leak during continuous inference & transmission -> Checked across 5,000 cycles (0 dynamic heap bytes allocated, PASS).
-  - Failover packet drop on sudden WiFi disconnect -> Checked across 10,000 rapid state flaps (100% transmission conservation, PASS).
-  - Peripheral pin / I2C register collisions with existing 14 sensors -> Verified pinout & I2C addresses (PASS).
-- **Vulnerabilities found**: None in production logic.
-- **Untested angles**: Direct hardware flash to physical silicon (hermetically simulated and verified off-target via verified register and DMA shims).
+- **Hypotheses tested**: Checked for facade/hardcoded PIR state logic, pin collisions with mmWave radar, fake assertion stubs in tests, and camera code deletion.
+- **Vulnerabilities found**: None.
+- **Untested angles**: Hardware-in-the-loop physical bench (host simulation/unit testing utilized).
 
 ## Loaded Skills
-- None
+- None specified by dispatch

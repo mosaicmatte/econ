@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import * as flatbuffers from 'flatbuffers';
 import { SimState } from './telemetry';
-import { getBuilding } from './buildingStore';
+import { getBuilding, getAllKnownBuildings } from './buildingStore';
 const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 import { API_BASE, WS_URL, getAdminToken } from './api';
 
-// Data-driven fault targets: derive the selectable zones from the loaded building so any
-// regenerated building-data.json "just works" (no hard-coded zoneIds to re-wire).
+// Data-driven fault targets: derive the selectable zones from all known buildings so any
+// model switch or regenerated building-data.json "just works" (no hard-coded zoneIds to re-wire).
 export const FAULT_ZONES = (() => {
   const zones = [];
-  buildingData.floors.forEach(f => f.zones.forEach(z => zones.push({ ...z, level: f.level })));
+  const known = getAllKnownBuildings();
+  known.forEach(b => (b?.floors || []).forEach(f => (f?.zones || []).forEach(z => zones.push({ ...z, level: f.level }))));
   // Zone TYPE names are minted by the digitizer and have changed over the project's life
   // (`server-room` became `comms-room`; `mechanical` became `plant-room`). Matching an
   // exact legacy string here meant the fault-target list silently fell back to "every
@@ -24,37 +25,43 @@ export const FAULT_ZONES = (() => {
 export const DEFAULT_FAULT_TARGET = FAULT_ZONES[0]?.id || '';
 
 export const getInitialSimData = () => {
-  const data = { scenario: 'peak', ahuPressure: 0, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, bessDischargeMw: 0, bessSocPct: 0, zonesInSetback: 0, autoPilot: true, vavs: {}, zones: {}, logs: [] };
-  buildingData.floors.forEach(floor => {
-    floor.zones.forEach(z => {
-      let cx = 20, cy = 20;
-      if (z.centroid) {
-        cx = z.centroid.x;
-        cy = z.centroid.y;
-      }
-      
-      if (z.hvacMapping) {
-        data.vavs[z.hvacMapping.vavId] = { id: z.hvacMapping.vavId, targetZone: z.zoneId, flow: 0 };
-      }
-      data.zones[z.zoneId] = {
-        id: z.zoneId,
-        level: floor.level,
-        label: z.name,
-        type: z.zoneType,
-        bim_asset_id: z.bim_asset_id,
-        temp: z.thermalProperties?.setpoint || 24.0,
-        setpoint: z.thermalProperties?.setpoint || 24.0,
-        deadband: z.thermalProperties?.deadband || 2.0,
-        alert: false,
-        lightsOn: true, // live actuated state arrives from the backend stream
-        occupancy: z.thermalProperties?.occupancy || 0, // real occupancy arrives from the backend stream
-        // Design internal gain from the fixture, in W. The key is baseHeatLoad — this
-        // read `internalHeatLoad`, which no generator has ever emitted, so it silently
-        // resolved to 0 for every zone in every building.
-        baseHeatGain: z.thermalProperties?.baseHeatLoad || 0,
-        areaM2: z.thermalProperties?.areaM2 || 0,
-        centroid: { x: cx, y: cy }
-      };
+  const data = { scenario: 'peak', ahuPressure: 0, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, coolingOutputMw: 0, plantCop: 3.2, energySavedMw: 0, bessDischargeMw: 0, bessSocPct: 0, zonesInSetback: 0, autoPilot: true, vavs: {}, zones: {}, logs: [] };
+  const known = getAllKnownBuildings();
+  known.forEach(b => {
+    (b?.floors || []).forEach(floor => {
+      (floor?.zones || []).forEach(z => {
+        let cx = 20, cy = 20;
+        if (z.centroid) {
+          cx = z.centroid.x;
+          cy = z.centroid.y;
+        }
+        
+        if (z.hvacMapping) {
+          data.vavs[z.hvacMapping.vavId] = { id: z.hvacMapping.vavId, targetZone: z.zoneId, flow: 0 };
+        }
+        data.zones[z.zoneId] = {
+          id: z.zoneId,
+          level: floor.level,
+          label: z.name,
+          type: z.zoneType,
+          bim_asset_id: z.bim_asset_id,
+          temp: z.thermalProperties?.setpoint || 24.0,
+          setpoint: z.thermalProperties?.setpoint || 24.0,
+          deadband: z.thermalProperties?.deadband || 2.0,
+          alert: false,
+          lightsOn: true, // live actuated state arrives from the backend stream
+          occupancy: z.thermalProperties?.occupancy || 0, // real occupancy arrives from the backend stream
+          // Design internal gain from the fixture, in W. The key is baseHeatLoad — this
+          // read `internalHeatLoad`, which no generator has ever emitted, so it silently
+          // resolved to 0 for every zone in every building.
+          baseHeatGain: z.thermalProperties?.baseHeatLoad || 0,
+          areaM2: z.thermalProperties?.areaM2 || 0,
+          centroid: { x: cx, y: cy },
+          load: z.thermalProperties?.baseHeatLoad || 200,
+          co2: 450,
+          humidity: 50,
+        };
+      });
     });
   });
   return data;
@@ -171,7 +178,7 @@ export function useDigitalTwin(onUpdate) {
   // Added by Gemini (Antigravity) on June 2026.
   // Exposes a function for the UI to dispatch manual override JSON payloads
   // via the WebSocket, allowing the user to veto the AI and control edge devices.
-  const sendManualOverride = (action, zoneId) => {
+  const sendManualOverride = (action, zoneId = 'GLOBAL') => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ action, zone: zoneId }));
     }
