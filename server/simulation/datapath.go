@@ -76,6 +76,12 @@ func DataDir() string {
 	if d := os.Getenv("ECON_DATA_DIR"); d != "" {
 		return d
 	}
+	if st, err := os.Stat("./data"); err == nil && st.IsDir() {
+		return "./data"
+	}
+	if st, err := os.Stat("../data"); err == nil && st.IsDir() {
+		return "../data"
+	}
 	return "./data"
 }
 
@@ -108,4 +114,3 @@ func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
 }
-

@@ -409,7 +409,11 @@ func (e *Engine) buildFromJSON(data []byte) error {
 	// zone set is known. (Per-zone keys never collide the way GLOBAL does, so these are
 	// inert — but they are counted, and a five-room house reporting 53,878 established
 	// signals is a true statement about the file and a false impression of the building.)
-	e.pruneStaleZoneState()
+	keep := make(map[string]bool, len(e.Zones))
+	for id := range e.Zones {
+		keep[id] = true
+	}
+	e.pruneStaleZoneStateFor(keep)
 
 	// Order matters: the fan curve has to be scaled to this building's network BEFORE the
 	// network is solved, or the nominal flows below are captured against the previous
@@ -1464,6 +1468,10 @@ func (e *Engine) pruneStaleZoneState() {
 		keep[id] = true
 	}
 	e.mu.Unlock()
+	e.pruneStaleZoneStateFor(keep)
+}
+
+func (e *Engine) pruneStaleZoneStateFor(keep map[string]bool) {
 	if len(keep) == 0 {
 		return // no building loaded yet: nothing to judge against
 	}
@@ -2278,6 +2286,7 @@ func (e *Engine) broadcast() {
 	// Metrics + serialization read (and update LastBroadcast*) zone state, so they
 	// run under the lock; the websocket writes below happen outside it.
 	e.mu.Lock()
+	ph := Phys()
 	// ---- Live global metrics (all derived from current zone state) ----
 	totalHeatW := 0.0 // total thermal load the plant must remove (W)
 	totalOccupants := 0
@@ -2792,4 +2801,3 @@ func (e *Engine) BroadcastOnce() {
 }
 
 // [GEMINI IMPLEMENTATION END]
-
