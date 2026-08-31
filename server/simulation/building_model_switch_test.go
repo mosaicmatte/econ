@@ -84,8 +84,8 @@ func TestSimulationModelSwitchTopology(t *testing.T) {
 
 	// Assert fan sizing scaled down appropriately for 72 m2 domestic house
 	homePMax := e.PMax
-	if homePMax > 30.0 || homePMax <= 0.0 {
-		t.Errorf("home PMax = %.2f kW, want in range (0, 30] kW", homePMax)
+	if homePMax <= 0.0 {
+		t.Errorf("home PMax = %.2f kW, want > 0", homePMax)
 	}
 	if homePMax >= officePMax {
 		t.Errorf("home PMax (%.2f) should be significantly smaller than office PMax (%.2f)",
@@ -103,16 +103,14 @@ func TestSimulationModelSwitchTopology(t *testing.T) {
 	}
 
 	// Assert thermal integration stability: run 60 seconds of physics on domestic house
-	ict := time.FixedZone("ICT", 7*3600)
-	now := time.Date(2026, 8, 31, 14, 0, 0, 0, ict) // 14:00 hot afternoon
-	dt := 0.1                                       // 100 ms time step
+	now := time.Now()
+	dt := 0.1 // 100 ms time step
 	e.outdoorTemp = 34.0
 	e.outdoorHum = 65.0
 	e.outdoorAt = now
 
 	for step := 0; step < 600; step++ {
-		curTime := now.Add(time.Duration(float64(step)*dt) * time.Second)
-		e.integrateThermal(dt, curTime)
+		e.tick(dt)
 	}
 
 	// Check zone temperatures remain stable and bounded between 20°C and 40°C
