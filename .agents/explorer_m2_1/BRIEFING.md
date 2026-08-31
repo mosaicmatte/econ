@@ -1,38 +1,43 @@
-# BRIEFING — 2026-08-26T04:08:55Z
+# BRIEFING — 2026-08-31T04:33:00Z
 
 ## Mission
-Investigate and document OV7670 camera driver design for ESP32 (registers, I2S DMA, pinout without conflicts, graceful hardware fallback / simulation).
+Investigate server sensor ingestion, missing input handling, static mock fallbacks, and design physics-based estimation models and Go test suite for R2 & AC1.
 
 ## 🔒 My Identity
 - Archetype: explorer
-- Roles: explorer, synthesizer
+- Roles: physics engine & sensor fallback analysis
 - Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_1
-- Original parent: 9c20399a-d56c-4ec4-96fd-a7c4f6d7a923
-- Milestone: Milestone 2 - OV7670 Camera Driver
+- Original parent: 91798708-ba91-491c-a1cc-fb74bf8aa93a
+- Milestone: M2 - Physics-Based Estimation & Sensor Fallbacks
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement source code in project directories
-- Only write metadata, reports, and analyses to .agents/explorer_m2_1/
-- Produce comprehensive analysis.md and handoff.md
+- Read-only investigation — do NOT modify application source code (only write to .agents/explorer_m2_1/)
+- Authoritative user request file: /Users/nguyenhoangkhoi/Documents/econ/ORIGINAL_REQUEST.md (specifically lines 21-45: Requirement R2 and Acceptance Criterion 1)
 
 ## Current Parent
-- Conversation ID: 9c20399a-d56c-4ec4-96fd-a7c4f6d7a923
-- Updated: 2026-08-26T04:08:55Z
+- Conversation ID: 91798708-ba91-491c-a1cc-fb74bf8aa93a
+- Updated: 2026-08-31T04:33:00Z
 
 ## Investigation State
-- **Explored paths**: `edge/esp32/src/main.cpp`, `edge/esp32/src/node_config.h`, `edge/esp32/platformio.ini`, `edge/esp32/wokwi.toml`, `edge/esp32/diagram.json`, `edge/esp32/test/`
-- **Key findings**: Complete OV7670 register sequences for QQVGA 160x120 YUV422 with Y-channel grayscale extraction; low-memory I2S DMA ping-pong line capture consuming only 640B DMA RAM; 100% conflict-free pin mapping reusing GPIO5 (PIR); automatic I2C detection & simulation fallback mode for host tests.
-- **Unexplored areas**: None for M2 OV7670 driver architecture.
+- **Explored paths**:
+  - `server/mqtt.go`, `server/weather.go`, `server/devices.go`, `server/precool.go`, `server/forecast.go`
+  - `server/simulation/engine.go`, `server/simulation/dynamics.go`, `server/simulation/library.go`, `server/simulation/plugs.go`, `server/simulation/baselines.go`, `server/simulation/bess.go`, `server/simulation/recommend.go`
+  - `server/simulation/*_test.go`
+  - `server/data/programme-library.json`, `mock_data_report.md`, `ORIGINAL_REQUEST.md`
+- **Key findings**:
+  - Audited full MQTT ingestion and per-field freshness timestamping (`hwFresh`, `co2Fresh`, `supplyFresh`, `acFresh`, `luxFresh`, `plugFresh`, `humFresh`).
+  - Identified 8 major static mock/fallback areas: outdoor weather flat 30°C constant, static 10,000 W solar multiplier, empirical strain-based chiller COP, static 12°C supply air, single-envelope 2R1C ignoring inter-zone partition conduction, static 65W/occ plug load, linear steady-state CO2, and omitted latent moisture balance.
+  - Derived complete first-principles physics replacement formulas (solar geometry & clear-sky irradiance, Carnot/Gordon-Ng thermodynamic chiller lift, multi-zone partition coupling ODEs, dynamic coil heat transfer, transient CO2/moisture mass balances, virtual occupancy inversion, and diurnal climatology).
+  - Designed a dedicated 8-case Go unit and integration test suite (`sensor_fallback_test.go`) explicitly fulfilling Acceptance Criterion 1.
+- **Unexplored areas**: None for M2 scope.
 
 ## Key Decisions Made
-- Standardized OV7670 on QQVGA (160x120) 8-bit Grayscale (19.2 KB frame buffer) at 15 fps with 20 MHz LEDC XCLK.
-- I2S0 DMA configured in Camera Slave mode with 2x320B ping-pong line descriptors.
-- Repurposed legacy PIR pin GPIO5 as Camera D7 (MSB), keeping all other sensors and relays intact.
-- Designed comprehensive Simulation / Mock mode with synthetic frame injection for off-target host testing.
+- Fully documented findings and equations in `report.md`.
+- Authored 5-component self-contained `handoff.md`.
 
 ## Artifact Index
-- DISPATCH.md — Dispatch log
-- BRIEFING.md — Persistent working memory
-- progress.md — Heartbeat and step tracking
-- analysis.md — Full technical analysis and register/pin specification
+- DISPATCH.md — incoming dispatch instructions
+- BRIEFING.md — working memory and identity
+- progress.md — task completion log
+- report.md — comprehensive technical report on sensor ingestion, static mocks, physics formulas, and test suite design
 - handoff.md — 5-component handoff report

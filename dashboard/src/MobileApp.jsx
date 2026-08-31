@@ -14,8 +14,8 @@ import MobileImpactScreen from './MobileImpactScreen';
 import MobileAIScreen from './MobileAIScreen';
 import BlueprintImportPanel from './BlueprintImportPanel';
 import LiveWeatherBackground from './LiveWeatherBackground';
-import { getBuilding } from './buildingStore';
-const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
+import { getBuilding, subscribeBuildingChange } from './buildingStore';
+const initialBuilding = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 import { DEFAULT_FAULT_TARGET } from './useDigitalTwin';
 import { streamIsStale, streamAgeLabel } from './StreamStatus';
 
@@ -24,11 +24,12 @@ import { streamIsStale, streamAgeLabel } from './StreamStatus';
 // different tower entirely) still opens somewhere that exists. Mirrors the desktop's
 // ATTENTION_FLOOR.
 const ATTENTION_FLOOR = (() => {
-  const f = (buildingData.floors || []).find(fl => (fl.zones || []).some(z => z.zoneId === DEFAULT_FAULT_TARGET));
-  return f ? f.level : (buildingData.floors?.[Math.floor((buildingData.floors?.length || 1) / 2)]?.level ?? 1);
+  const f = (initialBuilding.floors || []).find(fl => (fl.zones || []).some(z => z.zoneId === DEFAULT_FAULT_TARGET));
+  return f ? f.level : (initialBuilding.floors?.[Math.floor((initialBuilding.floors?.length || 1) / 2)]?.level ?? 1);
 })();
 
 export default function MobileApp() {
+  const [currentBuilding, setCurrentBuilding] = useState(() => getBuilding());
   const [activeFloor, setActiveFloor] = useState(ATTENTION_FLOOR);
   const [selectedZone, setSelectedZone] = useState(null);
   const [activeModal, setActiveModal] = useState(null); // 'analytics', 'logs', 'controls'
@@ -102,9 +103,22 @@ export default function MobileApp() {
   const health = Math.round(simData?.systemHealth ?? 100);
   const healthColor = health >= 95 ? '#34C759' : health >= 80 ? '#FFD60A' : '#FF3B30';
 
+  useEffect(() => {
+    const unsub = subscribeBuildingChange((b) => {
+      setCurrentBuilding(b);
+      setActiveFloor((prev) => {
+        const floorExists = (b?.floors || []).some(fl => fl.level === prev);
+        if (floorExists) return prev;
+        const f = (b?.floors || []).find(fl => (fl.zones || []).some(z => z.zoneId === DEFAULT_FAULT_TARGET));
+        return f ? f.level : (b?.floors?.[0]?.level ?? 1);
+      });
+    });
+    return unsub;
+  }, []);
+
   // Floor navigation bounds + stepper (manual browsing without a precise 3D tap).
-  const levels = useMemo(() => buildingData.floors.map(f => f.level).sort((a, b) => a - b), []);
-  const minLevel = levels[0], maxLevel = levels[levels.length - 1];
+  const levels = useMemo(() => (currentBuilding?.floors || []).map(f => f.level).sort((a, b) => a - b), [currentBuilding]);
+  const minLevel = levels[0] ?? 1, maxLevel = levels[levels.length - 1] ?? 1;
   const stepFloor = (d) => {
     setSelectedZone(null);
     setActiveFloor(f => Math.max(minLevel, Math.min(maxLevel, f + d)));
@@ -175,6 +189,7 @@ export default function MobileApp() {
           setSelectedZone={setSelectedZone}
           viewMode="hybrid"
           isMobile={true}
+          building={currentBuilding}
         />
         </CanvasErrorBoundary>
         
@@ -222,13 +237,13 @@ export default function MobileApp() {
         
         {/* FLOOR STEPPER — browse levels without a precise 3D tap */}
         {!selectedZone && (
-          <div style={{ position: 'absolute', right: '16px', bottom: '24px', zIndex: 11, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', background: 'rgba(20,20,22,0.72)', backdropFilter: 'blur(12px)', borderRadius: '18px', padding: '6px', border: '1px solid rgba(255,255,255,0.08)', pointerEvents: 'auto' }}>
-            <button onClick={() => stepFloor(1)} disabled={activeFloor >= maxLevel}
+          <div data-testid="mobile-level-stepper" style={{ position: 'absolute', right: '16px', bottom: '24px', zIndex: 11, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', background: 'rgba(20,20,22,0.72)', backdropFilter: 'blur(12px)', borderRadius: '18px', padding: '6px', border: '1px solid rgba(255,255,255,0.08)', pointerEvents: 'auto' }}>
+            <button data-testid="mobile-level-up" onClick={() => stepFloor(1)} disabled={activeFloor >= maxLevel}
               style={{ background: 'transparent', border: 'none', color: activeFloor >= maxLevel ? 'rgba(255,255,255,0.25)' : '#fff', padding: '6px', display: 'flex', cursor: 'pointer' }}>
               <ChevronUp size={22} />
             </button>
-            <div style={{ fontSize: '13px', fontWeight: '700', minWidth: '30px', textAlign: 'center', letterSpacing: '0.02em' }}>L{activeFloor}</div>
-            <button onClick={() => stepFloor(-1)} disabled={activeFloor <= minLevel}
+            <div data-testid="mobile-level-display" style={{ fontSize: '13px', fontWeight: '700', minWidth: '30px', textAlign: 'center', letterSpacing: '0.02em' }}>L{activeFloor}</div>
+            <button data-testid="mobile-level-down" onClick={() => stepFloor(-1)} disabled={activeFloor <= minLevel}
               style={{ background: 'transparent', border: 'none', color: activeFloor <= minLevel ? 'rgba(255,255,255,0.25)' : '#fff', padding: '6px', display: 'flex', cursor: 'pointer' }}>
               <ChevronDown size={22} />
             </button>

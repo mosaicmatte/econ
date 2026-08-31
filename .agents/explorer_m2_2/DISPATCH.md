@@ -1,16 +1,14 @@
-## 2026-08-26T04:06:42Z
-You are Explorer 2 for Milestone 2 (TFLite Micro ML Pipeline).
-Your working directory is /Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2.
-Read:
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md
-- /Users/nguyenhoangkhoi/Documents/econ/PROJECT.md
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/sub_orch_m2/SCOPE.md
-- /Users/nguyenhoangkhoi/Documents/econ/edge/esp32/platformio.ini
+## 2026-08-31T04:30:19Z
 
-Investigate and document:
-1. TFLite Micro person detection model architecture (standard Visual Wake Words 96x96 int8 quantized model weights array representation in C++ flash .rodata).
-2. Tensor arena allocation strategy in internal SRAM (~80 KB), memory alignment requirements, and lifetime management.
-3. MicroMutableOpResolver / MicroOpResolver configuration required for standard person detection models (Conv2D, DepthwiseConv2D, Reshape, Softmax, FullyConnected, Add, AveragePool2D, etc.).
-4. Inference execution loop, extracting person score / confidence (0.0 - 1.0) and person count calculation / thresholding.
-5. Host test compatibility / mock inference fallback for testing on non-Xtensa platforms.
-6. Write your comprehensive analysis to /Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2/analysis.md and deliver handoff.md. Report back to parent via send_message.
+<USER_REQUEST>
+You are explorer_bim_frontend.
+Your working directory is: /Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2/
+Authoritative user request file: /Users/nguyenhoangkhoi/Documents/econ/ORIGINAL_REQUEST.md (specifically lines 21-45: Requirement R3 and Acceptance Criterion 2).
+
+Task:
+1. Thoroughly investigate `dashboard/` for BIM model management (`src/buildingStore.js`, `src/building-data.json`, `src/building-data-home.json`, `src/App.jsx`, `src/useDigitalTwin.js`, etc.).
+2. Analyze the differences in geometry, levels, zones, and telemetry between the Office building model and the Domestic House model.
+3. Analyze how the UI allows the user to switch active BIM models (is there a toggle/selector in the top bar / HUD / settings? Does switching models reset or rebind 3D canvas, zone tree, level filters, P&ID schematic, and telemetry context?).
+4. Design the Puppeteer test script `dashboard/verify_bim_switching.js` according to Acceptance Criterion 2 (must programmatically interact with the BIM toggle to switch between Office and Domestic House models, and assert that the underlying telemetry context and UI accurately reflect the newly chosen model).
+5. Write your detailed technical findings and recommendations to `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2/report.md` and `handoff.md`. Send a completion message when done.
+</USER_REQUEST>

@@ -1,47 +1,44 @@
-# BRIEFING — 2026-08-29T16:33:15Z
+# BRIEFING — 2026-08-31T04:31:50Z
 
 ## Mission
-Investigate the dashboard frontend codebase to identify AI panel implementation, recommendation/action data flows, mock vs API integration points, UI buttons and event handling, build system/framework setup, and involved files/components.
+Survey frontend dashboard and BIM context switching for live data integration, model toggling (Office vs Domestic House), and automated test requirements.
 
 ## 🔒 My Identity
 - Archetype: Explorer
 - Roles: survey_explorer_frontend
-- Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend
-- Original parent: 034328b5-8dfe-43bd-b927-52e21282a318
-- Milestone: milestone-3-dashboard-wiring
+- Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/
+- Original parent: 91798708-ba91-491c-a1cc-fb74bf8aa93a
+- Milestone: Survey & Investigation
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement changes in source code
-- Produce self-contained handoff report at /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/handoff.md
-- Update progress.md with timestamps
-- Communicate back to parent via send_message
+- Read-only investigation — do NOT implement
+- Inspect dashboard/ files, test scripts, and BIM configs
+- Produce comprehensive survey report and handoff report
 
 ## Current Parent
-- Conversation ID: 034328b5-8dfe-43bd-b927-52e21282a318
-- Updated: 2026-08-29T16:33:15Z
+- Conversation ID: 91798708-ba91-491c-a1cc-fb74bf8aa93a
+- Updated: 2026-08-31T04:31:50Z
 
 ## Investigation State
 - **Explored paths**:
-  - `dashboard/package.json`, `dashboard/vite.config.js`, `dashboard/index.html`
-  - `dashboard/src/main.jsx`, `dashboard/src/Root.jsx`, `dashboard/src/buildingStore.js`, `dashboard/src/api.js`
-  - `dashboard/src/App.jsx`, `dashboard/src/MobileApp.jsx`
-  - `dashboard/src/AiInsightsPanel.jsx`, `dashboard/src/MobileAIScreen.jsx`, `dashboard/src/RecommendationEvidence.jsx`
-  - `dashboard/src/useDigitalTwin.js`, `dashboard/src/useRecommendations.js`, `dashboard/src/useOpsStatus.js`, `dashboard/src/usePlugs.js`, `dashboard/src/useLibrary.js`, `dashboard/src/useRoomModels.js`, `dashboard/src/useForecastCompare.js`, `dashboard/src/useLocalModel.js`
-  - `dashboard/src/GlobalMetricsPanel.jsx`, `dashboard/src/MaintenanceDrawer.jsx`, `dashboard/src/PlugLoadPanel.jsx`, `dashboard/src/TelemetryPanel.jsx`, `dashboard/src/HardwareInspector.jsx`, `dashboard/src/StreamStatus.jsx`
-  - Backend integration points: `server/main.go`, `server/recommendapi.go`, `server/simulation/engine.go`
+  - `dashboard/package.json`
+  - `dashboard/src/buildingStore.js`, `dashboard/src/building-data.json`, `dashboard/src/building-data-home.json`
+  - `dashboard/src/useDigitalTwin.js`, `dashboard/src/telemetry/*`, `dashboard/src/api.js`
+  - `dashboard/src/App.jsx`, `dashboard/src/BuildingModel.jsx`, `dashboard/src/GlobalMetricsPanel.jsx`, `dashboard/src/TelemetryPanel.jsx`, `dashboard/src/AiInsightsPanel.jsx`, `dashboard/src/MobileApp.jsx`
+  - `dashboard/src/floorGeometry.js`, `dashboard/src/sustainability.js`, `dashboard/src/tariff.js`, `dashboard/src/ZoneProfileRows.jsx`
+  - `dashboard/verify_level_toggle.js`, `dashboard/verify_ai_actions.js`, `dashboard/verify_ui_rendering.js`
 - **Key findings**:
-  - The dashboard uses React 18 with Vite 5, Tailwind/CSS variables, Three.js/R3F, Recharts, and FlatBuffers.
-  - Telemetry is streamed over WebSocket at 1Hz (`/ws`) using binary FlatBuffers; commands and overrides are sent over WebSocket as JSON (`{"action":..., "zone":...}`).
-  - Learned recommendations are polled from `GET /api/recommendations` via `useRecommendations.js`.
-  - Recommendation cards in `AiInsightsPanel.jsx` and `MobileAIScreen.jsx` wire real action handlers calling `sendManualOverride(rec.action, rec.zone)` or `sendManualOverride('precool', 'GLOBAL')`.
-  - `App.jsx` still has a legacy modal `showAiModal` with `executeRemediation()` that triggers synthetic scenario switches (`loadScenario('remediating')`) rather than real device overrides.
-- **Unexplored areas**: None for frontend scope.
+  - Live data integration (R1) is fully wired over binary FlatBuffers WebSockets (`useDigitalTwin.js`) and REST APIs. Static constants are valid domain/regulatory values.
+  - BIM switching (R3) is driven by `buildingStore.js` and toggled via `[data-testid="toggle-multilevel"]` / `[data-testid="toggle-domestic-home"]` in `App.jsx`. Dynamic updates propagate to 3D canvas/camera framing (`BuildingModel.jsx`), floor level buttons & telemetry (`GlobalMetricsPanel.jsx`), topology riser grid (`App.jsx`), and profiler scatter vs rows (`TelemetryPanel.jsx`).
+  - Identified enhancement: make `sustainability.js` floor area and EUI metrics dynamic to active building.
+  - Designed a 5-suite verification harness for `dashboard/verify_bim_switching.js` matching AC2.
+- **Unexplored areas**: None within frontend survey scope.
 
 ## Key Decisions Made
-- All 5 required areas analyzed with complete line-by-line evidence.
+- Completed comprehensive investigation and synthesized findings into `report.md` and `handoff.md`.
 
 ## Artifact Index
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/BRIEFING.md — Persistent agent state
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/progress.md — Liveness & task progress
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/DISPATCH.md — Incoming messages log
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/handoff.md — Final investigation report
+- `/Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/report.md` — Comprehensive Survey Report
+- `/Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/handoff.md` — Handoff Report
+- `/Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/progress.md` — Liveness & Progress
+- `/Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/DISPATCH.md` — Dispatch Record

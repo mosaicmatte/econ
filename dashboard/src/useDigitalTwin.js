@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import * as flatbuffers from 'flatbuffers';
 import { SimState } from './telemetry';
-import { getBuilding, getAllKnownBuildings } from './buildingStore';
-const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
+import { getBuilding, getAllKnownBuildings, subscribeBuildingChange } from './buildingStore';
 import { API_BASE, WS_URL, getAdminToken } from './api';
 
 // Data-driven fault targets: derive the selectable zones from all known buildings so any
@@ -24,12 +23,11 @@ export const FAULT_ZONES = (() => {
 })();
 export const DEFAULT_FAULT_TARGET = FAULT_ZONES[0]?.id || '';
 
-export const getInitialSimData = () => {
+export const getInitialSimData = (targetBuilding = getBuilding()) => {
   const data = { scenario: 'peak', ahuPressure: 0, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, coolingOutputMw: 0, plantCop: 3.2, energySavedMw: 0, bessDischargeMw: 0, bessSocPct: 0, zonesInSetback: 0, autoPilot: true, vavs: {}, zones: {}, logs: [] };
-  const known = getAllKnownBuildings();
-  known.forEach(b => {
-    (b?.floors || []).forEach(floor => {
-      (floor?.zones || []).forEach(z => {
+  const b = targetBuilding || getBuilding();
+  (b?.floors || []).forEach(floor => {
+    (floor?.zones || []).forEach(z => {
         let cx = 20, cy = 20;
         if (z.centroid) {
           cx = z.centroid.x;
@@ -63,7 +61,6 @@ export const getInitialSimData = () => {
         };
       });
     });
-  });
   return data;
 };
 
@@ -102,6 +99,32 @@ export function useDigitalTwin(onUpdate) {
   const [simData, setSimData] = useState(initialData);
   const simDataRef = useRef(initialData);
   const activeScenarioRef = useRef(activeScenario);
+
+  // Subscribe to building model changes and reset simData zones so that incoming
+  // telemetry packets immediately bind to active building zones without orphaned/stale zones.
+  useEffect(() => {
+    const unsub = subscribeBuildingChange((newBld) => {
+      const freshData = getInitialSimData(newBld);
+      setSimData(prev => {
+        const next = {
+          ...freshData,
+          buildingLoadMw: prev?.buildingLoadMw || 0,
+          systemHealth: prev?.systemHealth || 100,
+          totalOccupants: prev?.totalOccupants || 0,
+          coolingOutputMw: prev?.coolingOutputMw || 0,
+          plantCop: prev?.plantCop || 3.2,
+          energySavedMw: prev?.energySavedMw || 0,
+          bessDischargeMw: prev?.bessDischargeMw || 0,
+          bessSocPct: prev?.bessSocPct || 0,
+          autoPilot: prev?.autoPilot ?? true,
+        };
+        simDataRef.current = next;
+        return next;
+      });
+    });
+    return unsub;
+  }, []);
+
   const lastHistUpdateRef = useRef(0);
   const wsRef = useRef(null);
   // Whether this connection may issue commands. Starts true so a demo engine (no token
@@ -163,7 +186,8 @@ export function useDigitalTwin(onUpdate) {
     
     if (key.startsWith('fault:') && onFloorJump) {
       const zid = key.slice(6);
-      const floor = buildingData.floors.find(f => f.zones.some(z => z.zoneId === zid));
+      const bldg = getBuilding();
+      const floor = (bldg?.floors || []).find(f => (f?.zones || []).some(z => z.zoneId === zid));
       if (floor) {
         onFloorJump(floor.level, zid);
       }

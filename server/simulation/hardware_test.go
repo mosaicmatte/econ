@@ -1,6 +1,7 @@
 package simulation
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -450,13 +451,14 @@ func TestOfflineNodeRetiresAllEnvironmentals(t *testing.T) {
 }
 
 // The envelope's ambient must degrade to climatology, never to a stale reading. Before
-// the first fetch, and again once the feed ages out, outdoorNow returns the fallback and
-// says so — the same freshness contract every zone sensor follows.
+// the first fetch, and again once the feed ages out, outdoorNow returns the dynamic diurnal
+// fallback and says so — the same freshness contract every zone sensor follows.
 func TestOutdoorTempFreshness(t *testing.T) {
 	e := newTestEngine()
 
-	if v, live := e.outdoorNow(); live || v != outdoorFallbackC {
-		t.Fatalf("before any fetch: want fallback %.1f/false, got %.1f/%v", outdoorFallbackC, v, live)
+	wantFallback, _ := OutdoorFallbackAt(time.Now())
+	if v, live := e.outdoorNow(); live || math.Abs(v-wantFallback) > 1e-6 {
+		t.Fatalf("before any fetch: want fallback %.1f/false, got %.1f/%v", wantFallback, v, live)
 	}
 
 	e.SetOutdoorTemp(33.5)
@@ -465,8 +467,9 @@ func TestOutdoorTempFreshness(t *testing.T) {
 	}
 
 	e.outdoorAt = time.Now().Add(-(outdoorStaleAfter + time.Minute))
-	if v, live := e.outdoorNow(); live || v != outdoorFallbackC {
-		t.Fatalf("stale feed: want fallback %.1f/false, got %.1f/%v", outdoorFallbackC, v, live)
+	wantStaleFallback, _ := OutdoorFallbackAt(time.Now())
+	if v, live := e.outdoorNow(); live || math.Abs(v-wantStaleFallback) > 1e-6 {
+		t.Fatalf("stale feed: want fallback %.1f/false, got %.1f/%v", wantStaleFallback, v, live)
 	}
 }
 

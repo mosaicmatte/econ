@@ -1,98 +1,101 @@
-# Handoff Report: Explorer 2 — TFLite Micro ML Pipeline (Milestone 2)
+# Handoff Report: BIM Model Switching & Verification Design
 
-**Author:** Explorer 2 (Milestone 2)  
-**Recipient:** Sub-Orchestrator M2 / Worker 1  
-**Artifact Path:** `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2/analysis.md`  
-**Date:** 2026-08-26  
+**Agent**: `explorer_bim_frontend` (`explorer_m2_2`)  
+**Workspace**: `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2/`  
+**Reference Document**: `ORIGINAL_REQUEST.md` (Requirement R3 & Acceptance Criterion 2)  
+**Date**: 2026-08-31  
 
 ---
 
 ## 1. Observation
 
-1. **Memory Limits & Architecture Constraints (`PROJECT.md:4-5, 47, 58` and `ORIGINAL_REQUEST.md:24-25`):**
-   - ESP32-WROOM has 320 KB usable SRAM and 4 MB SPI Flash with no external PSRAM.
-   - Milestone 2 mandates an int8 quantized TFLite Micro person detection model running in an ~80 KB tensor arena on ESP32 internal SRAM.
-2. **PIR Presence Baseline (`edge/esp32/src/main.cpp:102-104, 733-753`):**
-   - Currently, occupancy is derived via `digitalRead(PIR_PIN)`:
-     ```cpp
-     // line 746
-     occupancy = present ? 1 : 0;  // presence, not a headcount
-     doc["occupancy"] = occupancy;
-     ```
-   - Main loop publishes occupancy every 5 seconds (`gCfg.publishIntervalMs`).
-3. **Interface Contract Specifications (`PROJECT.md:78-90`):**
-   ```cpp
-   class CameraPersonDetector {
-   public:
-     bool init();
-     bool processFrame();
-     bool isPersonDetected() const;
-     float getConfidence() const;
-     int getPersonCount() const;
-     const PersonTrackingData& getLatestData() const;
-     void transmitTelemetry(DualModeComm& comm);
-   };
-   ```
-4. **Off-Target Host Testing Infrastructure (`edge/esp32/test/run_host_tests.sh:1-21` & `test/arduino_shim.h:1-65`):**
-   - Host test runner executes native C++17 unit tests without hardware:
-     ```bash
-     c++ -std=c++17 -Wall -I "$JSON" -I src -I test test/host_config_test.cpp -o "$OUT"
-     ```
-   - Off-target compilation cannot link Espressif Xtensa-specific binaries directly, requiring mock / dual-mode inference support.
-5. **Model FlatBuffer Format & Op Set (`.agents/survey_explorer_2/survey_report.md:94-132`):**
-   - Standard Visual Wake Words 96x96 int8 MobileNet model requires ~250–300 KB FlatBuffer in Flash and 8 core operators (`Conv2D`, `DepthwiseConv2D`, `AveragePool2D`, `MaxPool2D`, `Reshape`, `FullyConnected`, `Softmax`, `Add`).
+1. **`dashboard/src/buildingStore.js` (lines 19–56)**:
+   - Maintains `activeModelType` initialized to `'multi-level'`.
+   - `getBuilding()` returns `activeModelType === 'domestic-home' ? homeData : towerData`.
+   - `setBuildingModelType(type)` notifies registered listeners via `listeners.forEach(fn => fn(getBuilding(), activeModelType))`.
+   - `getAllKnownBuildings()` returns `[towerData, homeData]`.
+
+2. **Model Geometry & Zone Discrepancies**:
+   - `dashboard/src/building-data.json`: 15 floors (Level 1–15, elevation 0.0–56.0 m), 1,350 total zones (90 zones per floor), 60.0 × 40.0 m footprint, wall thickness 0.3 m, non-empty service core polygon (`[0.03, 11.06]...`).
+   - `dashboard/src/building-data-home.json`: 1 floor (Level 1 "Ground floor", elevation 0.0 m, height 2.8 m), 5 total zones (`zone-kitchen-rear-service-lvl1`, `zone-office-lvl1`, `zone-living-room-lvl1`, `zone-passage-lvl1`, `zone-bathroom-lvl1`), 13.56 × 5.51 m footprint, wall thickness 0.2 m, empty service core polygon (`corePolygon: []`).
+
+3. **`dashboard/src/App.jsx` (lines 330–356, 1135–1198)**:
+   - 3D model toggle container mounted at `bottom: 5.2rem`, `left: 50%`, `transform: translateX(-50%)`, `zIndex: 15` with `data-testid="building-model-toggle"`.
+   - Buttons: `data-testid="toggle-multilevel"` ("🏢 Multi-Level Building") and `data-testid="toggle-domestic-home"` ("🏠 1-Level Domestic Home").
+   - Model switch handler `handleToggleBuildingModel(type)` invokes `setBuildingModelType(type)`, resets `selectedZone` to `null`, clamps `activeFloor` to `1` for domestic home (or default floor for tower), and dispatches a window `resize` event.
+
+4. **`dashboard/src/BuildingModel.jsx` & `dashboard/src/floorGeometry.js` (lines 63–111)**:
+   - `getFootprint(b = getBuilding())` dynamically calculates `(cx, cy)` origin and dimensions (`cx=30, cy=20` for office vs `cx=6.78, cy=2.755` for domestic home).
+   - `toWorld(p)` maps fixture coordinates to 3D world space relative to the active building origin.
+   - `towerFraming` recalculates the bounding sphere and camera target for the newly active building.
+
+5. **`dashboard/src/GlobalMetricsPanel.jsx` (lines 181–230, 459–520)**:
+   - `availableFloors` dynamically computes `(currentBld?.floors || []).map(f => f.level)` (15 buttons for tower vs 1 button for domestic home).
+   - `levelZones` filters live simulation zones matching `floorZoneIds` of the active floor.
+   - Displays per-level metrics: `data-testid="level-metric-load"`, `data-testid="level-metric-occupancy"`, `data-testid="level-metric-temp"`, `data-testid="level-metric-zones"`.
+
+6. **Build & Existing Test Verification**:
+   - `npm run build` completed successfully with exit code 0 (`dist/index.html`, `dist/assets/...`).
+   - `node verify_level_toggle.js` executed 13 tests across invariant calculation and Puppeteer headless browser runs, passing all 13 tests in 19.3s.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Flash & RAM Residency (Observation 1 & 5):**
-   - Declaring model FlatBuffer weights as `alignas(16) const unsigned char g_person_detect_model_data[]` places the entire ~250–300 KB array into the Flash `.rodata` section.
-   - On ESP32, `.rodata` is mapped into DROM (`0x3F400000`) via the MMU, meaning weights occupy **0 bytes of internal SRAM** at rest.
-2. **Tensor Arena Sizing & Alignment (Observation 1 & 5):**
-   - Peak activation memory during Conv2D / Pointwise Conv operations in a 96×96 int8 MobileNet is ~36.8 KB.
-   - An 80 KB (`81,920` bytes) static buffer allocated with `alignas(16)` provides sufficient space for peak layer activations (~37 KB), TFLM interpreter state (~8 KB), and operator scratchpads (~16 KB headroom) with zero heap fragmentation.
-3. **Selective Op Resolution (Observation 5):**
-   - Using `tflite::MicroMutableOpResolver<8>` to link only the 8 required operators prevents linking ~112 unused TFLM operators, reducing firmware Flash footprint by >450 KB and ensuring firmware fits within standard partition tables (`huge_app.csv` / `default.csv`).
-4. **Dequantization & Hysteresis Decision Math (Observation 2 & 3):**
-   - Extracting int8 output logits $[-128, 127]$ and applying $P = (q - Z) \times S$ accurately yields floating-point detection confidence $[0.0, 1.0]$.
-   - A dual-threshold hysteresis filter ($T_{\text{enter}} = 0.60$, $T_{\text{exit}} = 0.40$) combined with a 2-frame debounce filter prevents presence flapping at decision boundaries.
-5. **Dual-Mode Host Testability (Observation 4):**
-   - Implementing a dual-mode engine (`#if defined(ESP32) && !defined(HOST_TEST)` for real TFLM, `#else` for deterministic mock inference) enables comprehensive automated host unit testing in CI/CD without hardware dependencies.
+1. **Model Switch Integrity**:
+   - Observation 1 & 3 show that when the user interacts with `data-testid="toggle-domestic-home"` or `data-testid="toggle-multilevel"`, `setBuildingModelType` alters the active data source in `buildingStore.js`.
+   - Because `BuildingModel.jsx`, `App.jsx`, `GlobalMetricsPanel.jsx`, and `MobileApp.jsx` subscribe to `subscribeBuildingChange`, all components re-render synchronously with the new model geometry.
+
+2. **Telemetry Context Rebinding**:
+   - Observation 2 & 5 demonstrate that the Domestic House model contains 5 distinct zone IDs and a 1-floor topology, whereas the Office Tower contains 1,350 zone IDs across 15 floors.
+   - `levelZones` in `GlobalMetricsPanel.jsx` filters `simData.zones` against `floorZoneIds` from the active building. Thus, switching to the Domestic House model drops the active level button list to `[L1]`, updates the level zone count to `5Z`, recalculates `loadKw` to ~0.6 kW, and updates the Topology map header to `MAP LEVEL 1 TOPOLOGY`.
+
+3. **3D WebGL Camera & Geometry Alignment**:
+   - Observation 4 demonstrates that `getFootprint()` and `toWorld()` dynamically adjust the world origin based on the active model's bounding box.
+   - This prevents the single-story domestic home (13.56 × 5.51 m) from rendering off-center in the 60 × 40 m office frame.
+
+4. **Test Harness Architecture for Acceptance Criterion 2**:
+   - Following the successful pattern in `verify_level_toggle.js` (Observation 6), `dashboard/verify_bim_switching.js` can be built using pure Node.js + Puppeteer with an in-process HTTP static file server and request interception to test the compiled Vite bundle.
+   - The test script will execute both mathematical invariant tests and end-to-end DOM interaction assertions.
 
 ---
 
 ## 3. Caveats
 
-1. **Model Weights Placeholder vs Production Binary:** The initial `model_data.cpp` flatbuffer can contain a valid TFL3 FlatBuffer header with synthetic weight structure for host tests, while the full quantized MobileNet weights array (~250 KB) is linked for target firmware.
-2. **Multi-Person Resolution:** Standard single-channel Visual Wake Words (VWW) performs image-level binary classification (presence vs vacancy). Multi-person headcount estimation is bounded to 0 or 1 unless multi-box patch scanning is layered.
-3. **Camera Sensor Dependencies:** Inference requires properly cropped/downsampled 96×96 int8 input buffers, which relies on the preprocessor module (investigated by Explorer 3).
+- Backend Live Telemetry Streaming: When running standalone Puppeteer tests against the static Vite bundle without an active Go simulation server, the application uses bundled fallback data (`src/building-data.json` and `src/building-data-home.json`) and local sim state initializers in `useDigitalTwin.js`. All DOM and telemetry aggregation invariants function identically.
+- No caveats regarding frontend model switching logic or test harness capability.
 
 ---
 
 ## 4. Conclusion
 
-The TFLite Micro Machine Learning pipeline for person detection on ESP32-WROOM is fully specified, memory-safe, and ready for worker implementation:
-- **Weights Storage:** `model_data.h` / `model_data.cpp` in `.rodata` Flash (~250–300 KB, 0 bytes RAM).
-- **Tensor Arena:** `person_detector.h` / `person_detector.cpp` with static 80 KB (`alignas(16)`) internal SRAM buffer.
-- **Op Resolver:** `MicroMutableOpResolver<8>` for minimal Flash footprint.
-- **Output Logic:** Int8 dequantization with $0.60 / 0.40$ hysteresis and 2-frame temporal debounce.
-- **Host Testing:** Dual-mode implementation allowing 100% off-target verification in `test_m2_camera_ml.cpp`.
+- The frontend BIM switching architecture in `dashboard/` is structurally sound, reactive, and fully implements the requirements for Requirement R3.
+- The UI allows seamless switching between the Multi-Level Office Tower and Domestic House models via `[data-testid="building-model-toggle"]` (`[data-testid="toggle-multilevel"]` and `[data-testid="toggle-domestic-home"]`).
+- Model switching cleanly rebinds the 3D canvas, camera framing, level filter buttons, P&ID topology map, and per-level telemetry metrics, while resetting selected zones.
+- The Puppeteer test script specification for `dashboard/verify_bim_switching.js` is fully designed to satisfy Acceptance Criterion 2.
 
 ---
 
 ## 5. Verification Method
 
-1. **Inspect Analysis Report:**
+To independently verify these findings and execute the verification test suite:
+
+1. **Verify Dashboard Build**:
    ```bash
-   view_file /Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2/analysis.md
+   cd /Users/nguyenhoangkhoi/Documents/econ/dashboard
+   npm run build
    ```
-2. **Run Host Tests (Once Implemented in Worker Phase):**
+
+2. **Verify Level Toggle Reference Suite**:
    ```bash
-   c++ -std=c++17 -Wall -I edge/esp32/src -I edge/esp32/test edge/esp32/test/test_m2_camera_ml.cpp -o /tmp/test_m2_camera_ml && /tmp/test_m2_camera_ml
+   cd /Users/nguyenhoangkhoi/Documents/econ/dashboard
+   node verify_level_toggle.js
    ```
-3. **Invalidation Conditions:**
-   - Tensor Arena size $< 64$ KB or unaligned (`% 16 != 0`).
-   - Model weights allocated in DRAM instead of `.rodata` Flash.
-   - Use of `AllOpsResolver` causing Flash binary overflow.
-   - Dequantization math yielding values $< 0.0$ or $> 1.0$.
+
+3. **Verify BIM Switching Test Script Implementation**:
+   - Run the newly created Puppeteer script:
+     ```bash
+     cd /Users/nguyenhoangkhoi/Documents/econ/dashboard
+     node verify_bim_switching.js
+     ```
+   - Invalidation condition: Any assertion error in DOM state, button count mismatch (expected 1 for domestic home vs >= 10 for office tower), topology header text desynchronization, or level stepper failure.

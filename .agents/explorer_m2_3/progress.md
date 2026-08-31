@@ -1,30 +1,10 @@
-# Progress — Explorer M2_3
+# Progress - explorer_bim_backend_integration
 
-Last visited: 2026-08-26T04:09:00Z
-Status: Complete
-
-## Tasks
-- [x] Initialize DISPATCH.md and BRIEFING.md
-- [x] Read and analyze required specification files:
-  - ORIGINAL_REQUEST.md
-  - PROJECT.md
-  - sub_orch_m2/SCOPE.md
-  - Existing tests in edge/esp32/test/
-  - Existing code in edge/esp32/src/
-- [x] Analyze Frame Preprocessor Math & Fixed-Point Implementations:
-  - Input: QQVGA 160x120 8-bit grayscale (19.2 KB)
-  - Crop: Center-crop to 120x120 (offset x=20, y=0)
-  - Resample: Downsampling 120x120 -> 96x96 (scale factor 0.8 / 1.25x downscale)
-  - Resampling algorithms: Bilinear fixed-point Q8/Q16 vs Area-averaging vs Nearest Neighbor
-  - Normalization: uint8 [0, 255] -> int8 [-128, 127] (pixel - 128)
-  - Micro-optimizations for Xtensa LX6 (cache line friendly, loop unrolling, register pressure)
-- [x] Analyze CameraPersonDetector Class Interface and Contracts:
-  - State machine (UNINITIALIZED, READY, DETECTING, ERROR)
-  - Frame capture, memory lifecycle, error propagation
-  - Mock camera driver design for native host testing
-- [x] Design Comprehensive Unit & Integration Tests:
-  - Edge cases (all-0, all-255, gradient, checkered, edge pixels, person pattern)
-  - State machine transition checks
-  - Accuracy and latency benchmarks
-- [x] Write analysis.md and handoff.md
-- [x] Send completion message to parent
+- **Status**: COMPLETED
+- **Last visited**: 2026-08-31T04:36:00Z
+- **Current task**: Investigation complete. Technical report (`report.md`) and handoff report (`handoff.md`) written and ready.
+- **Completed**:
+  - Investigated Go backend building model serving (`server/main.go`, `server/simulation/engine.go`, `server/simulation/library.go`, `server/blueprint.go`, `/ws` FlatBuffers stream).
+  - Audited `server/` and `dashboard/` for mock data and detailed smart fallback physics models for missing/unavailable sensors (Requirement R2).
+  - Detailed end-to-end integration requirements and architecture for dynamic BIM model switching between Office Tower and Domestic House (Requirement R3).
+  - Delivered comprehensive findings to `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_3/report.md` and `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_3/handoff.md`.

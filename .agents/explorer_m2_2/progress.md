@@ -1,16 +1,12 @@
-# Progress — Explorer 2 (TFLite Micro ML Pipeline)
+# Progress Log — explorer_bim_frontend
 
-Last visited: 2026-08-26T04:09:05Z
+Last visited: 2026-08-31T04:33:30Z
 
-## Status
-- [x] Initialized workspace and briefing
-- [x] Read context documents (ORIGINAL_REQUEST.md, PROJECT.md, SCOPE.md, platformio.ini)
-- [x] Explore existing files and libraries in repo
-- [x] Investigate TFLite Micro person detection model architecture & .rodata array
-- [x] Investigate Tensor Arena memory allocation, SRAM alignment & lifetime
-- [x] Investigate MicroMutableOpResolver / MicroOpResolver ops required
-- [x] Investigate Inference loop, int8 dequantization, score/confidence thresholding
-- [x] Investigate Host test compatibility & mock inference fallback
-- [x] Write analysis.md
-- [x] Write handoff.md
-- [x] Report to parent agent
+- [x] Initialized DISPATCH.md and BRIEFING.md
+- [x] Investigate `dashboard/` files and BIM model management (`src/buildingStore.js`, `src/building-data.json`, `src/building-data-home.json`, `src/App.jsx`, `src/useDigitalTwin.js`, `src/BuildingModel.jsx`, `src/GlobalMetricsPanel.jsx`, etc.)
+- [x] Compare Office building model vs. Domestic House model (geometry, levels, zones, telemetry)
+- [x] Analyze UI model switching mechanism and reset/rebind behavior across UI components
+- [x] Inspect existing Puppeteer scripts (`verify_level_toggle.js`, `verify_ai_actions.js`, etc.)
+- [x] Design Puppeteer test script `dashboard/verify_bim_switching.js` according to Acceptance Criterion 2
+- [x] Write detailed `report.md` and 5-component `handoff.md`
+- [x] Send completion message to parent orchestrator

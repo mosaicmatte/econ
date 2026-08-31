@@ -1,20 +1,13 @@
-## 2026-08-29T16:30:48Z
+## 2026-08-31T04:28:32Z
 
-You are a survey Explorer for testing, verification scripts, and end-to-end integration harness.
-Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_test
-Original Request: /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md (read this first!)
-Project root: /Users/nguyenhoangkhoi/Documents/econ
+You are survey_explorer_test.
+Your working directory is: /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_test/
+Authoritative user request file: /Users/nguyenhoangkhoi/Documents/econ/ORIGINAL_REQUEST.md
 
-Objective:
-Investigate existing tests, scripts, and verification infrastructure across the repository to identify:
-1. What existing test suites exist for dashboard, backend, and integration (Playwright, Puppeteer, Jest, Pytest, Cypress, bash scripts, etc.).
-2. How tests are executed, what dependencies/browsers are installed or required, and how backend/frontend processes are launched during testing.
-3. What automated verification scripts currently exist or need to be created/updated to satisfy the Acceptance Criteria:
-   - Trigger an action from the AI panel (or UI function).
-   - Verify backend API is successfully hit.
-   - Verify corresponding sensor state is updated or command dispatched by backend.
-4. Specific gaps between existing test coverage and the requirements in ORIGINAL_REQUEST.md.
+Task: Survey the end-to-end integration, API contracts, and test strategy across backend and frontend for the requirements in ORIGINAL_REQUEST.md (lines 21-45):
+1. End-to-end telemetry flow: How are active building models and telemetry streamed between Go backend (`server/`) and Frontend (`dashboard/`) via REST (`/api/building-data`, `/api/zones`, etc.) and WebSocket FlatBuffers?
+2. Multi-model backend support: Does the Go backend currently support serving both office and house building definitions and telemetry, or does it need endpoints/query parameters (e.g. `GET /api/building-data?model=house` or active model state)?
+3. Test suite architecture: How to structure the Go unit/integration tests for physics fallbacks and the Puppeteer test `dashboard/verify_bim_switching.js` so they cleanly integrate into the CI/E2E test runner (`npm test`, `go test ./...`).
 
-Write your comprehensive investigation report to `/Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_test/handoff.md`.
-Update your `progress.md` during execution.
-When complete, send a message to parent with your summary and report path.
+Inspect the codebase, identify existing integration points, and write a comprehensive survey report to `/Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_test/report.md` and your `handoff.md`.
+Send a completion message when done.

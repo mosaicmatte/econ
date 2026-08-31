@@ -1,63 +1,61 @@
-# BRIEFING — 2026-08-29T21:13:50Z
+# BRIEFING — 2026-08-31T05:00:00Z
 
 ## Mission
-Adversarial stress-testing and empirical verification of forecast graph API delivery, full JSON MQTT telemetry logging, and UI chart rendering.
+Adversarial stress-testing and empirical verification of Go backend physics engine (solar geometry, chiller COP, supply air bounds, complete sensor omission numerical stability, and concurrent BIM ReloadBuilding switching).
 
 ## 🔒 My Identity
 - Archetype: challenger
 - Roles: critic, specialist
 - Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/challenger_1
-- Original parent: 67f8d29d-b628-4da9-8215-f56c47033ab3
-- Milestone: Final E2E / M4
+- Original parent: 91798708-ba91-491c-a1cc-fb74bf8aa93a
+- Milestone: Physics & Fallback Stress Testing
 - Instance: 1 of 1
 
 ## 🔒 Key Constraints
 - Review-only — do NOT modify implementation code (report findings/bugs, do not fix directly)
 - Write test harnesses only in test directories, do not modify production code
 - Empirically verify everything — run all verification code directly
+- Layout compliance: `.agents/` contains only metadata; all tests go in project test files (e.g., `server/`, `dashboard/`)
 
 ## Current Parent
-- Conversation ID: 67f8d29d-b628-4da9-8215-f56c47033ab3
-- Updated: 2026-08-29T21:13:50Z
+- Conversation ID: 91798708-ba91-491c-a1cc-fb74bf8aa93a
+- Updated: 2026-08-31T05:00:00Z
 
 ## Review Scope
 - **Files to review**:
-  - `server/mqtt.go`
-  - `server/mqtt_test.go`
-  - `server/recommendapi.go`
-  - `server/recommendapi_test.go`
-  - `server/forecast.go`
-  - `server/simulation/recommend.go`
-  - `backend/forecasting/main.py`
-  - `dashboard/src/AiInsightsPanel.jsx`
-  - `dashboard/src/useRecommendations.js`
-  - `dashboard/src/MobileAIScreen.jsx`
-  - `dashboard/src/ForecastChart.jsx`
-  - `dashboard/verify_ai_actions.js`
-- **Interface contracts**: PROJECT.md, ORIGINAL_REQUEST.md, TEST_READY.md
+  - `server/simulation/engine.go`
+  - `server/simulation/solar.go`
+  - `server/simulation/physics.go` (and `library.go`)
+  - `server/simulation/sensor_fallback_test.go`
+  - `server/simulation/sensor_fallback_integration_test.go`
+  - `server/simulation/building_model_switch_test.go`
+  - `server/simulation/adversarial_physics_stress_test.go`
+  - `dashboard/verify_adversarial_physics_engine.js`
+- **Interface contracts**: ORIGINAL_REQUEST.md lines 21-45, PROJECT.md
 - **Review criteria**:
-  1. `GET /api/recommendations` reliably outputs valid forecast graph data across simulated conditions
-  2. `server/mqtt.go` logs output full raw JSON telemetry payloads accurately without truncating data
-  3. Forecast chart element renders correctly in the AI panel UI (desktop & mobile)
-  4. Run tests and execute adversarial checks
+  1. Solar geometry at arbitrary times (midnight, noon, polar/solstice extremes, leap years).
+  2. Chiller COP and electrical power across extreme thermal lift (extreme heat, sub-zero ambient, light/heavy loads).
+  3. Supply air temperature bounds under erratic coil loads.
+  4. Complete sensor omission (all sensors nil) over long multi-tick simulation runs to ensure 100% numerical stability (no NaNs, no infinities, no panics).
+  5. Rapid alternating building model switches (`ReloadBuilding`) under concurrent requests.
 
 ## Attack Surface
 - **Hypotheses tested**:
-  - **Cold start & history boundaries for forecast generation**: Tested with 0 samples, 1 sample, 7 samples (<8 minimum for TimesFM), 8 samples (exact minimum), 24 samples, 500 samples, all zero loads, and extreme load values. In all cases, `BuildForecastGraph` gracefully returns a valid `ForecastGraphData` (either TimesFM, LSTM, or physics fallback) with non-empty series, stepMinutes=5, correct horizon, and finite float numbers.
-  - **Forecaster backend failure modes**: Tested when TimesFM/LSTM returns HTTP 500, 503, 422, connection refused/offline, slow timeouts, empty horizon, corrupt JSON, or custom quantile deciles ("q1", "q5", "q8", "q9"). The Go server safely falls back without panic, 500 status code, or corrupt payloads.
-  - **Concurrent query race conditions**: Tested with 50 concurrent goroutines executing 2,000 queries to `GET /api/recommendations` while background workers concurrently update telemetry, building loads, and learned baselines. Verified with Go race detector (`-race`): 0 data races, 0 deadlocks, 100% thread safety.
-  - **MQTT full JSON telemetry payload logging**: Tested with unicode characters, deep nested JSON, escaped strings, 8KB large payloads, all-negative/zero values, and rapid 2,000-message flood. Verified verbatim byte-for-byte extraction of `payload=...` substring with 100% JSON parseability and zero truncation.
-  - **AI Panel UI & ForecastChart DOM rendering**: Tested standard TimesFM series + Q9 uncertainty band, cold start fallback, empty series array, out-of-distribution warning badge, ultra-long 64-step horizons, and mobile touch viewports (390x844). Verified Puppeteer element queryability for `[data-testid="forecast-chart"]`, `.forecast-chart-container`, `svg.forecast-chart`, and zero JavaScript runtime errors.
-- **Vulnerabilities found**: 0 defects found. All components meet and exceed the acceptance criteria and interface contracts with high robustness.
-- **Untested angles**: None. Multi-tier E2E testing covers Go server, Python backend, ESP32 edge host, and React/Puppeteer frontend.
+  - **Solar geometry at arbitrary times**: Evaluated Spencer/NOAA algorithm over 2,000+ spatio-temporal coordinate points. At solar midnight, GHI and DNI are strictly 0.0 W/m²; at solar noon, GHI achieves 700-1100 W/m²; during Arctic summer solstice, midnight sun yields positive irradiance; during Antarctic winter solstice, polar night yields 0.0 W/m²; leap days (2000, 2024, 2028, 2096) and century boundaries calculate with 100% finite numbers and zero NaNs.
+  - **Chiller COP & thermal lift**: Evaluated thermodynamic COP across ambient -60°C to +75°C, supply air 2°C to 35°C, thermal loads 0 W to 500 MW, floor areas 1 m² to 1,000,000 m², and strains 0 to 100°C. Verified strict clamping to [CopMin, CopMax] ([1.8, 7.5]), monotonic degradation with thermal lift, and finite electrical power calculations.
+  - **Supply air bounds**: Evaluated dynamic supply air under erratic outdoor loads (-50°C to +80°C), chaotic zone temperatures (-50°C to +150°C), flow rates (0 to 1000 m³/s), empty zone sets, and probe overrides. Verified strict physical clamping within [8.0°C, 18.0°C].
+  - **Complete sensor omission (10,000 ticks)**: Simulated pure physics 2R1C ODE integration with all sensors nil and weather API offline. Verified 100% numerical stability (0 NaNs, 0 Infs), dynamic diurnal thermal swings (>0.5°C), dynamic CO2 accumulation/ventilation, and positive building electrical load.
+  - **Concurrent building model switching**: Tested 40-50 rapid alternating switches between commercial office tower (735 zones) and domestic house (5 zones) under concurrent queries and telemetry ingestion with 0 race conditions, 0 deadlocks, and zero memory corruption.
+- **Vulnerabilities found**: 0 defects found. All components meet and exceed acceptance criteria.
+- **Untested angles**: None. Multi-tier verification covers Go simulation package, math oracles, and Puppeteer E2E test suites.
 
 ## Loaded Skills
 - None
 
 ## Key Decisions Made
-- Authored and executed dedicated adversarial test suites: `server/adversarial_forecast_mqtt_test.go` and `dashboard/verify_adversarial_ui.js`.
-- Verified all Go tests under race detector (`go test -race`).
-- Verified Puppeteer E2E test suites on desktop (1440x900) and mobile (390x844).
+- Authored Go test suite `server/simulation/adversarial_physics_stress_test.go`.
+- Authored Node test suite `dashboard/verify_adversarial_physics_engine.js`.
+- Verified all dashboard and BIM verification test suites (`npm test`, `verify_adversarial_bim.js`, `verify_bim_switching.js`).
 - Final verdict: APPROVE.
 
 ## Artifact Index
@@ -65,5 +63,7 @@ Adversarial stress-testing and empirical verification of forecast graph API deli
 - `.agents/challenger_1/BRIEFING.md` — Persistent briefing
 - `.agents/challenger_1/progress.md` — Progress heartbeat
 - `.agents/challenger_1/handoff.md` — Final handoff report
-- `server/adversarial_forecast_mqtt_test.go` — Go adversarial test harness (cold start, chaos, race, MQTT logging)
-- `dashboard/verify_adversarial_ui.js` — Puppeteer adversarial UI stress test harness
+- `server/simulation/adversarial_physics_stress_test.go` — Go adversarial test suite
+- `dashboard/verify_adversarial_physics_engine.js` — Node adversarial test suite
+
+

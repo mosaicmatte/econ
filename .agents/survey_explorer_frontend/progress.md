@@ -1,11 +1,12 @@
-## Current Status
-Last visited: 2026-08-29T16:33:50Z
-- [x] Initialized survey explorer frontend (BRIEFING.md, DISPATCH.md created)
-- [x] Explore directory structure of dashboard
-- [x] Analyze package.json, build tool, framework, and scripts
-- [x] Trace AI panel, recommendations, and actions components & UI
-- [x] Identify mock vs real API calls & state management
-- [x] Identify backend API endpoints & communication protocol
-- [x] Synthesize findings into handoff.md
-- [x] Handoff report completed at /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/handoff.md
-- [ ] Notify parent via send_message
+# Progress — survey_explorer_frontend
+
+Last visited: 2026-08-31T04:31:50Z
+
+- [x] Initialized DISPATCH.md, BRIEFING.md, and progress.md
+- [x] List all files in dashboard/ and explore structure
+- [x] Audit R1: Hardcoded / mock data in UI panels, store, telemetry hooks
+- [x] Audit R3: BIM context switching (buildingStore.js, building-data.json, building-data-home.json, 3D views, zone telemetry, level toggles, P&ID, topology)
+- [x] Audit AC2: Puppeteer/Node test scripts in dashboard/ (package.json, verify_level_toggle.js, verify_ai_actions.js, designing verify_bim_switching.js)
+- [x] Write comprehensive survey report to report.md
+- [x] Write handoff.md
+- [x] Send completion message to parent

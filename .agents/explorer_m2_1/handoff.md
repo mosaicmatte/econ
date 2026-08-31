@@ -1,94 +1,58 @@
-# Handoff Report: Milestone 2 — OV7670 Camera Driver Architecture
-
-**Author**: Explorer 1 (Milestone 2)  
-**Recipient**: Sub-Orchestrator M2 (`9c20399a-d56c-4ec4-96fd-a7c4f6d7a923`)  
-**Artifact File**: `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_1/analysis.md`  
-
----
+# Handoff Report: Physics-Based Estimation & Sensor Fallbacks
 
 ## 1. Observation
 
-1. **Legacy Pinout & Peripherals (`edge/esp32/src/main.cpp` & `platformio.ini`)**:
-   - `GPIO21` and `GPIO22` are configured as the shared I2C bus (`I2C_SDA=21`, `I2C_SCL=22`) for SHT30 (`0x44`), ACD1200 (`0x2A`), and BH1750 (`0x23`) (`main.cpp:217-221`).
-   - `GPIO23` is the Lighting Relay (`main.cpp:75`).
-   - `GPIO19` is the HVAC IR Emitter (`main.cpp:79`).
-   - `GPIO2` is the Status LED / MQTT Link (`main.cpp:80`).
-   - `GPIO5` is the legacy PIR motion sensor pin (`main.cpp:291`).
-   - `GPIO18` is the mmWave radar presence pin (`main.cpp:109`).
-   - `GPIO25` is the Plug-load Relay (`main.cpp:199`).
-   - `GPIO26` is the Supply Temperature DS18B20 1-Wire probe (`main.cpp:173`).
-   - `GPIO34` is the SCT-013 Plug Clamp ADC1 input (`main.cpp:194`).
-   - `GPIO35` is the SCT-013 AC Clamp ADC1 input (`main.cpp:159`).
-   - `GPIO32` is the capacitive touch presence pad (`main.cpp:19`).
-   - `GPIO1` and `GPIO3` are reserved for UART0 USB Serial communication (`platformio.ini:5`).
+1. **Sensor Ingestion Pipeline & Freshness Tracking**:
+   - `server/mqtt.go` (lines 24–43, 111–151): Ingests MQTT JSON telemetry into `telemetryMsg` with pointer fields (`*float64`, `*int`, `*bool`) to distinguish omitted fields (`nil`) from zero values. Passes data to `engine.IngestTelemetry()`.
+   - `server/simulation/engine.go` (lines 618–690): Updates per-field arrival timestamps (`HwTempAt`, `HwHumAt`, `HwCo2At`, `HwSupplyAt`, `HwAcAt`, `HwLuxAt`, `HwPlugAt`) and provenance flags (`TempReal`, `AcReal`).
+   - `server/simulation/engine.go` (lines 923–928, 989–1012): Defines `hwStaleAfter = 20 * time.Second` and per-field freshness checkers (`hwFresh()`, `humFresh()`, `co2Fresh()`, `supplyFresh()`, `acFresh()`, `luxFresh()`, `plugFresh()`).
 
-2. **Milestone 2 Scope & Requirements (`.agents/sub_orch_m2/SCOPE.md`)**:
-   - Camera module requires I2S DMA parallel byte capture in 8-bit mode.
-   - 20 MHz PWM/LEDC clock generation for camera XCLK.
-   - QQVGA (160x120) 8-bit grayscale mode producing a 19.2 KB frame buffer.
-   - SCCB / I2C register configuration for OV7670 (`CLKRC`, `COM7`, `COM3`, `COM14`, `SCALING_*`, etc.).
-   - Robust hardware error handling and graceful fallback / mock mode when camera hardware is unattached or running in simulator/host tests.
-   - Owned files: `edge/esp32/src/camera/camera_config.h`, `ov7670_driver.h`, `ov7670_driver.cpp`, `model_data.h`, `model_data.cpp`, `person_detector.h`, `person_detector.cpp`, `edge/esp32/test/test_m2_camera_ml.cpp`.
+2. **Static Mocks & Constants Used During Sensor Omission**:
+   - **Outdoor Temperature Fallback**: `server/simulation/engine.go` (lines 933, 966–971): `outdoorFallbackC = 30.0`. When `outdoorAt` is stale (>3 hours), returns static flat 30.0°C.
+   - **Solar Gain Fallback**: `server/simulation/engine.go` (lines 1036–1044): `w := z.SolarGainMult * ph.SolarGainReferenceW`. When `luxFresh()` is false, evaluates static $10,000\text{ W} \times \text{mult}$ 24/7 without solar zenith/azimuth geometry. Confirmed in `server/data/programme-library.json` (lines 69–80).
+   - **Chiller Plant COP Fallback**: `server/simulation/engine.go` (lines 2226–2228): `plantCop := math.Max(ph.CopMin, math.Min(ph.CopMax, ph.DesignCop - ph.CopStrainSlope*avgStrain))`. When `HwAcW` clamp is omitted, COP is evaluated via empirical linear room strain slope ($\text{slope}=0.35$) rather than thermodynamic condenser-evaporator lift and Carnot second-law efficiency.
+   - **Supply Air Temperature Fallback**: `server/simulation/engine.go` (lines 1019–1025): `supplyC()` returns static `Phys().SupplyAirDesignC` (12.0°C) when DS18B20 probe is missing.
+   - **Zone Temperature Model**: `server/simulation/engine.go` (lines 1868–1873): Single-envelope 2R1C model conducts purely against $T_{\text{outside}}$, omitting inter-zone partition wall heat conduction ($T_{\text{adj}}$).
+   - **CO₂ Fallback**: `server/simulation/engine.go` (lines 1084–1086): `ph.OutdoorCo2Ppm + ph.Co2PpmPerOccupantSteady*float64(totalOccupants)/float64(len(e.Zones))` (static $400 + 15 \times \text{occ}$).
 
-3. **Host Test Infrastructure (`edge/esp32/test/`)**:
-   - `edge/esp32/test/run_host_tests.sh` and `test/arduino_shim.h` show that host tests are compiled off-target with `c++ -std=c++17` on the local machine without physical ESP32 registers.
+3. **Existing Test Suite State**:
+   - Existing tests (`server/simulation/measured_test.go`, `server/simulation/hardware_test.go`, `server/simulation/state_provenance_test.go`) assert sensor overriding behavior and provenance gating, but no dedicated tests exist asserting dynamic physics derivation (solar geometry, thermodynamic COP, inter-zone conduction, dynamic CO₂ mass balances) when sensor inputs are omitted.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Conflict-Free GPIO Allocation**:
-   - *From Observation 1*, we identified all active peripheral pins on the ESP32 node.
-   - The OV7670 requires 12 dedicated signals (XCLK, PCLK, VSYNC, HREF, D0-D7) plus 2 shared I2C signals (SIOD, SIOC).
-   - `GPIO5` is currently allocated to legacy PIR motion sensing. Because the project goal is specifically replacing PIR with the OV7670 camera, `GPIO5` is repurposed as Camera `D7` (MSB).
-   - Input-only pins `GPIO36` (SENSOR_VP) and `GPIO39` (SENSOR_VN) cannot drive outputs, but are ideal for camera input signals `VSYNC` and `HREF`.
-   - `GPIO27` is free and output-capable, making it ideal for the 20 MHz LEDC PWM `XCLK`.
-   - `GPIO14` is free and handles `PCLK`.
-   - Data lines `D0-D6` map cleanly to `GPIO33, 32, 17, 16, 15, 13, 12` with zero peripheral overlap.
-   - `SIOD` and `SIOC` attach directly to the existing I2C bus on `GPIO21` and `GPIO22` at 7-bit slave address `0x21`.
-
-2. **Low-Memory I2S DMA Ping-Pong Capture**:
-   - *From Observation 2*, the camera operates in QQVGA (160x120) 8-bit grayscale mode.
-   - OV7670 output in YUV422 produces 320 bytes per row (160 Y bytes + 160 UV bytes).
-   - By using a 2 x 320-byte circular DMA ping-pong descriptor chain (`lldesc_t`), DMA consumes only **640 bytes** of DMA RAM.
-   - The CPU decimates the Y bytes into the 160x120 (19.2 KB) grayscale frame buffer line-by-line during capture, eliminating any need for a 38.4 KB raw YUV buffer and saving critical SRAM for TFLite Micro (~80 KB arena).
-
-3. **Hardware Absence Detection & Host Mock Fallback**:
-   - *From Observation 3*, host tests run in desktop environments without ESP32 registers or physical I2C buses.
-   - Probing the camera at boot via `Wire.beginTransmission(0x21)` and checking `REG_PID` (0x0A) allows the driver to detect physical presence.
-   - If I2C NACK occurs, PID mismatch occurs, or if compiled under `HOST_TEST` / `!defined(ESP32)`, the driver switches into Simulation Mode without crashing or panicking.
-   - In Simulation Mode, `captureFrame()` generates deterministic synthetic test patterns (gradient ramps, synthetic person silhouettes) and supports test array injection (`injectTestFrame()`), enabling full end-to-end host testing.
+1. **Step 1 (Ingestion & Detection)**: From Observation 1, the backend already possesses robust pointer-based nil detection and per-field freshness timestamping. Therefore, the engine can accurately detect precisely which sensors are active vs omitted in real time without architectural restructuring.
+2. **Step 2 (Mock Deficiencies)**: From Observation 2, when sensors are omitted, the simulation engine relies on static constants (flat 30.0°C weather, static 10,000 W solar multipliers, static 12.0°C supply air, empirical strain-based COP). These violate Requirement R2 ("*When a specific physical sensor is unavailable, do not use static mock data. Instead, leverage the Go backend's physics and simulation engine to estimate and derive realistic values*").
+3. **Step 3 (Physics Replacement Formulation)**:
+   - Solar gain can be derived from Spencer/NOAA solar position equations ($\theta_z$, $\text{EoT}$, $\delta$) and ASHRAE/Haurwitz clear-sky global horizontal irradiance ($I_{\text{GHI}}$).
+   - Chiller COP can be derived from Carnot thermodynamic lift ($T_{\text{condenser}} - T_{\text{evaporator}}$) adjusted by isentropic efficiency ($\eta \approx 0.55$) and part-load curves ($f(\text{PLR})$).
+   - Multi-zone 2R1C thermal models can incorporate partition wall conductive terms $\sum \frac{T_j - T_i}{R_{ij}}$.
+   - Supply air temperature can be derived from mixed air enthalpy and cooling coil effectiveness.
+   - Dynamic CO₂ and latent moisture can be modeled via mass-balance differential equations, enabling inverse virtual occupancy sensing.
+4. **Step 4 (Verification & AC1 Compliance)**: From Observation 3 and Steps 1–3, designing a dedicated Go unit and integration test suite (`sensor_fallback_test.go`) with explicit assertions on dynamic diurnal swings, non-zero solar variance, Carnot lift divergence, and mass-balance ODE trajectories satisfies Acceptance Criterion 1.
 
 ---
 
 ## 3. Caveats
 
-1. **Wokwi Simulator OV7670 Support**:
-   - Wokwi does not have a native stock OV7670 part in its public library. The firmware's simulation/mock mode ensures that the ESP32 firmware boots and runs seamlessly in Wokwi without failing or hanging.
-2. **I2C Pull-Up Resistors**:
-   - The shared I2C bus (`GPIO21`, `GPIO22`) already has pull-up resistors for SHT30/ACD1200. Ensure no additional conflicting 5V pull-ups exist on the OV7670 board (must be 3.3V IO compatible).
-3. **GPIO12 Strapping**:
-   - `GPIO12` (MTDI) is a strapping pin for flash voltage selection. It must be low or high-Z at boot. During normal boot, OV7670 data pins are floating/high-Z until initialized, satisfying this condition.
+- **No Caveats**: All sensor ingestion pathways, fallback constants, physical formulations, and test requirements have been thoroughly analyzed and documented.
+- **Assumptions**: Solar geometry calculations assume Ho Chi Minh City coordinates (`lat = 10.8231, lon = 106.6297`) by default, configurable via `WEATHER_LAT` / `WEATHER_LON`.
 
 ---
 
 ## 4. Conclusion
 
-The OV7670 camera driver design meets all requirements:
-1. **SCCB / I2C Config**: Complete register table configured for QQVGA (160x120), YUV422 with Y-channel grayscale extraction, 15 fps framerate, and 20 MHz XCLK.
-2. **I2S0 DMA Engine**: 640-byte ping-pong line DMA buffer with line-by-line Y-decimation into a 19.2 KB internal SRAM frame buffer.
-3. **Pinout**: 100% conflict-free pin mapping across all existing node sensors, relays, IR, and UART0.
-4. **Mock / Fallback Mode**: Graceful degradation on missing hardware and test injection API for host CI test suites.
-
-All findings and code structures are documented in `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_1/analysis.md`.
+The Go backend engine is well-architected for per-field telemetry tracking, but requires updating its sensor fallback mechanisms with first-principles physical models (solar geometry, Carnot chiller lift, multi-zone partition coupling, dynamic coil heat transfer, and mass balances) to eliminate all static mocks. A comprehensive Go unit/integration test suite (`server/simulation/sensor_fallback_test.go`) has been fully designed to verify AC1.
 
 ---
 
 ## 5. Verification Method
 
-1. **Inspect Analysis Report**:
-   - Check `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_1/analysis.md` for register lists, pin mappings, and architectural diagrams.
-2. **Pin Collision Check**:
-   - Cross-verify `camera_config.h` pin mapping against `edge/esp32/src/main.cpp` pin definitions.
-3. **Host Build Verification**:
-   - Verify that wrapping hardware registers in `#ifdef ESP32` allows `test_m2_camera_ml.cpp` to compile off-target with `c++ -std=c++17`.
+1. **Inspect Report**:
+   - Review `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_1/report.md` for complete mathematical equations, audit matrices, and test specifications.
+2. **Execute Go Test Suite (upon implementation)**:
+   - Run: `go test -v ./simulation -run TestSensorFallback` in `server/`.
+   - Invalidation conditions:
+     - Any test returning a static constant (e.g. $q_{\text{solar}} > 0$ at midnight or $\text{COP}(25^\circ\text{C}) == \text{COP}(38^\circ\text{C})$).
+     - Any NaN or $\pm\infty$ generated during numerical Euler integration under omitted sensor states.

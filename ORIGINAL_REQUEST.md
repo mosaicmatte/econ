@@ -1,66 +1,45 @@
 # Original User Request
 
-## Initial Request — 2026-08-29T16:56:34Z
+## Initial Request — 2026-08-30T13:40:25Z
 
-# Teamwork Project Prompt — Draft
+You are the SWE Light orchestrator (teamwork_preview_swe).
+Your working directory is: /Users/nguyenhoangkhoi/Documents/econ/.agents/swe_1
+Workspace root: /Users/nguyenhoangkhoi/Documents/econ
+Authoritative user request file: /Users/nguyenhoangkhoi/Documents/econ/ORIGINAL_REQUEST.md
 
-> Status: Launched
-> Goal: Wait for teamwork_preview execution to complete
-> Requested team: The full agent team
+Task Details:
+1. Dynamic Level Toggle: Update the dashboard codebase so that toggling a building level successfully fetches and displays real telemetry/building data for that specific level, removing any reliance on hardcoded mock data for this feature.
+2. Codebase Scan Report: Scan the frontend and backend codebase for unimplemented features, hardcoded values, and mock data. Produce a clear markdown report (`mock_data_report.md` in the root directory) detailing your findings and where they are located.
 
-Wire the forecasting data (from the TimeFM or LSTM models) directly into the dashboard's recommendations and AI panels, and increase the detail and verbosity of system logs and telemetry across the project.
+Acceptance Criteria:
+- A new Puppeteer/Node test script (e.g., `dashboard/verify_level_toggle.js`) is created and passes. It must programmatically interact with the level toggle in the UI and assert that the underlying data or DOM elements correctly update.
+- `mock_data_report.md` exists in the root directory and contains categorized findings of mock data, hardcoded values, and unimplemented features across the frontend and backend.
+
+Execute the SWE Light process and notify me when complete.
+
+
+## 2026-08-31T04:27:29Z
+
+Replace all remaining hardcoded data in the application with live telemetry from connected sensors. Implement smart fallback logic for unavailable sensors using the simulation engine's physics, and ensure data accurately updates when switching between different Building Information Models (e.g., Office vs. Domestic House).
 
 Working directory: /Users/nguyenhoangkhoi/Documents/econ
 Integrity mode: development
 
 ## Requirements
 
-### R1. Forecast Graph Rendering
-Extend the dashboard's AI panel and recommendations UI to render a visual chart/graph of the output from the TimeFM or LSTM forecasting models. 
+### R1. Live Data Integration
+Audit the codebase and replace any remaining hardcoded or mocked data with live telemetry from the connected hardware sensors and backend APIs.
 
-### R2. End-to-End Forecast Wiring
-Ensure the forecasting backend exposes the graph data, the Go server API proxies/delivers it, and the frontend consumes it to display the chart alongside the existing recommendations.
+### R2. Smart Fallbacks for Missing Sensors
+When a specific physical sensor is unavailable, do not use static mock data. Instead, leverage the Go backend's physics and simulation engine to estimate and derive realistic values based on the data from the sensors that *are* available.
 
-### R3. Detailed Telemetry & Logging
-Increase the logging verbosity to debug level across all relevant services (forecasting, server, and edge). Include the full JSON payloads in the MQTT telemetry logs to make system observability more detailed.
-
-## Acceptance Criteria
-
-### Automated Verification
-- [ ] Integration tests are updated or added to assert that the `GET /api/recommendations` (or equivalent) endpoint correctly returns the forecast graph data.
-- [ ] A programmatic verification script (e.g., Puppeteer/Playwright) successfully runs and checks that the forecast graph/chart element actually renders in the AI panel UI.
-- [ ] A test or script validates that the backend logs now output full MQTT telemetry JSON payloads.
-
-## Follow-up — 2026-08-30T01:10:29Z
-
-# Teamwork Project Prompt — Draft
-
-> Status: Launched
-> Goal: Fix UI bugs and add domestic home toggle
-> Requested team: A small focused team
-
-This is a single self-contained fix; keep it small and focused.
-Fix several UI bugs on the dashboard and add a toggle to switch the 3D view between the 1-level domestic home model and the full multi-level building model.
-
-Working directory: /Users/nguyenhoangkhoi/Documents/econ/dashboard
-Integrity mode: development
-
-## Requirements
-
-### R1. Fix UI Rendering Bugs
-- Fix the top tab bar where text is being cut off (e.g., "PLU..." instead of the full tab name).
-- Fix the 3D visualization rendering bug where the blue connection lines/rays are misaligned, shooting off to incorrect points, or creating a chaotic web when zoomed/panned.
-- Fix the issue where the entire visualization/screen appears darkened (e.g., stuck backdrop overlay, missing ambient lighting, or incorrect opacity settings).
-- Fix the duplicated AI Load Forecast cards in the AI Insights panel. The "AI Load Forecast Trajectory" and "Load Forecast Not Yet Checked" cards currently display the exact same chart and data. Merge them or redesign the UI so they don't duplicate the chart and instead provide complementary, valuable information.
-
-### R2. Add Domestic Home Toggle
-- The codebase already contains the 3D asset for a 1-level domestic home.
-- Add a UI toggle (e.g., a button or switch) below the 3D view that allows the user to switch between the 1-level domestic home model and the default full multi-level building model.
-- Wire this toggle so that the selected 3D asset is correctly loaded and rendered in the viewer.
+### R3. BIM Context Switching
+Implement functionality to switch the active Building Information Model (BIM) entirely—specifically between the office building model and the domestic house model. Ensure that all associated data, rendering, and telemetry context update accurately according to the newly chosen model.
 
 ## Acceptance Criteria
 
-### Automated UI Verification
-- [ ] A Puppeteer/Playwright test script is provided or updated in the `dashboard` directory.
-- [ ] The script automatically toggles the view to the domestic home model and verifies that the UI updates (e.g., by checking for a specific DOM element, canvas state, or log).
-- [ ] The script verifies that the top tab bar renders without truncation.
+### Verification
+- [ ] Go unit/integration tests are written and pass, explicitly asserting that when specific sensor inputs are omitted, the simulation engine calculates realistic derived values using physics models instead of falling back to static mock data.
+- [ ] A new Puppeteer/Node test script (e.g., `dashboard/verify_bim_switching.js`) is created and passes. It must programmatically interact with the BIM toggle to switch between the Office and Domestic House models, and assert that the underlying telemetry context and UI accurately reflect the newly chosen model.
+
+Execute the SWE Light process and notify me when complete.

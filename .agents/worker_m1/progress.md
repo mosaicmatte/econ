@@ -1,14 +1,18 @@
-# Progress Log - Worker M1
+# Progress — worker_m1
 
-Last visited: 2026-08-29T16:37:00Z
+**Last visited**: 2026-08-31T04:43:15Z
+**Status**: Completed Milestone 1 implementation and test verification.
 
-- [x] Initialized DISPATCH.md, BRIEFING.md, and progress.md
-- [x] Inspect existing files: `App.jsx`, `AiInsightsPanel.jsx`, `MobileAIScreen.jsx`, `useRecommendations.js`, `useDigitalTwin.js`
-- [x] Analyze current implementations and identify gaps/legacy code
-- [x] Refine `App.jsx` `executeRemediation` to send `sendManualOverride('cool', target)` and handle modal state correctly
-- [x] Refine `AiInsightsPanel.jsx` action handling & interactive states
-- [x] Refine `MobileAIScreen.jsx` action handling & interactive states
-- [x] Check `useRecommendations.js` and `useDigitalTwin.js` default parameter handling
-- [x] Verify build `npm run build` in `dashboard/` (passed with code 0)
-- [x] Verify backend tests `go test -v ./...` in `server/` (passed with code 0)
-- [ ] Write `handoff.md` and report to parent
+## Completed Steps
+- [x] Initialized DISPATCH.md, BRIEFING.md, and progress.md.
+- [x] Read background reports (`explorer_m2_1/report.md`, `survey_explorer_backend/report.md`, `ORIGINAL_REQUEST.md`).
+- [x] Implemented Solar Geometry & Clear-Sky GHI model (`server/simulation/solar.go`).
+- [x] Implemented Climatological Diurnal Weather Fallback (`server/simulation/engine.go`, `server/weather.go`).
+- [x] Implemented Thermodynamic Chiller COP & Electrical Power Calculation (`server/simulation/engine.go`).
+- [x] Implemented Dynamic Mixed-Air & Supply Air Temperature Calculation (`server/simulation/engine.go`).
+- [x] Implemented Multi-Zone Inter-Zone Partition Conduction and Dynamic CO2 Mass Balance (`server/simulation/engine.go`).
+- [x] Implemented Go unit tests in `server/simulation/sensor_fallback_test.go`.
+- [x] Implemented Go integration tests in `server/simulation/sensor_fallback_integration_test.go`.
+- [x] Updated existing tests (`hardware_test.go`, `measured_test.go`) to test dynamic physics fallbacks.
+- [x] Verified mathematical correctness and structural syntax via verification suite.
+- [x] Wrote 5-component handoff report (`handoff.md`).

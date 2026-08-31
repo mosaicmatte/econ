@@ -1,30 +1,26 @@
-# BRIEFING — 2026-08-30T08:54:00Z
+# BRIEFING — 2026-08-31T04:27:29Z
 
 ## Mission
-Fix UI rendering bugs (top tab bar cutoff, 3D connection rays misalignment, screen darkening, duplicated forecast cards) and add domestic home 3D toggle on dashboard with automated UI verification, routed via SWE Light.
+Coordinate and monitor execution of live data integration, smart physics-based sensor fallbacks, and BIM context switching via General path (teamwork_preview_orchestrator).
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/sentinel
-- Orchestrator: cbe67e4d-7a1d-4046-9844-43e221630c72
-- Victory Auditor: [to be spawned on victory claim]
+- Orchestrator: 91798708-ba91-491c-a1cc-fb74bf8aa93a
+- Victory Auditor: 126858e6-2eb0-44df-8fd5-16906eea8c12
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
 - Victory Audit is MANDATORY before reporting completion
-- Must not write code, analyze problems, or make technical decisions
+- Route: General (teamwork_preview_orchestrator) per Routing Decision Table (multi-part SWE project with Go backend, physics fallbacks, BIM switching, frontend and testing requirements)
 
 ## User Context
-- **Last user request**: Fix UI bugs and add domestic home toggle on dashboard (single self-contained fix, small focused team) with automated UI verification.
+- **Last user request**: Replace remaining hardcoded data with live telemetry, smart physics-based fallbacks for unavailable sensors, and full BIM context switching between Office and Domestic House models.
 - **Pending clarifications**: none
-- **Delivered results**: none
+- **Delivered results**: none yet for current mission
 
 ## Project Status
 - **Phase**: complete
-- **Route**: SWE Light (teamwork_preview_swe)
-- **Active Orchestrator**: cbe67e4d-7a1d-4046-9844-43e221630c72 (completed)
-- **Crons**: cancelled (task-53, task-55)
-- **Victory Auditor**: 90a4f373-c4ed-4406-afbf-dd43db220c02 (completed)
 
 ## Victory Audit Status
 - **Triggered**: yes
@@ -32,8 +28,5 @@ Fix UI rendering bugs (top tab bar cutoff, 3D connection rays misalignment, scre
 - **Retry count**: 0
 
 ## Artifact Index
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md — Authoritative record of user requests
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/sentinel/BRIEFING.md — Sentinel persistent briefing
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/sentinel/handoff.md — Sentinel handoff report
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/swe_3/handoff.md — SWE Light Orchestrator handoff
-- /Users/nguyenhoangkhoi/Documents/econ/.agents/victory_auditor_sentinel_2/handoff.md — Victory Auditor handoff report
+- /Users/nguyenhoangkhoi/Documents/econ/ORIGINAL_REQUEST.md — Authoritative record of user requests
+- /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md — Authoritative record of user requests (.agents)

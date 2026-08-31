@@ -1,17 +1,22 @@
-## 2026-08-29T16:34:14Z
-You are the Worker for Milestone 1: AI Panel & Action Wiring Refinement.
-Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/worker_m1
-Original Request: /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md (read this first!)
-Project Scope: /Users/nguyenhoangkhoi/Documents/econ/PROJECT.md
-Dashboard root: /Users/nguyenhoangkhoi/Documents/econ/dashboard
+## 2026-08-31T04:36:02Z
 
-MANDATORY INTEGRITY WARNING:
-DO NOT CHEAT. All implementations must be genuine. DO NOT hardcode test results, create dummy/facade implementations, or circumvent the intended task. A teamwork_preview_auditor will independently verify your work. Integrity violations WILL be detected and your work WILL be rejected.
-
-Tasks:
-1. Review `dashboard/src/App.jsx`, `dashboard/src/AiInsightsPanel.jsx`, `dashboard/src/MobileAIScreen.jsx`, `dashboard/src/useRecommendations.js`, `dashboard/src/useDigitalTwin.js`.
-2. Ensure the AI modal in `App.jsx` (`executeRemediation`) executes a real manual override via `sendManualOverride('cool', faultTarget)` rather than dispatching legacy scenario strings (`loadScenario('remediating')`), while maintaining appropriate user feedback.
-3. Ensure all action buttons in `AiInsightsPanel.jsx` and `MobileAIScreen.jsx` (`PURGE ZONE`, `FLOOD COOLING`, `ACTIVATE PRE-COOLING`) correctly invoke `sendManualOverride`, provide immediate interactive UI state (e.g. feedback/engaged state, disabling duplicate rapid clicks), and handle live recommendation data cleanly.
-4. Verify the dashboard build passes cleanly with `npm run build` in `dashboard/`.
-5. Document all changes, file paths, and verification results in `/Users/nguyenhoangkhoi/Documents/econ/.agents/worker_m1/handoff.md`.
-6. Update your `progress.md` during execution. When done, send a message to parent.
+Milestone 1 Scope & Implementation Tasks:
+1. Smart Physics Fallbacks for Missing/Omitted Sensors (Requirement R2):
+   - In `server/simulation/engine.go`, `server/weather.go`, `server/simulation/library.go` (and any necessary physics files in `server/simulation/`):
+     a. **Solar Geometry**: Implement astronomical solar zenith angle calculation (Spencer / NOAA algorithm with site coordinates `10.8231° N, 106.6297° E`) and clear-sky GHI irradiance modeling. When `HwLux` sensor is omitted, compute dynamic solar heat gain $q_{\text{solar}}(t)$ based on sun position (strictly 0.0 W at solar midnight, peaking at solar noon).
+     b. **Diurnal Weather Fallback**: In `server/weather.go` / `engine.go`, replace the static flat 30.0°C fallback with a realistic diurnal temperature curve (e.g. 25.0°C–34.0°C daily swing) and diurnal relative humidity curve when Open-Meteo weather is offline.
+     c. **Thermodynamic Chiller COP & Power**: When `HwAcW` current clamp is omitted, calculate chiller electrical power and COP dynamically from thermodynamic lift ($T_{\text{condenser}} - T_{\text{evaporator}}$), Carnot limit, part-load ratio, and thermal strain rather than a flat static constant.
+     d. **Dynamic Supply Air Temperature**: When DS18B20 supply probe is omitted, calculate supply air temperature dynamically from mixed-air temperature ($\alpha_{\text{fresh}} T_{\text{outdoor}} + (1-\alpha_{\text{fresh}}) T_{\text{return}}$) and cooling coil heat exchange balance.
+     e. **Multi-Zone Coupled 2R1C & Dynamic CO2**: Maintain dynamic heat balance and mass balance estimation across zones.
+2. Go Unit & Integration Tests (Acceptance Criterion 1):
+   - Implement `server/simulation/sensor_fallback_test.go` and `server/simulation/sensor_fallback_integration_test.go` explicitly asserting that when sensor inputs (temperature, occupancy, solar lux, AC clamp, plug clamp, supply probe, outdoor weather) are omitted, the simulation engine calculates realistic derived values using physics models instead of falling back to static mock data.
+   - Specifically assert:
+     - Diurnal solar gain is 0 W at midnight and positive at noon.
+     - Offline weather dynamically varies over 24 hours.
+     - Chiller COP dynamically degrades with higher outdoor ambient / thermal lift.
+     - Supply air dynamically reflects coil thermal loading.
+     - Zone thermal ODEs evolve dynamically with adjacent zones and outdoor weather.
+3. Verification:
+   - Run `cd /Users/nguyenhoangkhoi/Documents/econ/server && go test -v -count=1 ./...`
+   - Document all commands, file diffs, and test results in `/Users/nguyenhoangkhoi/Documents/econ/.agents/worker_m1/handoff.md`.
+   - Send a completion message when finished.

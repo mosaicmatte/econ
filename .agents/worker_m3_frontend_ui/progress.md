@@ -1,14 +1,17 @@
-# Progress Log — worker_m3_frontend_ui
+# Progress — worker_m3_frontend_ui
 
-Last visited: 2026-08-29T21:09:40Z
+Last visited: 2026-08-31T04:50:00Z
 
-- [x] Initialized workspace and briefing
-- [x] Inspected relevant dashboard files (`useRecommendations.js`, `AiInsightsPanel.jsx`, `MobileAIScreen.jsx`, `RecommendationEvidence.jsx`, package.json)
-- [x] Implemented `forecast` exposure in `useRecommendations.js` (`report?.forecast || null`)
-- [x] Created `ForecastChart.jsx` component with Recharts, upper decile uncertainty band, LSTM peak reference, and DOM attributes
-- [x] Implemented visual forecast chart in `AiInsightsPanel.jsx` (overview panel and expanded forecast card)
-- [x] Implemented visual forecast chart in `MobileAIScreen.jsx` (screen overview and RecCard)
-- [x] Enhanced forecast trajectory in `RecommendationEvidence.jsx` for load and predictive recommendations
-- [x] Verified build and tests with `npm run build` (Vite build succeeded) and `npm test` (20/20 passed)
-- [x] Wrote handoff report to `handoff.md`
-- [x] Sent message to parent agent
+- [x] Initialized DISPATCH.md and BRIEFING.md
+- [x] Read ORIGINAL_REQUEST.md and background explorer reports
+- [x] Investigate existing dashboard codebase and verify existing tests
+- [x] Implement buildingStore.js backend sync via POST /api/building/switch
+- [x] Implement useDigitalTwin.js zone reset on model switch
+- [x] Implement dynamic calculations in sustainability.js and GlobalMetricsPanel.jsx
+- [x] Ensure reactive UI adaptation in App.jsx, GlobalMetricsPanel.jsx, and React Flow topology
+- [x] Implement dashboard/verify_bim_switching.js (11 E2E test cases)
+- [x] Update dashboard/package.json test scripts
+- [x] Run npm run build (0 errors)
+- [x] Run node verify_bim_switching.js (11/11 passed)
+- [x] Run npm test (44/44 passed across verify_bim_switching.js, verify_level_toggle.js, verify_ai_actions.js)
+- [x] Write handoff.md and notify parent

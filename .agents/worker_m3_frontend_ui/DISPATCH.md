@@ -1,20 +1,52 @@
-## 2026-08-29T21:04:23Z
-You are Worker M3 (Frontend Forecast Graph Rendering & UI Integration).
-Your working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/worker_m3_frontend_ui
-You MUST read /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md and /Users/nguyenhoangkhoi/Documents/econ/PROJECT.md before starting work.
+## 2026-08-31T04:43:42Z
+You are worker_m3_frontend_ui.
+Your working directory is: /Users/nguyenhoangkhoi/Documents/econ/.agents/worker_m3_frontend_ui/
+Authoritative user request file: /Users/nguyenhoangkhoi/Documents/econ/ORIGINAL_REQUEST.md (specifically lines 21-45: Requirement R3 and Acceptance Criterion 2).
 
-DO NOT CHEAT. All implementations must be genuine. DO NOT hardcode test results, create dummy/facade implementations, or circumvent the intended task. A teamwork_preview_auditor will independently verify your work. Integrity violations WILL be detected and your work WILL be rejected.
+Background reports to read before starting:
+- `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2/report.md`
+- `/Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/report.md`
 
-Your task:
-1. In `dashboard/src/useRecommendations.js`, expose the `forecast` object (`report?.forecast || null`) from `GET /api/recommendations`.
-2. In `dashboard/src/AiInsightsPanel.jsx`:
-   - Render a visual chart/graph of the TimeFM or LSTM forecast output directly in the AI insights panel and recommendations UI.
-   - Include forecast series, upper decile uncertainty band, and LSTM peak reference.
-   - Ensure the chart renders reliably with `data-testid="forecast-chart"` or class `.forecast-chart-container` / `.forecast-chart` / `svg.forecast-chart` / Recharts `<ResponsiveContainer>` so it is programmatically detectable by Puppeteer.
-   - Handle both live data from `/api/forecast/compare` and embedded data from `/api/recommendations` gracefully with robust fallbacks.
-3. In `dashboard/src/MobileAIScreen.jsx`:
-   - Render the forecast chart / visual sparkline graph in the mobile AI recommendations screen as well.
-4. In `dashboard/src/RecommendationEvidence.jsx`:
-   - Provide visual forecast trajectory curve for load / predictive recommendations.
-5. In `dashboard/`, run `npm run build` and `npm test` to verify everything builds and existing tests pass.
-6. Write your handoff report to `/Users/nguyenhoangkhoi/Documents/econ/.agents/worker_m3_frontend_ui/handoff.md` and send a message.
+MANDATORY INTEGRITY WARNING:
+DO NOT CHEAT. All implementations must be genuine. DO NOT hardcode test results, create dummy/facade implementations, or circumvent the intended task. A forensic auditor will independently verify your work. Integrity violations WILL be detected and your work WILL be rejected.
+
+File Ownership: You own exclusively files under `dashboard/`:
+- `dashboard/src/buildingStore.js`
+- `dashboard/src/useDigitalTwin.js`
+- `dashboard/src/sustainability.js`
+- `dashboard/src/GlobalMetricsPanel.jsx`
+- `dashboard/src/App.jsx`
+- `dashboard/verify_bim_switching.js`
+- `dashboard/package.json`
+
+Milestone 3 Scope & Implementation Tasks:
+1. Frontend BIM Model Switching Synchronization (Requirement R3):
+   - In `dashboard/src/buildingStore.js`:
+     - When `setBuildingModelType(type)` is called, notify the Go backend via `fetch('${API_BASE}/api/building/switch', { method: 'POST', body: JSON.stringify({ model: type }) })` and/or WebSocket message so the backend reloads the active building model in sync.
+   - In `dashboard/src/useDigitalTwin.js`:
+     - Subscribe to building model changes or reset `simData.zones` on model switch so that incoming telemetry packets immediately bind to the new building zones without displaying stale/orphaned zones from the previous model.
+   - In `dashboard/src/sustainability.js`:
+     - Update `FLOOR_AREA_M2`, `ZONE_MIX`, and `IS_IT_DOMINATED` to evaluate dynamically against `getBuilding()` so that floor area reflects ~72 m² for Domestic House and ~39,776 m² for Office Tower.
+   - Ensure 3D canvas (`BuildingModel.jsx`), floor level buttons, active floor selection, P&ID topology, and telemetry profiler reactively adapt when switching between Office and Domestic House.
+2. Puppeteer Verification Test (Acceptance Criterion 2):
+   - Implement `dashboard/verify_bim_switching.js`:
+     - Launch headless Puppeteer (with `--no-sandbox`, `--disable-setuid-sandbox` args).
+     - Must programmatically interact with the BIM toggle (`data-testid="building-model-toggle"`, `data-testid="toggle-domestic-home"`, `data-testid="toggle-multilevel"`).
+     - Assert that initial state is Multi-Level Office model (15 floor buttons, ~39,776 m² floor area, multiple levels).
+     - Click `toggle-domestic-home` and assert:
+       - Active model switches to Domestic House (`bldg-econ-house-hcmc`).
+       - Level toggle reduces to 1 button (`L1`).
+       - Selected level display shows `L1`.
+       - Topology nodes update to 6 nodes (1 AHU + 5 Domestic House zones).
+       - Global metrics and telemetry reflect 5 domestic zones.
+     - Click `toggle-multilevel` and assert clean restoration of Office model (15 floors, 90+ zones).
+     - Include rapid toggle stress test (switching back and forth with zero errors/crashes).
+     - Return exit code 0 on success, non-zero on failure.
+   - In `dashboard/package.json`:
+     - Add `"test"` script: `"node verify_bim_switching.js && node verify_level_toggle.js && node verify_ai_actions.js"` (or ensure `npm test` runs `verify_bim_switching.js`).
+3. Verification:
+   - Run `cd /Users/nguyenhoangkhoi/Documents/econ/dashboard && npm run build`
+   - Run `node verify_bim_switching.js`
+   - Run `npm test`
+   - Document all changes and test outputs in `/Users/nguyenhoangkhoi/Documents/econ/.agents/worker_m3_frontend_ui/handoff.md`.
+   - Send completion message when finished.

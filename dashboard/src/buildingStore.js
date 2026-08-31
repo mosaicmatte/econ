@@ -38,6 +38,14 @@ export function setBuildingModelType(type) {
   if (type !== 'multi-level' && type !== 'domestic-home') return;
   if (activeModelType !== type) {
     activeModelType = type;
+    // Notify Go backend of the active building model switch
+    fetch(`${API_BASE}/api/building/switch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: type }),
+    }).catch(() => {
+      // Backend might be offline or running in mock testbed mode
+    });
     listeners.forEach((fn) => {
       try { fn(getBuilding(), activeModelType); } catch (e) { console.error(e); }
     });

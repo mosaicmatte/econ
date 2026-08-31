@@ -1,47 +1,52 @@
-# BRIEFING — 2026-08-26T04:08:50Z
+# BRIEFING — 2026-08-31T04:33:30Z
 
 ## Mission
-Investigate TFLite Micro ML Pipeline (model architecture, int8 quantization, tensor arena SRAM allocation, OpResolver configuration, inference execution loop, person score/confidence extraction, and host test / mock fallback).
+Investigate BIM model switching, telemetry binding, UI components, and design the Puppeteer verification script `dashboard/verify_bim_switching.js` for Requirement R3 / AC2.
 
 ## 🔒 My Identity
 - Archetype: explorer
-- Roles: investigation, analysis, synthesis
-- Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2
-- Original parent: 9c20399a-d56c-4ec4-96fd-a7c4f6d7a923
-- Milestone: Milestone 2 (TFLite Micro ML Pipeline)
+- Roles: frontend_bim_explorer
+- Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2/
+- Original parent: 91798708-ba91-491c-a1cc-fb74bf8aa93a
+- Milestone: m2_bim_frontend_investigation
 
 ## 🔒 Key Constraints
-- Read-only investigation — do NOT implement production source code
-- Files for content delivery (.agents/explorer_m2_2/*.md), messages for coordination
-- Self-contained 5-component handoff report (Observation, Logic Chain, Caveats, Conclusion, Verification Method)
+- Read-only investigation — do NOT modify application source code (only write reports and analysis in own agent folder)
+- Address Requirement R3 and Acceptance Criterion 2 from ORIGINAL_REQUEST.md
 
 ## Current Parent
-- Conversation ID: 9c20399a-d56c-4ec4-96fd-a7c4f6d7a923
-- Updated: 2026-08-26T04:06:42Z
+- Conversation ID: 91798708-ba91-491c-a1cc-fb74bf8aa93a
+- Updated: 2026-08-31T04:33:30Z
 
 ## Investigation State
 - **Explored paths**:
-  - `edge/esp32/platformio.ini` (target configuration, dependencies, partition setup)
-  - `PROJECT.md` & `SCOPE.md` (contract interfaces, tracking schema, file ownership)
-  - `edge/esp32/src/main.cpp` (PIR sensor sampling, telemetry pipeline, event loop)
-  - `edge/esp32/test/` (host test infrastructure: `run_host_tests.sh`, `arduino_shim.h`)
-  - `.agents/survey_explorer_1/survey_report.md` & `.agents/survey_explorer_2/survey_report.md`
+  - `dashboard/src/buildingStore.js`
+  - `dashboard/src/building-data.json`
+  - `dashboard/src/building-data-home.json`
+  - `dashboard/src/App.jsx`
+  - `dashboard/src/useDigitalTwin.js`
+  - `dashboard/src/BuildingModel.jsx`
+  - `dashboard/src/GlobalMetricsPanel.jsx`
+  - `dashboard/src/TelemetryPanel.jsx`
+  - `dashboard/src/HardwareInspector.jsx`
+  - `dashboard/src/MobileApp.jsx`
+  - `dashboard/src/floorGeometry.js`
+  - `dashboard/src/sustainability.js`
+  - `dashboard/verify_level_toggle.js`
+  - `dashboard/verify_ai_actions.js`
 - **Key findings**:
-  - Visual Wake Words 96x96 int8 MobileNet model weights (~250-300 KB) fit cleanly in Flash `.rodata`, mapped to DROM with 0 bytes SRAM at rest.
-  - Tensor arena of 80 KB (`alignas(16)`) in internal SRAM provides ample headroom for peak activations (~37 KB) and TFLM metadata.
-  - `MicroMutableOpResolver<8>` selectively links only necessary CNN operators (Conv2D, DepthwiseConv2D, AveragePool2D, MaxPool2D, Reshape, FullyConnected, Softmax, Add), saving ~450 KB flash over `AllOpsResolver`.
-  - Int8 dequantization formula $(q - Z) \times S$ with dual-threshold hysteresis ($T_{\text{enter}}=0.60, T_{\text{exit}}=0.40$) and 2-frame debounce prevents presence flapping.
-  - Dual-mode architecture enables native TFLM on ESP32 and deterministic mock engine on host platforms, allowing 100% CI host test execution without hardware dependencies.
-- **Unexplored areas**:
-  - Camera hardware I2S DMA registers (investigated by Explorer 1)
-  - Frame preprocessor bilinear downsampling implementation & test fixture generation (investigated by Explorer 3)
+  - `buildingStore.js` exposes `setBuildingModelType` and `subscribeBuildingChange` for reactive model switching between `multi-level` (15 floors, 1350 zones, 60x40m) and `domestic-home` (1 floor, 5 zones, 13.56x5.51m).
+  - UI model toggle is located at `bottom: 5.2rem`, `left: 50%` with `data-testid="building-model-toggle"` and buttons `data-testid="toggle-multilevel"` and `data-testid="toggle-domestic-home"`.
+  - Model switching cleanly resets `selectedZone` to `null`, clamps/resets `activeFloor`, updates 3D bounding footprint/camera framing via `getFootprint()`, updates available level buttons (`availableFloors`), re-renders React Flow P&ID topology nodes (5 nodes vs 90 nodes per floor), and dynamically filters live telemetry in `GlobalMetricsPanel.jsx`.
+  - Designed complete verification test suite `dashboard/verify_bim_switching.js` verifying structural/mathematical invariants and Puppeteer headless browser interactions against compiled Vite bundle.
+- **Unexplored areas**: None.
 
 ## Key Decisions Made
-- Structured complete ML pipeline architecture, memory layout, and C++ interfaces for `model_data.h/.cpp` and `person_detector.h/.cpp`.
-- Designed dual-mode implementation allowing mock inference in host testing without losing fidelity on real hardware.
+- Fully documented technical analysis in `report.md` and synthesized into 5-component `handoff.md`.
 
 ## Artifact Index
-- `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2/BRIEFING.md` — Persistent working memory
-- `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2/progress.md` — Task progress & heartbeat
-- `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2/analysis.md` — Detailed technical analysis report
-- `/Users/nguyenhoangkhoi/Documents/econ/.agents/explorer_m2_2/handoff.md` — 5-component handoff report
+- `DISPATCH.md` — Initial user and parent instructions
+- `BRIEFING.md` — Situational awareness and state
+- `progress.md` — Heartbeat and execution step log
+- `report.md` — Comprehensive technical analysis and test design
+- `handoff.md` — 5-component handoff report

@@ -3,6 +3,7 @@ package main
 import (
 	"econ/simulation"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -16,29 +17,18 @@ import (
 var upgrader = websocket.Upgrader{CheckOrigin: checkOrigin}
 
 func main() {
-	// 1. Serve static building data
-	http.HandleFunc("/api/building-data", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		data, err := os.ReadFile(simulation.DataPath(simulation.BuildingDataFile))
-		if err != nil {
-			http.Error(w, "Failed to read building data", http.StatusInternalServerError)
-			return
-		}
-		w.Write(data)
-	})
+	// Initialize simulation engine
+	engine := simulation.NewEngine()
 
-	// 2. Serve Brick Ontology Data
-	http.HandleFunc("/api/ontology", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		data, err := os.ReadFile(simulation.DataPath(simulation.OntologyFile))
-		if err != nil {
-			http.Error(w, "Failed to read ontology data", http.StatusInternalServerError)
-			return
-		}
-		w.Write(data)
-	})
+	// 1. Serve building data (supports ?model=home|office|domestic-home|multi-level)
+	http.HandleFunc("/api/building-data", buildingDataHandler(engine))
+
+	// 1b. Dynamic building model switching endpoints
+	http.HandleFunc("/api/building/switch", buildingSwitchHandler(engine))
+	http.HandleFunc("/api/model/switch", buildingSwitchHandler(engine))
+
+	// 2. Serve Brick Ontology Data (supports ?model=home|office)
+	http.HandleFunc("/api/ontology", ontologyDataHandler(engine))
 
 	// 2b. Serve the programme library's dashboard-facing view.
 	//
@@ -52,10 +42,6 @@ func main() {
 	// Registered below, once the engine exists: the view carries the building id and the
 	// occupancy model version, which is how a browser knows whether the window it has been
 	// accumulating in localStorage still describes the series the engine is producing.
-
-	// Initialize simulation engine
-	engine := simulation.NewEngine()
-
 	http.HandleFunc("/api/library", func(w http.ResponseWriter, r *http.Request) {
 		if corsPreflight(w, r) {
 			return
@@ -69,6 +55,7 @@ func main() {
 	engine.Persist = persistReading
 	http.HandleFunc("/api/history", historyHandler)
 	// [GEMINI IMPLEMENTATION END]
+
 
 	// Generic per-zone, per-metric time series (TimescaleDB). The read path for
 	// everything the engine persists beyond the two hardcoded history charts — most
@@ -259,6 +246,37 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, engine *simulation.
 				}
 				if json.Unmarshal(msg, &ap) == nil && ap.Action == "autopilot" && ap.Value != nil {
 					engine.SetAutoPilot(*ap.Value)
+					return
+				}
+				// Model switch command: {"action": "switch_model", "model": "..."} or {"action": "switch_building", "model": "..."}
+				var sm struct {
+					Action string `json:"action"`
+					Model  string `json:"model"`
+				}
+				if json.Unmarshal(msg, &sm) == nil && (sm.Action == "switch_model" || sm.Action == "switch_building") && sm.Model != "" {
+					targetFile := simulation.ModelFileFor(sm.Model)
+					if targetFile == "" {
+						log.Printf("[ws] unknown model switch target: %q", sm.Model)
+						_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","error":"unknown model"}`))
+						return
+					}
+					data, err := os.ReadFile(simulation.DataPath(targetFile))
+					if err != nil {
+						log.Printf("[ws] failed to read building file %q: %v", targetFile, err)
+						_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","error":"failed to read model file"}`))
+						return
+					}
+					if err := engine.ReloadBuilding(data); err != nil {
+						log.Printf("[ws] failed to reload building: %v", err)
+						_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","error":"failed to reload building"}`))
+						return
+					}
+					log.Printf("[ws] successfully switched model to %q (%s, %d zones, %d vavs)",
+						sm.Model, engine.BuildingId(), len(engine.Zones), len(engine.Vavs))
+					_ = conn.WriteMessage(websocket.TextMessage, []byte(
+						fmt.Sprintf(`{"type":"switch_model","ok":true,"model":%q,"buildingId":%q,"zones":%d,"vavs":%d}`,
+							sm.Model, engine.BuildingId(), len(engine.Zones), len(engine.Vavs)),
+					))
 					return
 				}
 				var override map[string]string

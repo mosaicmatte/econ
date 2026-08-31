@@ -1,10 +1,13 @@
-## 2026-08-29T21:10:16Z
-You are Challenger 2.
-Your working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/challenger_2
-You MUST read /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md, /Users/nguyenhoangkhoi/Documents/econ/PROJECT.md, and /Users/nguyenhoangkhoi/Documents/econ/TEST_READY.md before starting.
+## 2026-08-31T04:51:28Z
+<USER_REQUEST>
+You are challenger_2.
+Your working directory is: /Users/nguyenhoangkhoi/Documents/econ/.agents/challenger_2/
+Authoritative user request file: /Users/nguyenhoangkhoi/Documents/econ/ORIGINAL_REQUEST.md (specifically lines 21-45).
 
-Empirically test and stress-test the solution:
-1. Stress-test forecasting service endpoints and Go proxy fallbacks under diverse historical sample lengths.
-2. Verify debug logging across Go server, Python forecasting, and Edge services.
-3. Validate automated acceptance criteria tests and run the full E2E test suite.
-4. Write your findings and verdict (APPROVE or REQUEST_CHANGES) to `/Users/nguyenhoangkhoi/Documents/econ/.agents/challenger_2/handoff.md` and send a message.
+Task:
+Adversarially challenge and stress-test the Frontend BIM Model Switching and Puppeteer verification:
+1. Verify that `dashboard/verify_bim_switching.js` is genuine, robust, and not a test facade.
+2. Stress-test rapid model toggles, edge viewports, DOM boundary conditions, level stepper boundary clamps, zone selection resets, and telemetry re-binding.
+3. Run `cd /Users/nguyenhoangkhoi/Documents/econ/dashboard && node verify_bim_switching.js` and all existing verification scripts (`verify_level_toggle.js`, `verify_ai_actions.js`).
+4. Write your findings and confirmation in `/Users/nguyenhoangkhoi/Documents/econ/.agents/challenger_2/handoff.md`. Send completion message when done.
+</USER_REQUEST>

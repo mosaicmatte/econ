@@ -1,18 +1,14 @@
-## 2026-08-29T16:30:48Z
-You are a survey Explorer for the backend and sensor integration APIs.
-Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_backend
-Original Request: /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md (read this first!)
-Project root: /Users/nguyenhoangkhoi/Documents/econ
+## 2026-08-31T04:28:32Z
+<USER_REQUEST>
+You are survey_explorer_backend.
+Your working directory is: /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_backend/
+Authoritative user request file: /Users/nguyenhoangkhoi/Documents/econ/ORIGINAL_REQUEST.md
 
-Objective:
-Investigate the backend and sensor integration codebase to identify:
-1. Where the backend server code resides (e.g. Python Flask/FastAPI, Node.js Express, Go, etc.).
-2. What existing API endpoints exist for AI recommendations (e.g. GET `/api/recommendations` or similar) and actions execution (e.g. POST `/api/actions`, `/api/recommendations/:id/apply`, etc.).
-3. How sensor states and building commands are stored, updated, or dispatched in the backend (in-memory state, DB, MQTT/serial/WebSocket, building control systems, simulated sensors).
-4. What endpoints exist for fetching sensor states or verifying state changes (e.g. GET `/api/sensors`, GET `/api/system/status`, etc.).
-5. How backend is run/started, port configurations, and dependencies.
-6. Exact file paths, routes, payload schemas, and response formats.
+Task: Survey the backend and physics simulation engine for the requirements in ORIGINAL_REQUEST.md (lines 21-45):
+1. R1: Live Data Integration — Audit `server/` and `server/simulation/` for any hardcoded/mock data or static constants that should be replaced with live sensor data or dynamic calculations.
+2. R2: Smart Fallbacks for Missing Sensors — Analyze how the Go physics simulation engine currently handles missing physical sensors (e.g. missing temperature, occupancy, solar irradiance, power/current clamps, CO2, humidity). How does the 2R1C thermal model, solar radiation, HVAC/chiller COP, and ambient airflow derive realistic estimates from available sensors (e.g. outdoor weather, adjacent zone temperatures, thermal inertia, energy balance)? What changes are needed to ensure no static mock values are used?
+3. R3 / Acceptance Criterion 1: Go unit/integration tests asserting that when specific sensor inputs are omitted, the simulation engine calculates realistic derived values using physics models instead of static mock data.
 
-Write your comprehensive investigation report to `/Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_backend/handoff.md`.
-Update your `progress.md` during execution.
-When complete, send a message to parent with your summary and report path.
+Inspect the codebase, identify existing tests and implementation files, and write a comprehensive survey report to `/Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_backend/report.md` and your `handoff.md`.
+Send a completion message when done.
+</USER_REQUEST>

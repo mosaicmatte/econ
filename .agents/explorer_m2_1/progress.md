@@ -1,14 +1,12 @@
-# Progress Log — explorer_m2_1
+# Progress
 
-**Last visited**: 2026-08-26T04:08:55Z
-**Status**: COMPLETE
+Last visited: 2026-08-31T04:33:00Z
 
-## Tasks
-- [x] Initial setup (DISPATCH.md, BRIEFING.md, progress.md)
-- [x] Inspect workspace files (`ORIGINAL_REQUEST.md`, `PROJECT.md`, `SCOPE.md`, `platformio.ini`, `node_config.h`, etc.)
-- [x] Deep dive into OV7670 register sequences (SCCB addressing, COM7/COM14/CLKRC/SCALING registers for QQVGA 160x120 YUV422/Y-only grayscale, prescalers, test patterns)
-- [x] Deep dive into ESP32 I2S parallel camera capture mode & DMA descriptor chaining
-- [x] Comprehensive GPIO pinout mapping & conflict matrix (ESP32-WROOM-32, LoRa SX1276, BME680, I2C, SPI, Strapping pins, Input-only pins)
-- [x] Hardware fallback, absence detection, error handling, mock sensor generation for host/native testing
-- [x] Produce `analysis.md` and `handoff.md`
-- [x] Send handoff notification message to parent
+- [x] Initialized workspace and briefing
+- [x] Read ORIGINAL_REQUEST.md lines 21-45 (Requirement R2, AC1)
+- [x] Search & map sensor ingestion across `server/` and `server/simulation/`
+- [x] Identify all static mock fallbacks & hardcoded defaults
+- [x] Formulate physics-based estimation equations (2R1C thermal model, Carnot/Gordon-Ng COP calculation, solar geometry/flux, occupancy/equipment power, CO2/humidity mass balance)
+- [x] Design Go unit & integration test suite for Acceptance Criterion 1
+- [x] Synthesize findings into `report.md` and `handoff.md`
+- [x] Notify parent agent

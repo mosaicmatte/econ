@@ -1,51 +1,54 @@
-# BRIEFING — 2026-08-30T04:14:00+07:00
+# BRIEFING — 2026-08-31T04:56:15Z
 
 ## Mission
-Empirically stress-test forecasting endpoints/fallbacks under diverse sample lengths, verify debug logging across Go/Python/Edge, validate automated acceptance criteria, and execute full E2E test suite.
+Adversarially challenge and stress-test Frontend BIM Model Switching and Puppeteer verification suite, ensuring tests are genuine and UI handles rapid toggles, edge viewports, DOM boundary conditions, level stepper boundary clamps, zone selection resets, and telemetry re-binding.
 
 ## 🔒 My Identity
-- Archetype: empirical challenger
+- Archetype: challenger
 - Roles: critic, specialist
 - Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/challenger_2
-- Original parent: 67f8d29d-b628-4da9-8215-f56c47033ab3
-- Milestone: M4 Comprehensive E2E Verification & Adversarial Hardening
+- Original parent: 91798708-ba91-491c-a1cc-fb74bf8aa93a
+- Milestone: M3 / Verification
 - Instance: 2 of 2
 
 ## 🔒 Key Constraints
-- Review-only — do NOT modify implementation code (report findings/bugs directly)
-- Must empirically execute all tests, generators, oracles, and stress harnesses
-- Follow 5-Component Handoff Report protocol
+- Review-only — do NOT modify implementation code unless specifically testing or reporting findings.
+- All challenges must be empirical (executed code, observed outputs).
+- Do not trust unverified claims.
 
 ## Current Parent
-- Conversation ID: 67f8d29d-b628-4da9-8215-f56c47033ab3
-- Updated: 2026-08-30T04:14:00+07:00
+- Conversation ID: 91798708-ba91-491c-a1cc-fb74bf8aa93a
+- Updated: 2026-08-31T04:56:15Z
 
 ## Review Scope
-- **Files reviewed**:
-  - `backend/forecasting/main.py`, `backend/forecasting/timesfm_forecaster.py`, `backend/forecasting/model.py`
-  - `server/forecast.go`, `server/recommendapi.go`, `server/mqtt.go`, `server/logger.go`, `server/simulation/recommend.go`
-  - `edge/raspberry_pi/gateway.py`, `ai_modules/branch_a_occupancy/yolo_bytetrack/yolo_tracker.py`, `edge/esp32/esp32_emulator.py`
-  - `dashboard/src/AiInsightsPanel.jsx`, `dashboard/src/ForecastChart.jsx`, `dashboard/src/useRecommendations.js`, `dashboard/src/MobileAIScreen.jsx`, `dashboard/verify_ai_actions.js`
-- **Interface contracts**: `PROJECT.md`
-- **Review criteria**: Empirical stress-testing, robustness under diverse sample lengths (0..1000+), debug telemetry logging, acceptance criteria verification.
+- **Files to review**:
+  - `dashboard/verify_bim_switching.js`
+  - `dashboard/verify_level_toggle.js`
+  - `dashboard/verify_ai_actions.js`
+  - `dashboard/verify_adversarial_bim.js`
+  - `dashboard/src/App.jsx`
+  - `dashboard/src/buildingStore.js`
+  - `dashboard/src/sustainability.js`
+  - `dashboard/src/GlobalMetricsPanel.jsx`
+- **Review criteria**:
+  - Genuine test verification (no test facades / tautological mocks)
+  - Stress testing rapid model toggles, edge viewports, DOM boundaries, level boundary clamps, zone resets, telemetry re-binding.
 
 ## Attack Surface
 - **Hypotheses tested**:
-  1. Forecasting endpoint and Go proxy fallback under diverse sample lengths (0 cold-start, 1, 7 below min, 8 exact min, 24, 100, 500+): Passed.
-  2. Chaos & error resilience (500 internal crash, 503 unavailable, malformed JSON, empty arrays, extreme horizons 1..256): Handled gracefully with fallback synthesis.
-  3. High-throughput concurrency & thread-safety (50 concurrent query goroutines + 2 background workers, 2000 queries): Passed with zero data races.
-  4. Telemetry logging format integrity with raw full JSON extraction across unicode, nested payloads, escape sequences, and 8KB buffers: Passed byte-for-byte.
-  5. Multi-tier E2E suites: 100% pass across Go unit/integration/adversarial tests, Puppeteer E2E tests (20/20), ESP32 host tests (93/93), and Python compilation.
-- **Vulnerabilities found**: None. System demonstrates extreme fault tolerance, clean fallback degradation, strict schema adherence, and accurate logging.
+  1. H1: `verify_bim_switching.js` might be a mock facade that tests memory mocks instead of compiled DOM bundle. (DISPROVEN: Launches real Puppeteer headless browser loading compiled Vite bundle, interacting with DOM buttons, checking React Flow node mutations, checking SVG paths and text nodes).
+  2. H2: Rapid model toggling produces race conditions or unhandled runtime exceptions. (DISPROVEN: 20 rapid switches at 50ms intervals produce 0 errors and leave DOM in coherent state).
+  3. H3: Switching from high floor (e.g. L15) to single-floor model causes out-of-bounds floor indexing. (DISPROVEN: Stepper and selected level display clamp immediately to L1; stepper next/prev remain strictly clamped).
+  4. H4: Zone selection from previous model creates orphan references in right-side HUD dock. (DISPROVEN: Switching BIM models resets `selectedZone` to null and dock cleanly displays Enterprise Overview).
+  5. H5: Static server port collision on 5193/5194 causes EADDRINUSE crash. (MITIGATED: Added ephemeral port 0 fallback in server listener).
+- **Vulnerabilities found**:
+  - Port collision when previous test runners occupy 5193/5194 -> Fixed with ephemeral port fallback.
+  - Race condition on slow bundle boot with fixed `setTimeout(1500)` -> Fixed with deterministic `waitForSelector('[data-testid="building-model-toggle"]')`.
 - **Untested angles**: None.
 
-## Loaded Skills
-- None loaded.
-
 ## Key Decisions Made
-- Verdict: **APPROVE**. All acceptance criteria empirically verified with zero regressions.
+- Executed all existing test suites and created comprehensive adversarial stress harness `verify_adversarial_bim.js`.
+- Verified 100% pass across 51 total tests (11 BIM switching + 13 level toggle + 20 AI actions + 7 adversarial).
 
 ## Artifact Index
-- `.agents/challenger_2/DISPATCH.md` — Initial dispatch message
-- `.agents/challenger_2/progress.md` — Liveness & progress tracker
-- `.agents/challenger_2/handoff.md` — Final 5-component report
+- `/Users/nguyenhoangkhoi/Documents/econ/.agents/challenger_2/handoff.md` — Final handoff report

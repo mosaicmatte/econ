@@ -6,13 +6,12 @@
 // a constant standing in for data. Floor area comes from the digitized zone polygons (the same
 // building-data.json the engine loads), so a regenerated building recomputes everything.
 
-import { getBuilding } from './buildingStore';
-const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
+import { getBuilding, subscribeBuildingChange } from './buildingStore.js';
 
 const num = (v, d) => (v != null && !Number.isNaN(Number(v)) ? Number(v) : d);
 
 // Shoelace formula: signed area of a simple polygon, in m² (zone polygons are metres).
-const polygonArea = (p) => {
+export const polygonArea = (p) => {
   if (!Array.isArray(p) || p.length < 3) return 0;
   let a = 0;
   for (let i = 0; i < p.length; i++) {
@@ -23,17 +22,18 @@ const polygonArea = (p) => {
   return Math.abs(a) / 2;
 };
 
-const ZONES = (buildingData.floors || []).flatMap((f) => f.zones || []);
+// Dynamic helper functions evaluating against active or provided building model
+export function getFloorAreaM2(building = getBuilding()) {
+  const b = building || getBuilding();
+  const zones = (b?.floors || []).flatMap((f) => f.zones || []);
+  return zones.reduce((s, z) => s + polygonArea(z.polygon), 0);
+}
 
-// Total conditioned floor area (m²), summed once from the real digitized geometry.
-export const FLOOR_AREA_M2 = ZONES.reduce((s, z) => s + polygonArea(z.polygon), 0);
-
-// What this building actually is, by connected internal load. It matters: an EUI is only
-// comparable against a cohort of the same building type, and this one is dominated by
-// server rooms, not desks.
-export const ZONE_MIX = (() => {
+export function getZoneMix(building = getBuilding()) {
+  const b = building || getBuilding();
+  const zones = (b?.floors || []).flatMap((f) => f.zones || []);
   const by = {};
-  ZONES.forEach((z) => {
+  zones.forEach((z) => {
     const t = z.zoneType || 'unknown';
     const w = z.thermalProperties?.baseHeatLoad || 0;
     by[t] = by[t] || { count: 0, watts: 0, area: 0 };
@@ -45,19 +45,28 @@ export const ZONE_MIX = (() => {
   const ranked = Object.entries(by)
     .map(([type, v]) => ({ type, ...v, loadShare: v.watts / totalW }))
     .sort((a, b) => b.watts - a.watts);
-  return { byType: ranked, dominant: ranked[0], totalW };
-})();
+  return { byType: ranked, dominant: ranked[0] || { type: 'unknown', loadShare: 0, watts: 0, area: 0 }, totalW };
+}
 
-// True when connected load is dominated by IT/server space — i.e. when comparing this
-// building against an *office* EUI cohort would be meaningless.
-// The `it` alternative in the old pattern was a bare two-letter substring, so it matched
-// any programme whose NAME happens to contain those letters — `kitchen` most obviously.
-// A house whose largest connected load was the kitchen would have declared itself an
-// IT-dominated building and suppressed its own EUI benchmark. Match whole hyphen- or
-// word-separated tokens, and name the programmes the digitizer actually emits.
 const IT_PROGRAMME = /(^|[-_\s])(server|comms|data|datacentre|datacenter|it)([-_\s]|$)/i;
-export const IS_IT_DOMINATED = (ZONE_MIX.dominant?.loadShare ?? 0) > 0.5
-  && IT_PROGRAMME.test(ZONE_MIX.dominant?.type || '');
+
+export function getIsItDominated(building = getBuilding()) {
+  const mix = getZoneMix(building);
+  return (mix.dominant?.loadShare ?? 0) > 0.5
+    && IT_PROGRAMME.test(mix.dominant?.type || '');
+}
+
+// Live module-scope exports for backwards compatibility & direct usage
+export let FLOOR_AREA_M2 = getFloorAreaM2();
+export let ZONE_MIX = getZoneMix();
+export let IS_IT_DOMINATED = getIsItDominated();
+
+// Synchronize module-level exports whenever active building model changes
+subscribeBuildingChange((b) => {
+  FLOOR_AREA_M2 = getFloorAreaM2(b);
+  ZONE_MIX = getZoneMix(b);
+  IS_IT_DOMINATED = getIsItDominated(b);
+});
 
 // Office EUI cohort, Vietnam. Survey of 57 commercial + government office buildings
 // (Vietnam Clean Energy Program, 2015; Proc. ICEC 2021, doi:10.55066/proc-icec.2021.19).
@@ -71,38 +80,29 @@ export const EUI_BENCHMARK = {
 // Vietnam grid emission factor (kgCO₂e per kWh). Vietnam's grid is >60% coal and gas, so the
 // carbon intensity of a saved kWh is high relative to temperate markets. Override per site or
 // reporting year with VITE_GRID_EF_KG_KWH as MONRE republishes it.
-export const GRID_EF_KG_PER_KWH = num(import.meta.env.VITE_GRID_EF_KG_KWH, 0.6766);
+export const GRID_EF_KG_PER_KWH = num(import.meta.env?.VITE_GRID_EF_KG_KWH, 0.6766);
 
 // Instantaneous run-rate: what the annual intensity WOULD be if the building held its
-// current load every hour of the year. Useful as a live rate; it is not an EUI, and it must
-// never be compared to the cohort — an office at 09:00 with 3,000 people in it is nowhere
-// near its own annual average, so the comparison reads ~3x high and means nothing. Sampled
-// at a quiet hour the same formula reads far too low. Use euiFromMeanLoadMw for anything
-// that sits next to a benchmark.
-export function euiRunRateFromLoadMw(loadMw) {
-  if (!(FLOOR_AREA_M2 > 0)) return 0;
-  return (Math.max(0, loadMw) * 1000 * 8760) / FLOOR_AREA_M2; // kWh/m²·year
+// current load every hour of the year.
+export function euiRunRateFromLoadMw(loadMw, building = getBuilding()) {
+  const area = getFloorAreaM2(building);
+  if (!(area > 0)) return 0;
+  return (Math.max(0, loadMw) * 1000 * 8760) / area; // kWh/m²·year
 }
 
-// Annualised EUI from the MEAN load actually observed. Mean load x 8760 is the building's
-// energy over a year by definition, so this is the correct estimator rather than a fudge —
-// it simply needs enough of the daily cycle to be representative, which is what
-// EUI_MIN_WINDOW_H guards. Short of that window the comparison is withheld instead of
-// being shown with a caveat nobody reads.
-export function euiFromMeanLoadMw(meanLoadMw) {
-  if (!(FLOOR_AREA_M2 > 0)) return 0;
-  return (Math.max(0, meanLoadMw) * 1000 * 8760) / FLOOR_AREA_M2; // kWh/m²·year
+// Annualised EUI from the MEAN load actually observed.
+export function euiFromMeanLoadMw(meanLoadMw, building = getBuilding()) {
+  const area = getFloorAreaM2(building);
+  if (!(area > 0)) return 0;
+  return (Math.max(0, meanLoadMw) * 1000 * 8760) / area; // kWh/m²·year
 }
 
-// Hours of observation before a mean is worth comparing to an annual figure. A full day
-// covers the occupied peak, the overnight base and both shoulders; less than that and the
-// mean is a statement about which hours happened to be sampled.
+// Hours of observation before a mean is worth comparing to an annual figure.
 export const EUI_MIN_WINDOW_H = 24;
 
 // How this building sits against the office cohort, as a ratio (1.0 = on the benchmark).
-// Takes a MEAN load — passing an instantaneous one is the error this file exists to prevent.
-export function euiVsBenchmark(meanLoadMw, benchmark = EUI_BENCHMARK.hcmc) {
-  return benchmark > 0 ? euiFromMeanLoadMw(meanLoadMw) / benchmark : 0;
+export function euiVsBenchmark(meanLoadMw, benchmark = EUI_BENCHMARK.hcmc, building = getBuilding()) {
+  return benchmark > 0 ? euiFromMeanLoadMw(meanLoadMw, building) / benchmark : 0;
 }
 
 // Operational carbon from grid electricity (Scope 2), at the live load.

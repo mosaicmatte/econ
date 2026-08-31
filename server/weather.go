@@ -27,17 +27,13 @@ func weatherCoord(env string, fallback float64) float64 {
 	return fallback
 }
 
-// weatherLoop feeds live outdoor temperature into the 2R1C envelope. Until it succeeds
-// once — and again if the feed goes stale — the engine integrates against its
-// climatological fallback, so a dead network degrades to exactly the behaviour the
-// engine shipped with, never to a frozen or invented reading.
 // SiteLat / SiteLon are the coordinates every weather consumer must agree on. The
 // dashboard needs them too — its sky background picks a time-of-day phase from the site's
 // sunrise and sunset — and it had them typed in as literals in two components, so a
 // deployment that moved the building with WEATHER_LAT/WEATHER_LON would have kept
 // rendering Ho Chi Minh City's sky over a building the physics had already relocated.
-func SiteLat() float64 { return weatherCoord("WEATHER_LAT", 10.8231) }
-func SiteLon() float64 { return weatherCoord("WEATHER_LON", 106.6297) }
+func SiteLat() float64 { return simulation.SiteLat() }
+func SiteLon() float64 { return simulation.SiteLon() }
 
 func weatherLoop(engine *simulation.Engine) {
 	lat := SiteLat()

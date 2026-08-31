@@ -1,35 +1,42 @@
 # Original User Request
 
-## Initial Request — 2026-08-30T01:54:04Z
+## 2026-08-30T13:40:06Z
 
-# Teamwork Project Prompt — Draft
+This is a single self-contained fix; keep it small and focused. 
+Update the dashboard so that data changes dynamically when toggling a building level in the UI. Additionally, scan the project to identify unimplemented features, hardcoded values, and mock data.
 
-> Status: Launched
-> Goal: Fix UI bugs and add domestic home toggle
-> Requested team: A small focused team
-
-This is a single self-contained fix; keep it small and focused.
-Fix several UI bugs on the dashboard and add a toggle to switch the 3D view between the 1-level domestic home model and the full multi-level building model.
-
-Working directory: /Users/nguyenhoangkhoi/Documents/econ/dashboard
+Working directory: /Users/nguyenhoangkhoi/Documents/econ
 Integrity mode: development
 
 ## Requirements
 
-### R1. Fix UI Rendering Bugs
-- Fix the top tab bar where text is being cut off (e.g., "PLU..." instead of the full tab name).
-- Fix the 3D visualization rendering bug where the blue connection lines/rays are misaligned, shooting off to incorrect points, or creating a chaotic web when zoomed/panned.
-- Fix the issue where the entire visualization/screen appears darkened (e.g., stuck backdrop overlay, missing ambient lighting, or incorrect opacity settings).
-- Fix the duplicated AI Load Forecast cards in the AI Insights panel. The "AI Load Forecast Trajectory" and "Load Forecast Not Yet Checked" cards currently display the exact same chart and data. Merge them or redesign the UI so they don't duplicate the chart and instead provide complementary, valuable information.
+### R1. Dynamic Level Toggle
+Update the dashboard codebase so that toggling a building level successfully fetches and displays real telemetry/building data for that specific level, removing any reliance on hardcoded mock data for this feature.
 
-### R2. Add Domestic Home Toggle
-- The codebase already contains the 3D asset for a 1-level domestic home.
-- Add a UI toggle (e.g., a button or switch) below the 3D view that allows the user to switch between the 1-level domestic home model and the default full multi-level building model.
-- Wire this toggle so that the selected 3D asset is correctly loaded and rendered in the viewer.
+### R2. Codebase Scan Report
+Scan the frontend and backend codebase for unimplemented features, hardcoded values, and mock data. Produce a clear markdown report (`mock_data_report.md`) detailing your findings and where they are located.
+
+
+## 2026-08-31T04:27:29Z
+
+Replace all remaining hardcoded data in the application with live telemetry from connected sensors. Implement smart fallback logic for unavailable sensors using the simulation engine's physics, and ensure data accurately updates when switching between different Building Information Models (e.g., Office vs. Domestic House).
+
+Working directory: /Users/nguyenhoangkhoi/Documents/econ
+Integrity mode: development
+
+## Requirements
+
+### R1. Live Data Integration
+Audit the codebase and replace any remaining hardcoded or mocked data with live telemetry from the connected hardware sensors and backend APIs.
+
+### R2. Smart Fallbacks for Missing Sensors
+When a specific physical sensor is unavailable, do not use static mock data. Instead, leverage the Go backend's physics and simulation engine to estimate and derive realistic values based on the data from the sensors that *are* available.
+
+### R3. BIM Context Switching
+Implement functionality to switch the active Building Information Model (BIM) entirely—specifically between the office building model and the domestic house model. Ensure that all associated data, rendering, and telemetry context update accurately according to the newly chosen model.
 
 ## Acceptance Criteria
 
-### Automated UI Verification
-- [ ] A Puppeteer/Playwright test script is provided or updated in the `dashboard` directory.
-- [ ] The script automatically toggles the view to the domestic home model and verifies that the UI updates (e.g., by checking for a specific DOM element, canvas state, or log).
-- [ ] The script verifies that the top tab bar renders without truncation.
+### Verification
+- [ ] Go unit/integration tests are written and pass, explicitly asserting that when specific sensor inputs are omitted, the simulation engine calculates realistic derived values using physics models instead of falling back to static mock data.
+- [ ] A new Puppeteer/Node test script (e.g., `dashboard/verify_bim_switching.js`) is created and passes. It must programmatically interact with the BIM toggle to switch between the Office and Domestic House models, and assert that the underlying telemetry context and UI accurately reflect the newly chosen model.

@@ -15,3 +15,18 @@ Evaluate the implementation against the Acceptance Criteria defined in ORIGINAL_
 5. Run the test suite: `cd /Users/nguyenhoangkhoi/Documents/econ/edge/esp32 && ./test/run_all_e2e_tests.sh`
 6. Write your comprehensive evaluation report and definitive verdict (APPROVE / REQUEST_CHANGES) in `/Users/nguyenhoangkhoi/Documents/econ/.agents/reviewer_judge_1/handoff.md`.
 7. Send a completion message to your parent.
+
+## 2026-08-31T04:51:27Z
+
+You are reviewer_judge_1.
+Your working directory is: /Users/nguyenhoangkhoi/Documents/econ/.agents/reviewer_judge_1/
+Authoritative user request file: /Users/nguyenhoangkhoi/Documents/econ/ORIGINAL_REQUEST.md (specifically lines 21-45: Requirements R1, R2, R3, and Acceptance Criteria).
+
+Task:
+Perform an objective and rigorous review of the Go backend implementations:
+1. Physics-based smart fallbacks in `server/simulation/solar.go`, `server/simulation/engine.go`, `server/weather.go` (solar zenith & clear-sky GHI, diurnal weather curve, Carnot chiller COP, dynamic supply air, multi-zone 2R1C).
+2. Go unit/integration test suites in `server/simulation/sensor_fallback_test.go` and `server/simulation/sensor_fallback_integration_test.go` (Acceptance Criterion 1).
+3. Backend BIM model switching in `server/modelswitch.go`, `server/data/building-data-home.json`, `server/main.go`, and `server/building_switching_test.go`.
+4. Run Go tests: `cd /Users/nguyenhoangkhoi/Documents/econ/server && go test -v -count=1 ./...`
+5. Write your detailed evaluation and APPROVE / REQUEST_CHANGES verdict in `/Users/nguyenhoangkhoi/Documents/econ/.agents/reviewer_judge_1/handoff.md`. Send completion message when done.
+

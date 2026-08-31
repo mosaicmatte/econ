@@ -133,27 +133,29 @@ func TestDaylightScalesSolarGainOnlyWhenUncontaminated(t *testing.T) {
 	z := &ZoneSim{SolarGainMult: 0.5, LightsOn: false}
 	reference := 0.5 * ph.SolarGainReferenceW
 
-	if got := z.solarGainW(); got != reference {
-		t.Fatalf("no sensor: want the library reference %.0f W, got %.0f", reference, got)
+	// When sensor is omitted, solar gain follows dynamic clear-sky solar geometry.
+	expectedFallback := z.solarGainWAt(time.Now())
+	if got := z.solarGainW(); math.Abs(got-expectedFallback) > 1e-6 {
+		t.Fatalf("no sensor: want dynamic solar geometry %.1f W, got %.1f", expectedFallback, got)
 	}
 
-	// Half the reference illuminance -> half the solar gain.
+	// Half the reference illuminance -> half the reference solar gain.
 	z.HwLux, z.HwLuxAt = ph.DaylightReferenceLux/2, time.Now()
 	if got := z.solarGainW(); math.Abs(got-reference/2) > 1e-9 {
 		t.Fatalf("want %.0f W at half reference lux, got %.0f", reference/2, got)
 	}
 
-	// Lights on: the reading is contaminated by the luminaires, so it must be ignored.
+	// Lights on: the reading is contaminated by the luminaires, so it falls back to dynamic solar geometry.
 	z.LightsOn = true
-	if got := z.solarGainW(); got != reference {
-		t.Fatalf("lights on: want the reference %.0f W, got %.0f", reference, got)
+	if got := z.solarGainW(); math.Abs(got-expectedFallback) > 1e-6 {
+		t.Fatalf("lights on: want dynamic solar fallback %.1f W, got %.1f", expectedFallback, got)
 	}
 	z.LightsOn = false
 
-	// Stale: back to the reference.
+	// Stale: back to dynamic solar fallback.
 	z.HwLuxAt = time.Now().Add(-2 * hwStaleAfter)
-	if got := z.solarGainW(); got != reference {
-		t.Fatalf("stale sensor: want the reference %.0f W, got %.0f", reference, got)
+	if got := z.solarGainW(); math.Abs(got-expectedFallback) > 1e-6 {
+		t.Fatalf("stale sensor: want dynamic solar fallback %.1f W, got %.1f", expectedFallback, got)
 	}
 
 	// Direct sun on a badly-placed probe must not be able to run away with the balance.

@@ -1,21 +1,9 @@
-## 2026-08-29T16:30:48Z
+## 2026-08-31T04:28:32Z
 
-<USER_REQUEST>
-You are a survey Explorer for the frontend dashboard.
-Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend
-Original Request: /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md (read this first!)
-Project root: /Users/nguyenhoangkhoi/Documents/econ
-Target directory: /Users/nguyenhoangkhoi/Documents/econ/dashboard
+Task: Survey the frontend dashboard and BIM context switching for the requirements in ORIGINAL_REQUEST.md (lines 21-45):
+1. R1: Live Data Integration — Audit `dashboard/` for any remaining hardcoded/mocked data in UI panels, store, or telemetry hooks.
+2. R3: BIM Context Switching — Analyze how Building Information Models (BIM) are managed in `dashboard/` (e.g. `buildingStore.js`, `building-data.json`, `building-data-home.json`, 3D views, zone telemetry, level toggles, P&ID schematic, topology). How can the user toggle/switch between the Office building model and the Domestic House model? Ensure that all associated data, 3D rendering, zone trees, levels, and telemetry context update accurately according to the newly chosen model.
+3. Acceptance Criterion 2: Design and investigate requirements for a new Puppeteer/Node test script `dashboard/verify_bim_switching.js` that programmatically interacts with the BIM toggle to switch between Office and Domestic House models and asserts that underlying telemetry context and UI accurately reflect the newly chosen model. Check `dashboard/package.json` for test runners, existing test scripts (`verify_level_toggle.js`, `verify_ai_actions.js`, etc.).
 
-Objective:
-Investigate the dashboard frontend codebase to identify:
-1. How the AI panel, recommendations, and actions are currently implemented in the frontend (components, state management, UI elements, buttons).
-2. Where hardcoded or mocked recommendation data is located vs where API calls are made or should be made.
-3. What UI interactions/buttons exist for applying recommendations or triggering actions, and how click events/actions are currently handled.
-4. Frontend build system, package.json dependencies, framework (React/Vue/Svelte/vanilla/etc.), dev/build/test scripts, and API client configuration (e.g. baseURL, proxy, fetch/axios, WebSocket, SSE).
-5. Exact list of files, functions, and components involved.
-
-Write your comprehensive investigation report to `/Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/handoff.md`.
-Update your `progress.md` during execution.
-When complete, send a message to parent with your summary and report path.
-</USER_REQUEST>
+Inspect the codebase, identify existing UI components and test scripts, and write a comprehensive survey report to `/Users/nguyenhoangkhoi/Documents/econ/.agents/survey_explorer_frontend/report.md` and your `handoff.md`.
+Send a completion message when done.
