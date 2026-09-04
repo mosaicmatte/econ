@@ -76,3 +76,5 @@ server/.env
 server/docker-compose.override.yml
 docker-compose.override.yml
 build/
+.tools/
+.agents/

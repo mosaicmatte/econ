@@ -1999,12 +1999,22 @@ func (e *Engine) tick(dt float64) {
 			sp = 24.0
 		}
 
-		rIn := math.Max(z.RIn, 0.0001)
-		rOut := math.Max(z.ROut, 0.0001)
-		cAir := math.Max(z.CAir, Phys().MinZoneCapacitanceJPerK)
+		if z.WallTemp <= 0 {
+			z.WallTemp = z.Temp
+		}
+		rIn := z.RIn
+		if rIn <= 0 {
+			rIn = 0.001
+		}
+		rOut := z.ROut
+		if rOut <= 0 {
+			rOut = 0.0011
+		}
+		cAir := z.CAir
 		if cAir <= 0 {
 			cAir = 5e5
 		}
+		cAir = math.Max(cAir, Phys().MinZoneCapacitanceJPerK)
 		cWall := z.CWall
 		if cWall <= 0 {
 			cWall = 4e6

@@ -12,6 +12,8 @@ import (
 // under `go test`, which exercises the (intended) empty-building fallback.
 func newTestEngine() *Engine {
 	e := NewEngine()
+	e.Zones = make(map[string]*ZoneSim)
+	e.Vavs = make(map[string]*VavSim)
 	for _, id := range []string{"zone-office-a", "zone-office-b", "zone-office-c"} {
 		e.Zones[id] = &ZoneSim{
 			Temp: 24, WallTemp: 24, Type: "office",
@@ -29,7 +31,11 @@ func newTestEngine() *Engine {
 			Damper:      1.0,
 		}
 	}
-	e.Zones["zone-corridor-x"] = &ZoneSim{Temp: 24, Type: "corridor", AreaM2: 25.0, Co2Sim: 400.0}
+	e.Zones["zone-corridor-x"] = &ZoneSim{
+		Temp: 24, WallTemp: 24, Type: "corridor",
+		CAir: 2.5e5, CWall: 2e6, RIn: 0.001, ROut: 0.0011,
+		AreaM2: 25.0, Co2Sim: 400.0,
+	}
 	return e
 }
 

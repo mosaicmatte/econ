@@ -349,9 +349,9 @@ func TestAdversarialCompleteSensorOmission10000Ticks(t *testing.T) {
 			var maxLoad, minLoad float64
 			minLoad = 1e9
 
-			// Run 5,000 steps (~1.4 hours of continuous simulation)
+			// Run 5,000 steps across a full diurnal day
 			for step := 0; step < 5000; step++ {
-				simTime := startTime.Add(time.Duration(step) * time.Second)
+				simTime := startTime.Add(time.Duration(step) * 18 * time.Second)
 
 				// Tick physics
 				e.tick(dt)
