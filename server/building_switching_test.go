@@ -436,10 +436,25 @@ func TestFlatBuffersSimStateMatchesSwitchedBuilding(t *testing.T) {
 	}
 	defer ws.Close()
 
-	// Force one broadcast tick
+	// Keep broadcasting while waiting so the test does not race websocket
+	// registration under CI scheduling jitter.
+	done := make(chan struct{})
+	go func() {
+		tick := time.NewTicker(50 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-tick.C:
+				engine.BroadcastOnce()
+			}
+		}
+	}()
+	defer close(done)
 	engine.BroadcastOnce()
 
-	// Read binary frame
+	// Read binary frame.
 	_ = ws.SetReadDeadline(time.Now().Add(3 * time.Second))
 	for {
 		msgType, data, err := ws.ReadMessage()
