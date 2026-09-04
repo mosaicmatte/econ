@@ -144,6 +144,11 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   // clamping it turns that regressor from a simulation artifact into a measurement.
   #define USE_AC_CLAMP 0
 #endif
+#ifndef USE_STRIP
+  // ACS712 Hall-effect current sensor on power strip, GPIO35 (ADC1 channel 7, input-only).
+  // Measures inline load current for power strip metering. True-RMS algorithm removes ~2.5V DC offset.
+  #define USE_STRIP 1
+#endif
 #ifndef USE_LUX
   // BH1750 ambient light (I2C 0x23), facing the facade.
   //
@@ -163,6 +168,12 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #endif
   #ifndef AC_MAINS_V
     #define AC_MAINS_V 220.0f
+  #endif
+#endif
+
+#if USE_STRIP
+  #ifndef STRIP_ADC_PIN
+    #define STRIP_ADC_PIN 35
   #endif
 #endif
 
@@ -582,6 +593,28 @@ float readAcAmps() {
 }
 #endif
 
+#if USE_STRIP
+// True-RMS current over ~100 ms (≈5 mains cycles at 50 Hz) for ACS712 power strip sensor.
+// Subtracts the ~2.5V DC bias dynamically as the window mean, and calculates RMS of AC residue.
+// Returns amps, or -1 when the sampling window was starved (< 100 samples).
+float readStripAmps() {
+  double sum = 0, sumSq = 0;
+  int n = 0;
+  unsigned long start = millis();
+  while (millis() - start < 100) {
+    int v = analogRead(STRIP_ADC_PIN);
+    sum += v;
+    sumSq += (double)v * v;
+    n++;
+  }
+  if (n < 100) return -1;
+  double mean = sum / n;
+  double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
+  float amps = (float)(rmsCounts * (3.3 / 4095.0) * gCfg.stripCalAPerV);
+  return amps < 0.10 ? 0.0f : amps;  // below noise floor = genuinely off
+}
+#endif
+
 #if USE_LUX
 // BH1750 in one-time high-resolution mode: 1 lx resolution, ~120 ms conversion. One-shot
 // rather than continuous so the part returns to low power between the node's 5 s cycles.
@@ -689,7 +722,7 @@ void onMessage(char* topic, byte* payload, unsigned int len) {
 // or failed its read is omitted, so the engine keeps modelling it rather than trusting an
 // invented number.
 void readAndPublish() {
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<384> doc;
   doc["zone"]   = ZONE_LABEL;
   doc["source"] = "esp32";
   // Configuration revision. A calibration change alters the MEANING of plugW/acW, so a
@@ -773,6 +806,14 @@ void readAndPublish() {
   }
   doc["plug"] = plugOn ? "ON" : "OFF";
 #endif
+#if USE_STRIP
+  float stripAmps = readStripAmps();
+  if (stripAmps >= 0) {
+    doc["stripW"] = round(stripAmps * gCfg.plugMainsV * 10) / 10.0;
+  } else {
+    Serial.println("[strip] ADC window starved -> omitted (engine keeps modelling)");
+  }
+#endif
 
   // --- measurements that replace a modelled value in the twin ---
   // Each is omitted when its sensor is absent or failed, never defaulted: the engine
@@ -804,7 +845,7 @@ void readAndPublish() {
   doc["acReal"] = false;
 #endif
 
-  char buf[288];
+  char buf[384];
   size_t n = serializeJson(doc, buf);
   client.publish(TELEMETRY_TOPIC, buf, n);
   Serial.printf("[mqtt] pub %s -> %s\n", TELEMETRY_TOPIC, buf);
@@ -934,6 +975,11 @@ void setup() {
   analogReadResolution(12);
   Serial.printf("[plug] SCT-013 on GPIO%d (cal %.1f A/V), relay on GPIO%d\n",
                 PLUG_ADC_PIN, (double)gCfg.plugCalAPerV, PLUG_RELAY_PIN);
+#endif
+#if USE_STRIP
+  analogReadResolution(12);
+  Serial.printf("[strip] ACS712 on GPIO%d (cal %.1f A/V) — power strip metering\n",
+                STRIP_ADC_PIN, (double)gCfg.stripCalAPerV);
 #endif
 #if USE_SUPPLY_TEMP
   supplyProbe.begin();

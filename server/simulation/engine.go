@@ -114,6 +114,8 @@ type ZoneSim struct {
 	PlugVacantSince       time.Time // zero while occupied; set at the moment occupancy hits 0
 	HwPlugW               float64
 	HwPlugAt              time.Time
+	HwStripW              float64
+	HwStripAt             time.Time
 	LastBroadcastPlugShed bool
 	// Physics-grounded AFDD (roadmap challenge 2): while a real sensor pins this zone,
 	// ShadowTemp keeps integrating the pure 2R1C model with NO sensor pull. The smoothed
@@ -597,6 +599,7 @@ type Measurement struct {
 	AcW       *float64
 	Lux       *float64
 	PlugW     *float64 // measured plug-circuit draw (SCT-013 clamp), watts
+	StripW    *float64 // measured power-strip draw (ACS712 sensor), watts
 	Source    string
 	TempReal  bool
 	// AcReal reports whether the node's setpoint commands actually reach an air
@@ -665,6 +668,10 @@ func (e *Engine) IngestTelemetry(zoneRef, topicSuffix string, m Measurement) {
 	if m.PlugW != nil {
 		z.HwPlugW = *m.PlugW
 		z.HwPlugAt = time.Now()
+	}
+	if m.StripW != nil {
+		z.HwStripW = *m.StripW
+		z.HwStripAt = time.Now()
 	}
 	// Measurements that displace an assumption in the model. Each carries its own
 	// arrival time for the same reason every other field does: a probe that falls out of
@@ -1005,6 +1012,10 @@ func (z *ZoneSim) luxFresh() bool {
 	return !z.HwLuxAt.IsZero() && time.Since(z.HwLuxAt) < hwStaleAfter
 }
 
+func (z *ZoneSim) stripFresh() bool {
+	return !z.HwStripAt.IsZero() && time.Since(z.HwStripAt) < hwStaleAfter
+}
+
 // supplyC is the discharge temperature the cooling law is evaluated against: a DS18B20 in
 // the louvre when one is reporting, the library's design value otherwise. The cooling law
 // divides by (setpoint − supply), so a probe reading at or above setpoint is rejected as
@@ -1121,6 +1132,7 @@ func (e *Engine) SetNodeStatus(topicSuffix string, online bool) {
 			z.HwHumAt = time.Time{}
 			z.HwCo2At = time.Time{}
 			z.HwPlugAt = time.Time{}
+			z.HwStripAt = time.Time{}
 		}
 	}
 }
@@ -1467,6 +1479,7 @@ type HardwareNode struct {
 	// APLC: live clamp watts (0 = no meter reporting) and current sweep state.
 	PlugW    float64 `json:"plugW"`
 	PlugShed bool    `json:"plugShed"`
+	StripW   float64 `json:"stripW"`
 	// Closed-loop AC control: whether this node's setpoint commands reach a real machine.
 	// AcControlKnown is false for firmware predating the acReal field.
 	AcReal         bool `json:"acReal"`
@@ -1487,7 +1500,7 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 		// Report an environmental only while its own sensor is still reporting, so this
 		// endpoint agrees with the telemetry stream rather than showing a last-known value
 		// the dashboard has already dropped.
-		hum, co2, plugW := 0.0, 0.0, 0.0
+		hum, co2, plugW, stripW := 0.0, 0.0, 0.0, 0.0
 		if z.humFresh() {
 			hum = z.HwHum
 		}
@@ -1496,6 +1509,9 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 		}
 		if z.plugFresh() {
 			plugW = z.HwPlugW
+		}
+		if z.stripFresh() {
+			stripW = z.HwStripW
 		}
 		out = append(out, HardwareNode{
 			ZoneId:     id,
@@ -1516,6 +1532,7 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 			AfddAlert:  z.ShadowTemp != 0 && z.ResidualEma > afddThreshold,
 			PlugW:      plugW,
 			PlugShed:   z.PlugShed,
+			StripW:     stripW,
 			// Whether this node's setpoint commands actually reach an air conditioner.
 			AcReal:         z.HwAcReal,
 			AcControlKnown: z.HwAcRealSeen,
@@ -2250,6 +2267,11 @@ func (e *Engine) broadcast() {
 			// distinguishable at the far end.
 			Telemetry.ZoneDataAddSupplyC(builder, float32(z.supplyC(z.Setpoint)))
 			Telemetry.ZoneDataAddSupplyReal(builder, z.supplyFresh() && z.HwSupplyC > 0)
+			var stripW float64
+			if z.stripFresh() {
+				stripW = z.HwStripW
+			}
+			Telemetry.ZoneDataAddStripW(builder, float32(stripW))
 			zoneOffsets = append(zoneOffsets, Telemetry.ZoneDataEnd(builder))
 		}
 	}

@@ -37,8 +37,9 @@ type reading struct {
 	zone    string
 	stype   string
 	value   float64
-	device  string // MQTT topic suffix of the node that reported it; "" = engine-computed
-	quality string // one of the Quality* constants
+	device  string   // MQTT topic suffix of the node that reported it; "" = engine-computed
+	quality string   // one of the Quality* constants
+	stripW  *float64 // Power Strip Watts (ACS712 sensor); nil when not applicable
 }
 
 // writeCh decouples the engine's broadcast goroutine (30 fps hot path) from the
@@ -86,6 +87,8 @@ func migrateSchema() {
 		// they simply carry NULL, which reads as "written before provenance was tracked".
 		`ALTER TABLE sensor_readings ADD COLUMN IF NOT EXISTS device_id TEXT`,
 		`ALTER TABLE sensor_readings ADD COLUMN IF NOT EXISTS quality   TEXT`,
+		`ALTER TABLE sensor_readings ADD COLUMN IF NOT EXISTS strip_w DOUBLE PRECISION`,
+		`CREATE OR REPLACE VIEW telemetry AS SELECT * FROM sensor_readings`,
 		`CREATE INDEX IF NOT EXISTS idx_readings_device ON sensor_readings (device_id, time DESC)`,
 
 		// Node lifecycle, separate from the sample stream. A dropout is an event, not a
@@ -121,8 +124,13 @@ func persistReading(zoneId, sensorType string, value float64) {
 // that reported it. This is the counterpart to persistReading: same table, same batching,
 // but the row carries provenance so a later reader can separate evidence from simulation.
 func persistMeasured(deviceId, zoneId, sensorType string, value float64) {
+	var sw *float64
+	if sensorType == "stripW" {
+		v := value
+		sw = &v
+	}
 	enqueue(reading{t: time.Now(), zone: zoneId, stype: sensorType, value: value,
-		device: deviceId, quality: QualityMeasured})
+		device: deviceId, quality: QualityMeasured, stripW: sw})
 }
 
 func enqueue(r reading) {
@@ -168,19 +176,25 @@ func writeLoop() {
 			return
 		}
 		var sb strings.Builder
-		sb.WriteString("INSERT INTO sensor_readings (time, zone_id, sensor_type, value, device_id, quality) VALUES ")
-		args := make([]interface{}, 0, len(buf)*6)
+		sb.WriteString("INSERT INTO sensor_readings (time, zone_id, sensor_type, value, device_id, quality, strip_w) VALUES ")
+		args := make([]interface{}, 0, len(buf)*7)
 		for i, r := range buf {
 			if i > 0 {
 				sb.WriteByte(',')
 			}
-			n := i * 6
-			fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d)", n+1, n+2, n+3, n+4, n+5, n+6)
+			n := i * 7
+			fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d,$%d)", n+1, n+2, n+3, n+4, n+5, n+6, n+7)
 			var dev interface{} // NULL rather than "" so "no device" is unambiguous in SQL
 			if r.device != "" {
 				dev = r.device
 			}
-			args = append(args, r.t, r.zone, r.stype, r.value, dev, r.quality)
+			var stripW interface{}
+			if r.stripW != nil {
+				stripW = *r.stripW
+			} else if r.stype == "stripW" {
+				stripW = r.value
+			}
+			args = append(args, r.t, r.zone, r.stype, r.value, dev, r.quality, stripW)
 		}
 		if _, err := DB.Exec(sb.String(), args...); err != nil {
 			log.Printf("[db] batch insert failed (%d rows): %v", len(buf), err)
@@ -292,6 +306,7 @@ var seriesAllowed = map[string]bool{
 	"temp": true, "occupancy": true, "humidity": true, "co2": true,
 	"afddResidual": true, "buildingLoadMw": true, "coolingOutputMw": true,
 	"systemHealth": true, "avgCo2": true, "plugKw": true, "totalOccupants": true,
+	"stripW": true,
 	// Plant efficiency: the modelled curve and, where an AC clamp is fitted, the COP the
 	// plant is actually achieving. Charting them together is how a drifting chiller shows up.
 	"plantCop": true, "measuredCop": true, "meteredAcKw": true,

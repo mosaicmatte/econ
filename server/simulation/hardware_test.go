@@ -513,3 +513,53 @@ func findNode(t *testing.T, e *Engine, topic string) HardwareNode {
 	t.Fatalf("no hardware node bound to topic %q", topic)
 	return HardwareNode{}
 }
+
+func TestStripWIngestedAndSurfaced(t *testing.T) {
+	e := newTestEngine()
+
+	// Ingest telemetry with StripW
+	e.IngestTelemetry("Level 4", "zone_1", Measurement{
+		Occupancy: ip(2),
+		Source:    "esp32",
+		StripW:    fp(185.4),
+	})
+
+	n := findNode(t, e, "zone_1")
+	if n.StripW != 185.4 {
+		t.Fatalf("expected StripW 185.4, got %v", n.StripW)
+	}
+
+	var targetZone *ZoneSim
+	for _, z := range e.Zones {
+		if z.MqttTopic == "zone_1" {
+			targetZone = z
+			break
+		}
+	}
+	if targetZone == nil {
+		t.Fatal("zone_1 not bound to any zone")
+	}
+	if !targetZone.stripFresh() {
+		t.Fatal("expected stripFresh() to be true right after ingestion")
+	}
+	if targetZone.HwStripW != 185.4 {
+		t.Fatalf("expected HwStripW 185.4, got %v", targetZone.HwStripW)
+	}
+
+	// Staleness test
+	targetZone.HwStripAt = time.Now().Add(-2 * hwStaleAfter)
+	if targetZone.stripFresh() {
+		t.Fatal("expected stripFresh() to be false when stale")
+	}
+	nStale := findNode(t, e, "zone_1")
+	if nStale.StripW != 0.0 {
+		t.Fatalf("stale strip sensor must read as 0.0 in HardwareStatus, got %v", nStale.StripW)
+	}
+
+	// Re-fresh and test offline transition
+	targetZone.HwStripAt = time.Now()
+	e.SetNodeStatus("zone_1", false)
+	if targetZone.stripFresh() {
+		t.Fatal("expected stripFresh() to be false after node went offline")
+	}
+}

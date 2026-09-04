@@ -67,6 +67,9 @@
 #ifndef AC_MAINS_V
   #define AC_MAINS_V 220.0f
 #endif
+#ifndef STRIP_CAL_A_PER_V
+  #define STRIP_CAL_A_PER_V 15.0f
+#endif
 // Touch presence hysteresis, as a percentage of the boot-time baseline. Enter on a firm
 // touch, leave only after recovering most of the way — the literals 62 and 82 come from
 // the observed 3<->0 occupancy flapping these were introduced to stop.
@@ -94,6 +97,7 @@ struct NodeConfig {
   float    plugMainsV;            // assumed mains voltage for the plug circuit
   float    acCalAPerV;            // SCT-013 on the AC supply
   float    acMainsV;
+  float    stripCalAPerV;         // ACS712 strip sensor: amps per volt at ADC
   uint8_t  touchEnterPct;         // capacitive presence hysteresis, % of baseline
   uint8_t  touchExitPct;
   uint8_t  touchOccupants;        // headcount reported while the pad is held
@@ -113,6 +117,7 @@ inline NodeConfig cfgDefaults() {
   c.plugMainsV        = (float)PLUG_MAINS_V;
   c.acCalAPerV        = (float)AC_CAL_A_PER_V;
   c.acMainsV          = (float)AC_MAINS_V;
+  c.stripCalAPerV     = (float)STRIP_CAL_A_PER_V;
   c.touchEnterPct     = TOUCH_ENTER_PCT_DEFAULT;
   c.touchExitPct      = TOUCH_EXIT_PCT_DEFAULT;
   c.touchOccupants    = TOUCH_OCCUPANTS_DEFAULT;
@@ -155,6 +160,8 @@ inline bool cfgValidate(const NodeConfig& c) {
     return cfgFail("plugCalAPerV %.3f outside 1..500 A/V", (double)c.plugCalAPerV);
   if (!(c.acCalAPerV >= 1.0f && c.acCalAPerV <= 500.0f))
     return cfgFail("acCalAPerV %.3f outside 1..500 A/V", (double)c.acCalAPerV);
+  if (!(c.stripCalAPerV >= 1.0f && c.stripCalAPerV <= 500.0f))
+    return cfgFail("stripCalAPerV %.3f outside 1..500 A/V", (double)c.stripCalAPerV);
   if (!(c.plugMainsV >= 90.0f && c.plugMainsV <= 260.0f))
     return cfgFail("plugMainsV %.1f outside 90..260 V", (double)c.plugMainsV);
   if (!(c.acMainsV >= 90.0f && c.acMainsV <= 260.0f))
@@ -247,6 +254,7 @@ inline bool cfgApplyJson(const JsonDocument& doc, bool& outReset) {
   if (doc.containsKey("plugMainsV"))        next.plugMainsV        = doc["plugMainsV"];
   if (doc.containsKey("acCalAPerV"))        next.acCalAPerV        = doc["acCalAPerV"];
   if (doc.containsKey("acMainsV"))          next.acMainsV          = doc["acMainsV"];
+  if (doc.containsKey("stripCalAPerV"))     next.stripCalAPerV     = doc["stripCalAPerV"];
   if (doc.containsKey("touchEnterPct"))     next.touchEnterPct     = doc["touchEnterPct"];
   if (doc.containsKey("touchExitPct"))      next.touchExitPct      = doc["touchExitPct"];
   if (doc.containsKey("touchOccupants"))    next.touchOccupants    = doc["touchOccupants"];
@@ -264,10 +272,11 @@ inline bool cfgApplyJson(const JsonDocument& doc, bool& outReset) {
   gCfgLastError[0] = '\0';
   cfgSave();
   Serial.printf("[config] applied -> rev %lu (interval %lums, plug %.2f A/V @ %.0f V, "
-                "ac %.2f A/V @ %.0f V, touch %u/%u%%, setpoint %.1f..%.1f C)\n",
+                "ac %.2f A/V @ %.0f V, strip %.2f A/V, touch %u/%u%%, setpoint %.1f..%.1f C)\n",
                 (unsigned long)gCfg.cfgRev, (unsigned long)gCfg.publishIntervalMs,
                 (double)gCfg.plugCalAPerV, (double)gCfg.plugMainsV,
                 (double)gCfg.acCalAPerV, (double)gCfg.acMainsV,
+                (double)gCfg.stripCalAPerV,
                 gCfg.touchEnterPct, gCfg.touchExitPct,
                 (double)gCfg.setpointMinC, (double)gCfg.setpointMaxC);
   return true;
@@ -286,6 +295,7 @@ inline void cfgSerializeState(JsonDocument& out) {
   out["plugMainsV"]        = gCfg.plugMainsV;
   out["acCalAPerV"]        = gCfg.acCalAPerV;
   out["acMainsV"]          = gCfg.acMainsV;
+  out["stripCalAPerV"]     = gCfg.stripCalAPerV;
   out["touchEnterPct"]     = gCfg.touchEnterPct;
   out["touchExitPct"]      = gCfg.touchExitPct;
   out["touchOccupants"]    = gCfg.touchOccupants;
@@ -299,6 +309,7 @@ inline void cfgSerializeState(JsonDocument& out) {
   if (gCfg.plugMainsV        != d.plugMainsV)          ov.add("plugMainsV");
   if (gCfg.acCalAPerV        != d.acCalAPerV)          ov.add("acCalAPerV");
   if (gCfg.acMainsV          != d.acMainsV)            ov.add("acMainsV");
+  if (gCfg.stripCalAPerV     != d.stripCalAPerV)       ov.add("stripCalAPerV");
   if (gCfg.touchEnterPct     != d.touchEnterPct)       ov.add("touchEnterPct");
   if (gCfg.touchExitPct      != d.touchExitPct)        ov.add("touchExitPct");
   if (gCfg.touchOccupants    != d.touchOccupants)      ov.add("touchOccupants");

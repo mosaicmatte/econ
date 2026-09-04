@@ -160,6 +160,7 @@ func (r *deviceRegistry) observe(topicSuffix string, msg telemetryMsg, raw []byt
 	track("supplyC", msg.SupplyC)
 	track("acW", msg.AcW)
 	track("lux", msg.Lux)
+	track("stripW", msg.StripW)
 	if msg.Occupancy != nil {
 		occ := float64(*msg.Occupancy)
 		track("occupancy", &occ)
