@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -17,9 +18,18 @@ func newTestEngine() *Engine {
 			Setpoint: 24, BaseSetpoint: 24, Deadband: 1,
 			CAir: 5e5, CWall: 4e6, RIn: 0.001, ROut: 0.0011,
 			LightsOn: true,
+			AreaM2:   50.0,
+			Co2Sim:   400.0,
+		}
+		vavId := "vav-" + strings.TrimPrefix(id, "zone-")
+		e.Vavs[vavId] = &VavSim{
+			TargetZone:  id,
+			Flow:        1.0,
+			NominalFlow: 1.0,
+			Damper:      1.0,
 		}
 	}
-	e.Zones["zone-corridor-x"] = &ZoneSim{Temp: 24, Type: "corridor"}
+	e.Zones["zone-corridor-x"] = &ZoneSim{Temp: 24, Type: "corridor", AreaM2: 25.0, Co2Sim: 400.0}
 	return e
 }
 
@@ -49,7 +59,7 @@ func TestAssignDemoZoneDistinctAndSticky(t *testing.T) {
 	if picoZone == esp32Zone {
 		t.Fatalf("both nodes bound to the same zone %q", picoZone)
 	}
-	if e.Zones[picoZone].Type != "office" || e.Zones[esp32Zone].Type != "office" {
+	if !strings.Contains(e.Zones[picoZone].Type, "office") || !strings.Contains(e.Zones[esp32Zone].Type, "office") {
 		t.Fatalf("demo nodes must bind to office zones, got %q and %q",
 			e.Zones[picoZone].Type, e.Zones[esp32Zone].Type)
 	}

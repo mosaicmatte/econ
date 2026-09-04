@@ -359,6 +359,7 @@ func TestAdversarialCompleteSensorOmission10000Ticks(t *testing.T) {
 				e.actuate()
 				e.applyHardware()
 				e.applyOccupancySchedule(simTime)
+				e.broadcast()
 
 				// Check zone numerical integrity every 50 steps
 				if step%50 == 0 {

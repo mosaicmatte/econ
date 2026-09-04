@@ -285,6 +285,7 @@ func NewEngine() *Engine {
 		Scenario:   "peak",
 		lastCmd:    make(map[string]string),
 		demoAssign: make(map[string]string),
+		lastLoadMw: 0.001,
 		Bess:       NewBattery(),
 		lastBessAt: time.Now(),
 		Plug:       defaultPlugConfig(),
@@ -1959,11 +1960,27 @@ func (e *Engine) tick(dt float64) {
 	tOutside, _ := e.outdoorNow()
 	tDerivedSupply := e.calculateDynamicSupplyAir(tOutside)
 
-	// Thermodynamics
+	// Build map from TargetZone to *VavSim
+	zoneToVav := make(map[string]*VavSim, len(e.Vavs))
 	for _, v := range e.Vavs {
-		z, ok := e.Zones[v.TargetZone]
-		if !ok {
-			continue
+		if v.TargetZone != "" {
+			zoneToVav[v.TargetZone] = v
+		}
+	}
+
+	// Thermodynamics & Mass Balance across ALL zones
+	for id, z := range e.Zones {
+		// Match VAV: targetZone mapping -> exact id -> "vav-" prefix -> trim "zone-" prefix
+		v := zoneToVav[id]
+		if v == nil {
+			v = e.Vavs[id]
+		}
+		if v == nil {
+			v = e.Vavs["vav-"+id]
+		}
+		if v == nil {
+			trimmed := strings.TrimPrefix(id, "zone-")
+			v = e.Vavs["vav-"+trimmed]
 		}
 
 		// Nominal (non-fault) internal load: base equipment + people + solar. Solar comes
@@ -1973,7 +1990,7 @@ func (e *Engine) tick(dt float64) {
 		qInternalNominal := z.BaseHeatGain + (float64(z.Occupancy) * 100.0) + qSolar
 
 		qInternal := qInternalNominal
-		if e.Scenario == "fault" && v.TargetZone == e.FaultTarget {
+		if e.Scenario == "fault" && (id == e.FaultTarget || (v != nil && v.TargetZone == e.FaultTarget)) {
 			qInternal *= 5.0 // Thermal runaway strictly on selected fault target
 		}
 
@@ -1982,22 +1999,41 @@ func (e *Engine) tick(dt float64) {
 			sp = 24.0
 		}
 
+		rIn := math.Max(z.RIn, 0.0001)
+		rOut := math.Max(z.ROut, 0.0001)
+		cAir := math.Max(z.CAir, Phys().MinZoneCapacitanceJPerK)
+		if cAir <= 0 {
+			cAir = 5e5
+		}
+		cWall := z.CWall
+		if cWall <= 0 {
+			cWall = 4e6
+		}
+
 		// Size cooling so that at the VAV's NOMINAL flow the room holds setpoint:
 		// qCooling(Temp=sp, flow=nominal) must offset the full nominal internal
 		// load plus steady-state wall conduction. Normalizing by the VAV's own
 		// nominal flow (not a hard-coded 5.4 m3/s) keeps this correct no matter
 		// how many VAVs share the AHU.
-		qSteadyStateWall := (tOutside - sp) / (z.RIn + z.ROut)
+		qSteadyStateWall := (tOutside - sp) / (rIn + rOut)
 		qNominalTotal := qInternalNominal + qSteadyStateWall
 
-		nominalFlow := v.NominalFlow
-		if nominalFlow < 1e-6 {
-			nominalFlow = v.Flow
+		var flowRatio float64
+		var ventRate float64
+		if v != nil {
+			nominalFlow := v.NominalFlow
+			if nominalFlow < 1e-6 {
+				nominalFlow = v.Flow
+			}
+			if nominalFlow < 1e-6 {
+				nominalFlow = 1.0
+			}
+			flowRatio = v.Flow / nominalFlow
+			ventRate = math.Max(0.001, v.Flow)
+		} else {
+			flowRatio = 0.0
+			ventRate = math.Max(0.001, z.AreaM2*0.001)
 		}
-		if nominalFlow < 1e-6 {
-			nominalFlow = 1.0
-		}
-		flowRatio := v.Flow / nominalFlow
 
 		// Discharge temperature: a DS18B20 in the louvre when one is reporting, the
 		// dynamic coil heat-exchange derived value otherwise.
@@ -2012,13 +2048,14 @@ func (e *Engine) tick(dt float64) {
 		qInterzone := 0.0
 		for _, adjId := range z.AdjacentZones {
 			if adjZ, ok := e.Zones[adjId]; ok {
-				rPart := math.Max(0.001, (z.RIn+adjZ.RIn)*2.0)
+				adjRIn := math.Max(adjZ.RIn, 0.0001)
+				rPart := math.Max(0.001, (rIn+adjRIn)*2.0)
 				qInterzone += (adjZ.Temp - z.Temp) / rPart
 			}
 		}
 
-		dTAirDt := ((z.WallTemp-z.Temp)/(z.RIn*z.CAir) + (qInternal+qInterzone-qCooling)/z.CAir)
-		dTWallDt := ((tOutside-z.WallTemp)/(z.ROut*z.CWall) - (z.WallTemp-z.Temp)/(z.RIn*z.CWall))
+		dTAirDt := ((z.WallTemp-z.Temp)/(rIn*cAir) + (qInternal+qInterzone-qCooling)/cAir)
+		dTWallDt := ((tOutside-z.WallTemp)/(rOut*cWall) - (z.WallTemp-z.Temp)/(rIn*cWall))
 
 		z.Temp += dTAirDt * dt
 		z.WallTemp += dTWallDt * dt
@@ -2035,7 +2072,6 @@ func (e *Engine) tick(dt float64) {
 			z.Co2Sim = Phys().OutdoorCo2Ppm
 		}
 		roomVol := math.Max(10.0, z.AreaM2*3.0)
-		ventRate := math.Max(0.001, v.Flow)
 		// Mass balance: dC/dt = (ventRate/V) * (C_out - C) + (G_occ * N_occ) / V
 		// G_occ = 5.0 ppm*m3/s per occupant (18 L/h/person)
 		dCo2Dt := (ventRate/roomVol)*(Phys().OutdoorCo2Ppm-z.Co2Sim) + (5.0*float64(z.Occupancy))/roomVol
@@ -2051,7 +2087,7 @@ func (e *Engine) tick(dt float64) {
 			if qCoolShadow < 0 {
 				qCoolShadow = 0
 			}
-			dShadowDt := ((z.WallTemp-z.ShadowTemp)/(z.RIn*z.CAir) + (qInternal+qInterzone-qCoolShadow)/z.CAir)
+			dShadowDt := ((z.WallTemp-z.ShadowTemp)/(rIn*cAir) + (qInternal+qInterzone-qCoolShadow)/cAir)
 			z.ShadowTemp += dShadowDt * dt
 			z.ShadowTemp = math.Max(5.0, math.Min(50.0, z.ShadowTemp))
 		}
@@ -2433,6 +2469,9 @@ func (e *Engine) broadcast() {
 	// that happens.)
 	baseElectricalMW := (condFloorM2*ph.NonHvacBaseWPerM2 + plugTotalW) / 1e6
 	buildingLoadMW := coolingElectricalMW + baseElectricalMW
+	if buildingLoadMW <= 0 || math.IsNaN(buildingLoadMW) {
+		buildingLoadMW = 0.001
+	}
 	energySavedMW := (savedLightingW + savedThermalW/plantCop) / 1e6
 	// Feed the load to the BESS dispatcher (read next tick) and snapshot battery state.
 	e.lastLoadMw = buildingLoadMW

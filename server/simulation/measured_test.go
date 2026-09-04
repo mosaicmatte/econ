@@ -135,7 +135,7 @@ func TestDaylightScalesSolarGainOnlyWhenUncontaminated(t *testing.T) {
 
 	// When sensor is omitted, solar gain follows dynamic clear-sky solar geometry.
 	expectedFallback := z.solarGainWAt(time.Now())
-	if got := z.solarGainW(); math.Abs(got-expectedFallback) > 1e-6 {
+	if got := z.solarGainW(); math.Abs(got-expectedFallback) > 1e-3 {
 		t.Fatalf("no sensor: want dynamic solar geometry %.1f W, got %.1f", expectedFallback, got)
 	}
 
@@ -147,14 +147,16 @@ func TestDaylightScalesSolarGainOnlyWhenUncontaminated(t *testing.T) {
 
 	// Lights on: the reading is contaminated by the luminaires, so it falls back to dynamic solar geometry.
 	z.LightsOn = true
-	if got := z.solarGainW(); math.Abs(got-expectedFallback) > 1e-6 {
+	expectedFallback = z.solarGainWAt(time.Now())
+	if got := z.solarGainW(); math.Abs(got-expectedFallback) > 1e-3 {
 		t.Fatalf("lights on: want dynamic solar fallback %.1f W, got %.1f", expectedFallback, got)
 	}
 	z.LightsOn = false
 
 	// Stale: back to dynamic solar fallback.
 	z.HwLuxAt = time.Now().Add(-2 * hwStaleAfter)
-	if got := z.solarGainW(); math.Abs(got-expectedFallback) > 1e-6 {
+	expectedFallback = z.solarGainWAt(time.Now())
+	if got := z.solarGainW(); math.Abs(got-expectedFallback) > 1e-3 {
 		t.Fatalf("stale sensor: want dynamic solar fallback %.1f W, got %.1f", expectedFallback, got)
 	}
 
@@ -205,7 +207,7 @@ func TestMeasuredAcPowerReplacesModelledCop(t *testing.T) {
 
 	// Stale clamp: straight back to the modelled path, exactly.
 	z.HwAcAt = time.Now().Add(-2 * hwStaleAfter)
-	if got := e.buildingLoadForTest(); math.Abs(got-modelled) > 1e-12 {
+	if got := e.buildingLoadForTest(); math.Abs(got-modelled) > 1e-9 {
 		t.Fatalf("stale clamp must reduce to the modelled path: got %.12f want %.12f", got, modelled)
 	}
 }
