@@ -106,7 +106,7 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #define USE_CO2 1                  // ASAIR ACD1200 NDIR (I2C) -> measured CO2 ppm
 #endif
 #ifndef USE_MMWAVE
-  #define USE_MMWAVE 1               // HLK-LD2410C / Rd-03 radar -> presence incl. stationary people
+  #define USE_MMWAVE 0               // HLK-LD2410C / Rd-03 radar -> presence incl. stationary people
 #endif
 #ifndef USE_PLUG
   // Plug-load node (APLC): SCT-013 current clamp -> measured plug-circuit watts, plus a
