@@ -155,6 +155,14 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   // clamping it turns that regressor from a simulation artifact into a measurement.
   #define USE_AC_CLAMP 0
 #endif
+#ifndef USE_STRIP
+  #define USE_STRIP 1
+#endif
+#if USE_STRIP
+  #ifndef STRIP_ADC_PIN
+    #define STRIP_ADC_PIN 35
+  #endif
+#endif
 #ifndef USE_LUX
   // BH1750 ambient light (I2C 0x23), facing the facade.
   //
@@ -629,6 +637,34 @@ float readAcAmps() {
 }
 #endif
 
+#if USE_STRIP
+// True-RMS current over ~100 ms (≈5 mains cycles at 50 Hz) for ACS712 power strip sensor.
+// Subtracts the ~2.5V DC bias dynamically as the window mean, and calculates RMS of AC residue.
+// Includes a voltage divider ratio for the ACS712 signal (0.5).
+// Returns amps, or -1 when the sampling window was starved (< 100 samples).
+float readStripAmps() {
+  double sum = 0, sumSq = 0;
+  int n = 0;
+  unsigned long start = millis();
+  while (millis() - start < 100) {
+    int v = analogRead(STRIP_ADC_PIN);
+    sum += v;
+    sumSq += (double)v * v;
+    n++;
+  }
+  if (n < 100) return -1;
+  double mean = sum / n;
+  double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
+  
+  // Voltage Divider Ratio: Vout = Vin * (R2 / (R1 + R2))
+  // Using two 10k resistors creates a 0.5 (50%) ratio
+  const float dividerRatio = 10000.0 / (10000.0 + 10000.0);
+  
+  float amps = (float)(rmsCounts * (3.3 / 4095.0) / dividerRatio * gCfg.stripCalAPerV);
+  return amps < 0.10 ? 0.0f : amps;  // below noise floor = genuinely off
+}
+#endif
+
 #if USE_LUX
 // BH1750 in one-time high-resolution mode: 1 lx resolution, ~120 ms conversion. One-shot
 // rather than continuous so the part returns to low power between the node's 5 s cycles.
@@ -863,6 +899,14 @@ void readAndPublish() {
   }
   doc["plug"] = plugOn ? "ON" : "OFF";
 #endif
+#if USE_STRIP
+  float stripAmps = readStripAmps();
+  if (stripAmps >= 0) {
+    doc["stripW"] = round(stripAmps * gCfg.plugMainsV * 10) / 10.0;
+  } else {
+    Serial.println("[strip] ADC window starved -> omitted");
+  }
+#endif
 
   // --- measurements that replace a modelled value in the twin ---
   // Each is omitted when its sensor is absent or failed, never defaulted: the engine
@@ -1008,6 +1052,10 @@ void setup() {
   analogReadResolution(12);
   Serial.printf("[plug] SCT-013 on GPIO%d (cal %.1f A/V), relay on GPIO%d\n",
                 PLUG_ADC_PIN, (double)gCfg.plugCalAPerV, PLUG_RELAY_PIN);
+#endif
+#if USE_STRIP
+  analogReadResolution(12);
+  Serial.printf("[strip] ACS712 on GPIO%d (cal %.1f A/V) — power strip metering\n", STRIP_ADC_PIN, (double)gCfg.stripCalAPerV);
 #endif
 #if USE_SUPPLY_TEMP
   supplyProbe.begin();
