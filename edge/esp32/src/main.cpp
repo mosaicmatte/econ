@@ -1139,7 +1139,23 @@ void loop() {
   while (Serial.available()) {
     String line = Serial.readStringUntil('\n');
     line.trim();
-    if (line.startsWith("[wifi] connect ")) {
+    if (line == "[wifi] scan") {
+      Serial.println("[wifi] starting scan...");
+      WiFi.mode(WIFI_STA);
+      WiFi.disconnect(true, true);
+      delay(100);
+      int n = WiFi.scanNetworks(false, true); // sync, show hidden
+      Serial.println("[wifi] scan done");
+      if (n == 0) {
+        Serial.println("[wifi] scanned: no networks found");
+      } else if (n < 0) {
+        Serial.printf("[wifi] scanned: failed with code %d\n", n);
+      } else {
+        for (int i = 0; i < n; ++i) {
+          Serial.printf("[wifi] scanned: \"%s\"\n", WiFi.SSID(i).c_str());
+        }
+      }
+    } else if (line.startsWith("[wifi] connect ")) {
       String payload = line.substring(15);
       payload.trim();
       String current_ssid = "";

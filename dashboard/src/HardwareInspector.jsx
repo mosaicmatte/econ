@@ -326,6 +326,8 @@ function UsbTab() {
   
   const [ssid, setSsid] = useState('');
   const [password, setPassword] = useState('');
+  const [networks, setNetworks] = useState([]);
+  const [scanning, setScanning] = useState(false);
   const [presets, setPresets] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('wifi_presets')) || [];
@@ -353,11 +355,24 @@ function UsbTab() {
     const textDecoder = new TextDecoderStream();
     p.readable.pipeTo(textDecoder.writable).catch(e => setLog(l => l + `Pipe Error: ${e.message}\n`));
     const reader = textDecoder.readable.getReader();
+    let buffer = '';
     try {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         setLog(l => l + value);
+        
+        buffer += value;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.includes('[wifi] scan done')) setScanning(false);
+          const scanMatch = line.match(/\[wifi\] scanned:\s*"([^"]+)"/);
+          if (scanMatch) {
+            const nw = scanMatch[1];
+            setNetworks(prev => prev.includes(nw) ? prev : [...prev, nw]);
+          }
+        }
       }
     } catch (e) {
       setLog(l => l + `Read Error: ${e.message}\n`);
@@ -452,8 +467,31 @@ function UsbTab() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <input style={{...S.input, flex: 1}} placeholder="SSID" value={ssid} onChange={e => setSsid(e.target.value)} />
+            <button 
+              style={{...S.btn(true), padding: '6px 14px', opacity: port ? 1 : 0.5}} 
+              disabled={!port}
+              onClick={() => { setNetworks([]); setScanning(true); send('[wifi] scan'); }}
+            >
+              {scanning ? 'Scanning...' : 'Scan Networks'}
+            </button>
             <input style={{...S.input, flex: 1}} type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
           </div>
+
+          {networks.length > 0 && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select 
+                style={{...S.input, flex: 1, backgroundColor: '#374151', color: 'white', cursor: 'pointer'}}
+                value={networks.includes(ssid) ? ssid : ""}
+                onChange={e => setSsid(e.target.value)}
+              >
+                <option value="" disabled>Select a scanned network...</option>
+                {networks.map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'flex-end' }}>
             <button 
               style={{...S.btn(true), padding: '6px 14px', opacity: port ? 1 : 0.5}} 
@@ -496,9 +534,23 @@ function ConfigTab() {
       <h2 style={{marginTop: 0, color: '#f59e0b'}}>HARDWARE CONFIGURATION</h2>
       <p style={S.dim}>Broadcast configuration to all listening hardware nodes via <code>POST /api/command</code>.</p>
       <form onSubmit={sendCmd} style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-        <input style={S.input} value={cmd} onChange={e => setCmd(e.target.value)} placeholder="e.g. SET_REPORT_INTERVAL 5000" />
-        <button type="submit" style={{...S.btn(true), padding: '6px 14px'}}>Send CONFIG</button>
+        <input style={S.input} value={cmd} onChange={e => setCmd(e.target.value)} placeholder='e.g. {"relayActiveLow": true}' />
+        <button type="submit" style={{...S.btn(true), padding: '6px 14px'}}>Send JSON Config</button>
       </form>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button 
+          style={{...S.btn(false), padding: '6px 14px', fontSize: 12, background: 'rgba(59, 130, 246, 0.1)'}} 
+          onClick={() => { setCmd('{"relayActiveLow": true}'); }}
+        >
+          Active-Low Relay
+        </button>
+        <button 
+          style={{...S.btn(false), padding: '6px 14px', fontSize: 12, background: 'rgba(59, 130, 246, 0.1)'}} 
+          onClick={() => { setCmd('{"relayActiveLow": false}'); }}
+        >
+          Active-High Relay
+        </button>
+      </div>
       {status && (
         <div style={{ marginTop: 12, color: status.ok ? '#4ade80' : '#ef4444', fontSize: 12 }}>
           {status.msg}
