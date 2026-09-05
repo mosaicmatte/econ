@@ -24,6 +24,7 @@ import (
 type telemetryMsg struct {
 	Zone        string   `json:"zone"`
 	Occupancy   *int     `json:"occupancy"`
+	Occupancy2  *int     `json:"occupancy_2"`
 	Temperature *float64 `json:"temperature"`
 	Humidity    *float64 `json:"humidity"`
 	Co2         *float64 `json:"co2"`
@@ -130,18 +131,19 @@ func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 	}
 	if engine != nil {
 		engine.IngestTelemetry(ref, suffix, simulation.Measurement{
-			Occupancy: msg.Occupancy,
-			Temp:      msg.Temperature,
-			Humidity:  msg.Humidity,
-			Co2:       msg.Co2,
-			PlugW:     msg.PlugW,
-			Source:    msg.Source,
-			SupplyC:   msg.SupplyC,
-			AcW:       msg.AcW,
-			Lux:       msg.Lux,
-			TempReal:  msg.TempReal,
-			AcReal:    msg.AcReal,
-			StripW:    msg.StripW,
+			Occupancy:  msg.Occupancy,
+			Occupancy2: msg.Occupancy2,
+			Temp:       msg.Temperature,
+			Humidity:   msg.Humidity,
+			Co2:        msg.Co2,
+			PlugW:      msg.PlugW,
+			Source:     msg.Source,
+			SupplyC:    msg.SupplyC,
+			AcW:        msg.AcW,
+			Lux:        msg.Lux,
+			TempReal:   msg.TempReal,
+			AcReal:     msg.AcReal,
+			StripW:     msg.StripW,
 		})
 	}
 	occ := -1

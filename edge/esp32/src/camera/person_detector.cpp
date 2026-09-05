@@ -2,6 +2,8 @@
 // person_detector.cpp — CameraPersonDetector Implementation
 // -----------------------------------------------------------------------------
 #include "person_detector.h"
+#if USE_CAMERA
+
 #include <cstring>
 #include <cmath>
 #include <cstdlib>
@@ -288,3 +290,4 @@ void CameraPersonDetector::reset() {
 void CameraPersonDetector::injectMockFrame(const uint8_t* frame_data, size_t len) {
   driver_.injectTestFrame(frame_data, len);
 }
+#endif

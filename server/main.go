@@ -98,6 +98,10 @@ func main() {
 
 	// 4b. Hardware Inspector Manual Commands: allows direct human overrides from the device view.
 	http.HandleFunc("/api/command", func(w http.ResponseWriter, r *http.Request) {
+		if corsPreflight(w, r) {
+			return
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if r.Method != "POST" {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
 			return

@@ -103,6 +103,7 @@ struct NodeConfig {
   uint8_t  touchOccupants;        // headcount reported while the pad is held
   float    setpointMinC;          // refuse engine setpoints outside this band
   float    setpointMaxC;
+  bool     relayActiveLow;        // true = LOW turns relay ON, false = HIGH turns relay ON
   uint32_t cfgRev;                // bumped on every accepted change; published in telemetry
 };
 
@@ -123,6 +124,7 @@ inline NodeConfig cfgDefaults() {
   c.touchOccupants    = TOUCH_OCCUPANTS_DEFAULT;
   c.setpointMinC      = SETPOINT_MIN_C_DEFAULT;
   c.setpointMaxC      = SETPOINT_MAX_C_DEFAULT;
+  c.relayActiveLow    = false;
   c.cfgRev            = 0;
   return c;
 }
@@ -260,6 +262,7 @@ inline bool cfgApplyJson(const JsonDocument& doc, bool& outReset) {
   if (doc.containsKey("touchOccupants"))    next.touchOccupants    = doc["touchOccupants"];
   if (doc.containsKey("setpointMinC"))      next.setpointMinC      = doc["setpointMinC"];
   if (doc.containsKey("setpointMaxC"))      next.setpointMaxC      = doc["setpointMaxC"];
+  if (doc.containsKey("relayActiveLow"))    next.relayActiveLow    = doc["relayActiveLow"];
 
   if (!cfgValidate(next)) return false;               // gCfgLastError already set
   if (memcmp(&next, &gCfg, sizeof(next)) == 0) {
@@ -301,6 +304,7 @@ inline void cfgSerializeState(JsonDocument& out) {
   out["touchOccupants"]    = gCfg.touchOccupants;
   out["setpointMinC"]      = gCfg.setpointMinC;
   out["setpointMaxC"]      = gCfg.setpointMaxC;
+  out["relayActiveLow"]    = gCfg.relayActiveLow;
 
   JsonArray ov = out.createNestedArray("overrides");
   if (strcmp(gCfg.zoneLabel, d.zoneLabel) != 0)        ov.add("zoneLabel");
@@ -315,6 +319,7 @@ inline void cfgSerializeState(JsonDocument& out) {
   if (gCfg.touchOccupants    != d.touchOccupants)      ov.add("touchOccupants");
   if (gCfg.setpointMinC      != d.setpointMinC)        ov.add("setpointMinC");
   if (gCfg.setpointMaxC      != d.setpointMaxC)        ov.add("setpointMaxC");
+  if (gCfg.relayActiveLow    != d.relayActiveLow)      ov.add("relayActiveLow");
 
   if (gCfgLastError[0]) out["lastError"] = gCfgLastError;
 }
