@@ -69,11 +69,12 @@ char CLIENT_ID[32];                         // econ-esp32-<ZONE_TOPIC>
 // compile-time: it is this node's identity on the bus, the thing its retained LWT and
 // its command subscription are keyed on, so changing it at runtime would orphan both.
 #include "node_config.h"
+#include "current_denoiser.h"
 // ZONE_LABEL is now gCfg.zoneLabel; this alias keeps the telemetry call site readable.
 #define ZONE_LABEL (gCfg.zoneLabel)
 
 // ---------------- HARDWARE PINS ----------------
-const int RELAY_PIN  = 13;  // lighting relay (D13, user wiring)
+const int RELAY_PIN  = 23;  // lighting relay (D13, user wiring)
 // GPIO19, NOT GPIO22: 22 is the I2C clock. applyHvacSetpoint() pulses this pin, so leaving
 // the emitter on 22 made every setpoint command drive SCL directly and corrupt any read from
 // the SHT30 or the ACD1200 sharing that bus.
@@ -186,6 +187,9 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 #endif
 
 #if USE_SUPPLY_TEMP
+  #if USE_IR_AC && defined(IR_RECV_PIN) && IR_RECV_PIN == 26
+    #error "SUPPLY_TEMP_PIN collides with IR_RECV_PIN (GPIO26) - cannot use both simultaneously"
+  #endif
   #include <OneWire.h>
   #include <DallasTemperature.h>
   #ifndef SUPPLY_TEMP_PIN
@@ -310,14 +314,14 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
     #ifdef PIR_PIN
       #define PIR1_PIN PIR_PIN
     #else
-      #define PIR1_PIN 5
+      #define PIR1_PIN 18
     #endif
   #endif
   #ifndef PIR2_PIN
     #ifdef PIR_PIN_2
       #define PIR2_PIN PIR_PIN_2
     #elif USE_MMWAVE
-      #define PIR2_PIN 17
+      #define PIR2_PIN 18
     #else
       #define PIR2_PIN 18
     #endif
@@ -449,6 +453,10 @@ DualModeComm dualComm(udpClient, client, Serial);
 #if USE_CAMERA
 CameraPersonDetector cameraDetector;
 #endif
+
+// Global debounced presence state for periodic telemetry
+bool globalDebouncedPresence = false;
+
 
 // Helper to broadcast presence tracking telemetry to DualModeComm (:4210 UDP + MQTT, fallback to Serial)
 void broadcastTrackingTelemetry(bool present) {
@@ -594,74 +602,84 @@ void setPlug(bool on) {
   Serial.printf("[relay] plug circuit %s\n", on ? "ON" : "OFF");
 }
 
-// True-RMS current over ~100 ms (≈5 mains cycles at 50 Hz): sample fast, subtract the
-// DC bias as the window mean, RMS the AC residue. Returns amps, or -1 when the window
-// was starved of samples (then the field is omitted — never fabricated).
+static CurrentDenoiser plugDenoiser([]() {
+  CurrentDenoiseConfig c;
+  c.calAPerV     = PLUG_CAL_A_PER_V;
+  c.dividerRatio = 1.0f; // Direct CT clamp burden without voltage divider
+  c.noiseVariance = 300.0;
+  c.cutoffAmps   = 0.15f;
+  c.emaAlpha     = 0.35f;
+  c.deadbandAmps = 0.03f;
+  return c;
+}());
+
+// True-RMS current over ~100 ms (≈5 mains cycles at 50 Hz): sample fast into buffer,
+// denoise via CurrentDenoiser (Stage 1 variance subtraction + Stage 2 EMA/deadband).
+// Returns amps, or -1 when the window was starved of samples (< 100 samples).
 float readPlugAmps() {
-  double sum = 0, sumSq = 0;
   int n = 0;
+  const int MAX_SAMPLES = 1200;
+  static int sampleBuf[MAX_SAMPLES];
   unsigned long start = millis();
-  while (millis() - start < 100) {
-    int v = analogRead(PLUG_ADC_PIN);
-    sum += v;
-    sumSq += (double)v * v;
-    n++;
+  while (millis() - start < 100 && n < MAX_SAMPLES) {
+    sampleBuf[n++] = analogRead(PLUG_ADC_PIN);
   }
-  if (n < 100) return -1;
-  double mean = sum / n;
-  double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
-  float amps = (float)(rmsCounts * (3.3 / 4095.0) * gCfg.plugCalAPerV);
-  return amps < 0.10 ? 0.0f : amps;  // below the clamp's noise floor = genuinely off
+  plugDenoiser.setCal(gCfg.plugCalAPerV);
+  return plugDenoiser.processWindow(sampleBuf, n);
 }
 #endif
 
 #if USE_AC_CLAMP
-// True-RMS on the air conditioner's own supply. Identical front end and identical
-// discipline to the plug clamp: a starved sampling window returns -1 and the field is
-// omitted, because a fabricated zero here would tell the twin the compressor is off.
+static CurrentDenoiser acDenoiser([]() {
+  CurrentDenoiseConfig c;
+  c.calAPerV     = AC_CAL_A_PER_V;
+  c.dividerRatio = 1.0f; // Direct CT clamp burden without voltage divider
+  c.noiseVariance = 300.0;
+  c.cutoffAmps   = 0.15f;
+  c.emaAlpha     = 0.35f;
+  c.deadbandAmps = 0.03f;
+  return c;
+}());
+
+// True-RMS on the air conditioner's own supply via CurrentDenoiser.
 float readAcAmps() {
-  double sum = 0, sumSq = 0;
   int n = 0;
+  const int MAX_SAMPLES = 1200;
+  static int sampleBuf[MAX_SAMPLES];
   unsigned long start = millis();
-  while (millis() - start < 100) {
-    int v = analogRead(AC_CLAMP_PIN);
-    sum += v;
-    sumSq += (double)v * v;
-    n++;
+  while (millis() - start < 100 && n < MAX_SAMPLES) {
+    sampleBuf[n++] = analogRead(AC_CLAMP_PIN);
   }
-  if (n < 100) return -1;
-  double mean = sum / n;
-  double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
-  float amps = (float)(rmsCounts * (3.3 / 4095.0) * gCfg.acCalAPerV);
-  return amps < 0.10 ? 0.0f : amps;
+  acDenoiser.setCal(gCfg.acCalAPerV);
+  return acDenoiser.processWindow(sampleBuf, n);
 }
 #endif
 
 #if USE_STRIP
+static CurrentDenoiser stripDenoiser([]() {
+  CurrentDenoiseConfig c;
+  c.calAPerV     = STRIP_CAL_A_PER_V;
+  c.dividerRatio = 0.5f; // ACS712 10k/10k voltage divider
+  c.noiseVariance = 300.0;
+  c.cutoffAmps   = 0.15f;
+  c.emaAlpha     = 0.35f;
+  c.deadbandAmps = 0.03f;
+  return c;
+}());
+
 // True-RMS current over ~100 ms (≈5 mains cycles at 50 Hz) for ACS712 power strip sensor.
-// Subtracts the ~2.5V DC bias dynamically as the window mean, and calculates RMS of AC residue.
-// Includes a voltage divider ratio for the ACS712 signal (0.5).
-// Returns amps, or -1 when the sampling window was starved (< 100 samples).
+// Denoised via CurrentDenoiser: Stage 1 dynamic DC offset & variance subtraction (0.5 divider),
+// Stage 2 inter-window EMA with deadband and zero-snapping.
 float readStripAmps() {
-  double sum = 0, sumSq = 0;
   int n = 0;
+  const int MAX_SAMPLES = 1200;
+  static int sampleBuf[MAX_SAMPLES];
   unsigned long start = millis();
-  while (millis() - start < 100) {
-    int v = analogRead(STRIP_ADC_PIN);
-    sum += v;
-    sumSq += (double)v * v;
-    n++;
+  while (millis() - start < 100 && n < MAX_SAMPLES) {
+    sampleBuf[n++] = analogRead(STRIP_ADC_PIN);
   }
-  if (n < 100) return -1;
-  double mean = sum / n;
-  double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
-  
-  // Voltage Divider Ratio: Vout = Vin * (R2 / (R1 + R2))
-  // Using two 10k resistors creates a 0.5 (50%) ratio
-  const float dividerRatio = 10000.0 / (10000.0 + 10000.0);
-  
-  float amps = (float)(rmsCounts * (3.3 / 4095.0) / dividerRatio * gCfg.stripCalAPerV);
-  return amps < 0.10 ? 0.0f : amps;  // below noise floor = genuinely off
+  stripDenoiser.setCal(gCfg.stripCalAPerV);
+  return stripDenoiser.processWindow(sampleBuf, n);
 }
 #endif
 
@@ -851,14 +869,7 @@ void readAndPublish() {
   doc["person_count"] = cameraDetector.getPersonCount();
   cameraDetector.transmitTelemetry(dualComm);
 #elif USE_PIR || USE_MMWAVE
-  #if USE_PIR
-    bool pir1 = (digitalRead(PIR1_PIN) == HIGH);
-    bool pir2 = (digitalRead(PIR2_PIN) == HIGH);
-    if (pir1 || pir2) present = true;
-  #endif
-  #if USE_MMWAVE
-    if (digitalRead(MMWAVE_PIN) == HIGH) present = true;
-  #endif
+  present = globalDebouncedPresence;
   occupancy = present ? 1 : 0;  // presence, not a headcount
   doc["confidence"] = present ? 1.0 : 0.0;
   doc["person_count"] = occupancy;
@@ -1234,6 +1245,7 @@ void loop() {
 #endif
 
     // Immediate telemetry burst on occupancy transition (<200ms latency)
+    globalDebouncedPresence = currentDetected;
     if (currentDetected != lastPirDetectedState) {
       lastPirDetectedState = currentDetected;
       broadcastTrackingTelemetry(currentDetected);

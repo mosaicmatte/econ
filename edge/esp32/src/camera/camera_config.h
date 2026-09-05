@@ -6,6 +6,10 @@
 // -----------------------------------------------------------------------------
 #pragma once
 
+#ifndef USE_CAMERA
+  #define USE_CAMERA 1
+#endif
+
 #include <stdint.h>
 #include <stddef.h>
 

@@ -32,22 +32,17 @@ static void check(bool cond, const char* what) {
   }
 }
 
-// Exact implementation of the RMS calculation logic in readStripAmps() in main.cpp
+#include "current_denoiser.h"
+
+// Denoised algorithm matching CurrentDenoiser in edge/esp32/src/current_denoiser.h
 static float calculateStripAmps(const std::vector<int>& samples, float stripCalAPerV) {
-  if (samples.size() < 100) return -1.0f;
-  double sum = 0, sumSq = 0;
-  int n = 0;
-  for (int v : samples) {
-    sum += v;
-    sumSq += (double)v * v;
-    n++;
-  }
-  if (n < 100) return -1.0f;
-  double mean = sum / n;
-  double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
-  const double STRIP_NOISE_FLOOR_COUNTS = 12.0;
-  if (rmsCounts < STRIP_NOISE_FLOOR_COUNTS) return 0.0f;  // below ADC noise floor = genuinely off
-  return (float)(rmsCounts * (3.3 / 4095.0) * stripCalAPerV);
+  CurrentDenoiseConfig cfg;
+  cfg.calAPerV = stripCalAPerV;
+  cfg.dividerRatio = 1.0f; // Direct ADC pin input in host_strip_power_test synthetic models
+  cfg.noiseVariance = 0.0; // host_strip_power_test generates noiseless synthetic references
+  cfg.cutoffAmps = (float)(12.0 * (3.3 / 4095.0) * stripCalAPerV); // 12.0 counts noise floor
+  CurrentDenoiser denoiser(cfg);
+  return denoiser.processWindow(samples);
 }
 
 // Generate synthetic ADC samples

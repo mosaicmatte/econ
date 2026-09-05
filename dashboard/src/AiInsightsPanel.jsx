@@ -190,8 +190,15 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       metric === 'co2' ? <Wind size={18} color={color} />
       : metric === 'temp' ? <ThermometerSnowflake size={18} color={color} />
       : metric === 'buildingLoadMw' ? <TrendingDown size={18} color={color} />
+      : metric === 'occupancy' ? <Zap size={18} color={color} />
       : <Activity size={18} color={color} />;
-    const recActionLabel = { purge: 'PURGE ZONE', cool: 'FLOOD COOLING', precool: 'ACTIVATE PRE-COOLING' };
+    const recActionLabel = {
+      purge: 'PURGE ZONE',
+      cool: 'FLOOD COOLING',
+      precool: 'ACTIVATE PRE-COOLING',
+      turn_off_ac: 'TURN OFF AC',
+      reset: 'RESET TO BASELINE',
+    };
     // Three kinds of judgement, badged distinctly so a forecast never reads as a
     // present-tense fact. "anomaly" = the baselines say this is far from normal right now.
     // "prediction" = this room's own identified physics says it breaches in N minutes.

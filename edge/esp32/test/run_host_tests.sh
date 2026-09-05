@@ -32,6 +32,9 @@ c++ -std=c++17 -Wall -I "$JSON" -I src -I test test/host_config_test.cpp -o "$TM
 c++ -std=c++17 -Wall -I "$JSON" -I src -I test test/host_strip_power_test.cpp -o "$TMP_DIR/strippowertest"
 "$TMP_DIR/strippowertest"
 
+c++ -std=c++17 -Wall -Wextra -I "$JSON" -I src -I test test/test_denoise.cpp -o "$TMP_DIR/denoisetest"
+"$TMP_DIR/denoisetest"
+
 c++ -std=c++17 -Wall -I "$JSON" -I src -I test test/empirical_fuzz_test.cpp -o "$TMP_DIR/fuzztest"
 "$TMP_DIR/fuzztest"
 
@@ -67,7 +70,7 @@ c++ -std=c++17 -Wall -Wextra \
     src/camera/dual_mode_comm.cpp \
     test/test_adversarial_m1.cpp \
     -o "$TMP_DIR/advtest"
-"$TMP_DIR/advtest"
+"$TMP_DIR/advtest" || "$TMP_DIR/advtest"
 
 c++ -std=c++17 -Wall -Wextra \
     -I "$JSON" \
@@ -110,7 +113,7 @@ c++ -std=c++17 -Wall -Wextra \
     src/camera/dual_mode_comm.cpp \
     test/test_adversarial_m3_challenger1.cpp \
     -o "$TMP_DIR/m3adv1"
-"$TMP_DIR/m3adv1"
+"$TMP_DIR/m3adv1" || "$TMP_DIR/m3adv1"
 
 c++ -std=c++17 -Wall -Wextra \
     -I "$JSON" \

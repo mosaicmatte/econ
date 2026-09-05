@@ -107,3 +107,39 @@ The current backend is written in Go and runs in the `server` directory. It has 
 ### API Functionality
 - [ ] A `curl` request to the new endpoint (`/api/sustainability`) returns a valid JSON payload containing carbon totals, maintenance alerts, and (if over budget) the recommended carbon credit offset amount and live cost.
 
+## 2026-09-05T17:25:33Z
+
+# Teamwork Project Prompt — Draft
+
+> Status: Ready for launch — awaiting user approval
+> Goal: Craft prompt → get user approval → delegate to teamwork_preview
+> Requested team: full team
+
+Refine the firmware algorithms of the "econ" IoT smart building project, including denoising sensor data. Wire the Go backend components to the React dashboard, ensuring telemetry is processed into actionable recommendations that can be executed either manually via the UI or autonomously.
+
+Working directory: /Users/nguyenhoangkhoi/Documents/econ
+Integrity mode: benchmark
+
+## Requirements
+
+### R1. Firmware Refinement
+Denoise sensor readings and refine algorithms on the edge nodes.
+
+### R2. Backend to Dashboard Integration
+Wire all backend telemetry and state components into the dashboard UI.
+
+### R3. Recommendations & Actions
+Process incoming sensor data on the backend to generate actionable recommendations. Provide manual action overrides in the UI alongside autonomous capabilities.
+
+## Acceptance Criteria
+
+### Firmware Verification
+- [ ] An automated C++ test or script successfully feeds mock noisy ADC data into the denoising algorithm and verifies the output remains stable.
+
+### Backend Verification
+- [ ] Go unit tests successfully inject anomalous telemetry and verify the recommendation engine outputs the correct action (e.g., `turn_off_ac`).
+- [ ] Go unit tests verify the `/api/command` endpoint correctly accepts and routes manual action overrides.
+
+### Frontend Verification
+- [ ] Automated frontend tests (or a scriptable check) confirm that the new UI components mount and successfully expose buttons for manual recommendations.
+

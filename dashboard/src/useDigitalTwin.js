@@ -205,6 +205,12 @@ export function useDigitalTwin(onUpdate) {
   const sendManualOverride = (action, zoneId = 'GLOBAL') => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ action, zone: zoneId }));
+    } else {
+      fetch(`${API_BASE}/api/command`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zone: zoneId, command: action, action: action }),
+      }).catch(err => console.error('[econ] manual override fallback failed:', err));
     }
   };
   // [GEMINI IMPLEMENTATION END]
