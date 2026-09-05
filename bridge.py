@@ -3,7 +3,7 @@ import time
 import re
 import paho.mqtt.client as mqtt
 
-SERIAL_PORT = 'COM9'
+SERIAL_PORT = '/dev/cu.usbserial-0001'
 BAUD_RATE = 115200
 MQTT_BROKER = '127.0.0.1'
 MQTT_PORT = 1883
@@ -43,12 +43,14 @@ try:
     while True:
         try:
             ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+            ser.dtr = False
+            ser.rts = False
             mqtt_client.user_data_set({'ser': ser})
             print(f"Da mo cong {SERIAL_PORT}. Dang doc du lieu...")
             mqtt_client.publish("econ/status/zone_1", "online", retain=True)
 
             while True:
-                if ser.in_waiting > 0:
+                if True:
                     line = ser.readline().decode('utf-8', errors='ignore').strip()
                     if not line: continue
                     
@@ -57,6 +59,7 @@ try:
                     match = regex.search(line)
                     if match:
                         mqtt_client.publish(match.group(1), match.group(2))
+                        print("BRIDGE PUBLISHED!")
         except Exception as e:
             print(f"Loi USB: {e}. Thu lai sau 3 giay...")
             mqtt_client.user_data_set({'ser': None})

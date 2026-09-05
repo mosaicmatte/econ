@@ -14,7 +14,7 @@ DEFAULT_STRIP_CAL_A_PER_V = 15.0
 DEFAULT_PLUG_MAINS_V = 230.0
 ADC_MAX_COUNTS = 4095.0
 ADC_VREF = 3.3
-NOISE_FLOOR_AMPS = 0.10
+NOISE_FLOOR_COUNTS = 12.0
 MIN_SAMPLE_COUNT = 100
 
 
@@ -35,8 +35,9 @@ def simulate_esp32_read_strip_amps(
     if (n < 100) return -1;
     double mean = sum / n;
     double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
-    float amps = (float)(rmsCounts * (3.3 / 4095.0) * gCfg.stripCalAPerV);
-    return amps < 0.10 ? 0.0f : amps;
+    const double STRIP_NOISE_FLOOR_COUNTS = 12.0;
+    if (rmsCounts < STRIP_NOISE_FLOOR_COUNTS) return 0.0f;
+    return (float)(rmsCounts * (3.3 / 4095.0) * stripCalAPerV);
     """
     if len(samples) < MIN_SAMPLE_COUNT:
         return -1.0
@@ -55,8 +56,9 @@ def simulate_esp32_read_strip_amps(
     mean = sum_v / n
     variance = max(0.0, (sum_sq / n) - (mean * mean))
     rms_counts = math.sqrt(variance)
-    amps = rms_counts * (ADC_VREF / ADC_MAX_COUNTS) * cal_a_per_v
-    return 0.0 if amps < NOISE_FLOOR_AMPS else amps
+    if rms_counts < NOISE_FLOOR_COUNTS:
+        return 0.0
+    return rms_counts * (ADC_VREF / ADC_MAX_COUNTS) * cal_a_per_v
 
 
 def simulate_esp32_publish(
@@ -145,6 +147,7 @@ def run_tests():
     print("ECON ACS712 TRUE-RMS POWER ALGORITHM ADVERSARIAL VERIFICATION")
     print("=================================================================")
     all_passed = True
+    random.seed(42)
 
     # -------------------------------------------------------------
     # Test 1: DC Offset Subtraction Invariance (Zero AC Signal)
@@ -193,12 +196,11 @@ def run_tests():
         print(f"  DC: {dc:4.2f}V -> amps: {amps:6.4f}A (err {err_pct:5.3f}%), stripW: {watts:5.1f}W (exp {expected_w}W) [{status}]")
 
     # -------------------------------------------------------------
-    # Test 3: Pure Noise vs. Noise Floor Gate (0.10A)
+    # Test 3: Pure Noise vs. Noise Floor Gate (< 12.0 counts -> 0.0W)
     # -------------------------------------------------------------
-    print("\n[Test 3] Pure Noise & Sub-Threshold Signal Gate (< 0.10A -> 0.0W)")
-    # 1 count RMS noise = (3.3/4095)*15 = 0.012088 A
-    # 0.10A threshold corresponds to ~8.27 counts RMS
-    noise_sigmas = [0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 8.5, 10.0]
+    print("\n[Test 3] Pure Noise & Sub-Threshold Signal Gate (< 12.0 counts -> 0.0W)")
+    # Typical ESP32 ADC noise standard deviation is 6 to 10 counts RMS
+    noise_sigmas = [0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 8.5, 10.0, 11.0]
     for sigma in noise_sigmas:
         samples = generate_adc_samples(
             duration_s=0.100,
@@ -209,33 +211,33 @@ def run_tests():
         amps = simulate_esp32_read_strip_amps(samples)
         watts = simulate_esp32_publish(amps)
         raw_amps_equiv = sigma * (ADC_VREF / ADC_MAX_COUNTS) * DEFAULT_STRIP_CAL_A_PER_V
-        expected_gated = raw_amps_equiv < NOISE_FLOOR_AMPS
+        expected_gated = sigma < NOISE_FLOOR_COUNTS
         is_zero = (amps == 0.0 and watts == 0.0)
         status = "PASS" if is_zero == expected_gated else "FAIL"
         if status == "FAIL":
             all_passed = False
         print(f"  Noise sigma: {sigma:4.1f} cnt (equiv ~{raw_amps_equiv:5.3f}A) -> amps: {amps:5.3f}A, stripW: {watts:4.1f}W [{status}]")
 
-    # Test small sine signal right below and above 0.10A
-    # Sub-threshold: 0.08A RMS (0.113A peak) -> should be 0.0W
+    # Test small sine signal right below and above noise floor
+    # Sub-threshold: 0.08A RMS (0.113A peak, ~6.6 counts < 12.0) -> should be 0.0W
     samples_sub = generate_adc_samples(
         duration_s=0.100, dc_offset_v=2.5, ac_peak_amps=0.08 * math.sqrt(2)
     )
     amps_sub = simulate_esp32_read_strip_amps(samples_sub)
     w_sub = simulate_esp32_publish(amps_sub)
     status_sub = "PASS" if amps_sub == 0.0 and w_sub == 0.0 else "FAIL"
-    print(f"  Sine 0.08A RMS (< 0.10A) -> amps: {amps_sub:4.2f}A, stripW: {w_sub}W [{status_sub}]")
+    print(f"  Sine 0.08A RMS (< noise floor) -> amps: {amps_sub:4.2f}A, stripW: {w_sub}W [{status_sub}]")
     if status_sub == "FAIL":
         all_passed = False
 
-    # Above-threshold: 0.15A RMS (0.212A peak) -> should be 0.15A, ~34.5W
+    # Above-threshold: 0.15A RMS (0.212A peak, ~12.4 counts > 12.0) -> should be 0.15A, ~34.5W
     samples_above = generate_adc_samples(
         duration_s=0.100, dc_offset_v=2.5, ac_peak_amps=0.15 * math.sqrt(2)
     )
     amps_above = simulate_esp32_read_strip_amps(samples_above)
     w_above = simulate_esp32_publish(amps_above)
     status_above = "PASS" if abs(amps_above - 0.15) < 0.005 and abs(w_above - 34.5) < 0.5 else "FAIL"
-    print(f"  Sine 0.15A RMS (> 0.10A) -> amps: {amps_above:5.3f}A, stripW: {w_above}W [{status_above}]")
+    print(f"  Sine 0.15A RMS (> noise floor) -> amps: {amps_above:5.3f}A, stripW: {w_above}W [{status_above}]")
     if status_above == "FAIL":
         all_passed = False
 
@@ -384,6 +386,122 @@ def run_tests():
         if status_cal == "FAIL":
             all_passed = False
         print(f"  Cal: {cal:5.1f} A/V -> 1V RMS input -> {calc_amps_cal:6.2f} A (exp: {exp_amps_cal:6.2f} A, err: {err_cal:5.3f}%) [{status_cal}]")
+
+    # -------------------------------------------------------------
+    # Test 10: R3 Waveform Reconstruction with ESP32 ADC Noise (0A, 0.5A, 2A, 10A)
+    # -------------------------------------------------------------
+    print("\n[Test 10] R3 Waveform Reconstruction with ESP32 ADC Noise (0A, 0.5A, 2A, 10A)")
+    # Test 0A with typical ESP32 ADC noise (sigma = 8.0 counts): must be 0.0A (prevent ghost readings)
+    samples_0a = generate_adc_samples(duration_s=0.100, dc_offset_v=1.65, ac_peak_amps=0.0, noise_sigma_counts=8.0)
+    amps_0a = simulate_esp32_read_strip_amps(samples_0a)
+    status_0a = "PASS" if amps_0a == 0.0 else "FAIL"
+    if status_0a == "FAIL":
+        all_passed = False
+    print(f"  0A load with typical noise (sigma=8.0 counts) -> amps: {amps_0a:.4f}A [{status_0a}]")
+
+    # Test 0A with elevated ESP32 ADC noise (sigma = 10.0 counts): must be 0.0A
+    samples_0a_high = generate_adc_samples(duration_s=0.100, dc_offset_v=1.65, ac_peak_amps=0.0, noise_sigma_counts=10.0)
+    amps_0a_high = simulate_esp32_read_strip_amps(samples_0a_high)
+    status_0a_high = "PASS" if amps_0a_high == 0.0 else "FAIL"
+    if status_0a_high == "FAIL":
+        all_passed = False
+    print(f"  0A load with elevated noise (sigma=10.0 counts) -> amps: {amps_0a_high:.4f}A [{status_0a_high}]")
+
+    # Test known AC loads with typical noise (sigma = 8.0 counts): must reconstruct within 5% accuracy
+    test_currents = [0.5, 2.0, 10.0]
+    for target in test_currents:
+        samples_target = generate_adc_samples(
+            duration_s=0.100,
+            dc_offset_v=1.65,
+            ac_peak_amps=target * math.sqrt(2.0),
+            noise_sigma_counts=8.0,
+            freq_hz=50.0
+        )
+        calc_target = simulate_esp32_read_strip_amps(samples_target)
+        err_target_pct = abs(calc_target - target) / target * 100.0
+        status_target = "PASS" if err_target_pct <= 5.0 else "FAIL"
+        if status_target == "FAIL":
+            all_passed = False
+        print(f"  Target {target:5.1f}A RMS with noise (sigma=8.0) -> calc: {calc_target:.4f}A (err {err_target_pct:.2f}%) [{status_target}]")
+
+    # -------------------------------------------------------------
+    # Test 11: Multi-Model ACS712 Sensitivity Scaling (5A, 20A, 30A)
+    # -------------------------------------------------------------
+    print("\n[Test 11] Multi-Model ACS712 Sensitivity Scaling (5A, 20A, 30A)")
+    # ACS712-05B (5.4 A/V): 12.0 counts = 0.052A RMS (~12.0W at 230V)
+    # 0.08A RMS (~18.4W) is detected (> 12.0 counts) whereas fixed 0.10A threshold would suppress it
+    cal_05b = 5.4
+    samples_05b_0a = generate_adc_samples(duration_s=0.100, dc_offset_v=1.65, ac_peak_amps=0.0, cal_a_per_v=cal_05b, noise_sigma_counts=8.0)
+    amps_05b_0a = simulate_esp32_read_strip_amps(samples_05b_0a, cal_a_per_v=cal_05b)
+    status_05b_0a = "PASS" if amps_05b_0a == 0.0 else "FAIL"
+    if status_05b_0a == "FAIL":
+        all_passed = False
+    print(f"  ACS712-05B (5.4 A/V): 0A with noise -> amps: {amps_05b_0a:.4f}A [{status_05b_0a}]")
+
+    samples_05b_light = generate_adc_samples(duration_s=0.100, dc_offset_v=1.65, ac_peak_amps=0.08 * math.sqrt(2.0), cal_a_per_v=cal_05b, noise_sigma_counts=8.0)
+    amps_05b_light = simulate_esp32_read_strip_amps(samples_05b_light, cal_a_per_v=cal_05b)
+    err_05b_light = abs(amps_05b_light - 0.08) / 0.08 * 100.0
+    status_05b_light = "PASS" if amps_05b_light > 0.0 and err_05b_light <= 10.0 else "FAIL"
+    if status_05b_light == "FAIL":
+        all_passed = False
+    print(f"  ACS712-05B (5.4 A/V): light 0.08A load -> amps: {amps_05b_light:.4f}A (err {err_05b_light:.2f}%) [{status_05b_light}]")
+
+    samples_05b_15 = generate_adc_samples(duration_s=0.100, dc_offset_v=1.65, ac_peak_amps=0.15 * math.sqrt(2.0), cal_a_per_v=cal_05b, noise_sigma_counts=8.0)
+    amps_05b_15 = simulate_esp32_read_strip_amps(samples_05b_15, cal_a_per_v=cal_05b)
+    err_05b_15 = abs(amps_05b_15 - 0.15) / 0.15 * 100.0
+    status_05b_15 = "PASS" if err_05b_15 <= 5.0 else "FAIL"
+    if status_05b_15 == "FAIL":
+        all_passed = False
+    print(f"  ACS712-05B (5.4 A/V): 0.15A load with noise -> amps: {amps_05b_15:.4f}A (err {err_05b_15:.2f}%) [{status_05b_15}]")
+
+    # ACS712-20A (10.0 A/V): 12.0 counts = 0.097A RMS (~22.2W at 230V)
+    cal_20a = 10.0
+    samples_20a_0a = generate_adc_samples(duration_s=0.100, dc_offset_v=1.65, ac_peak_amps=0.0, cal_a_per_v=cal_20a, noise_sigma_counts=8.0)
+    amps_20a_0a = simulate_esp32_read_strip_amps(samples_20a_0a, cal_a_per_v=cal_20a)
+    status_20a_0a = "PASS" if amps_20a_0a == 0.0 else "FAIL"
+    if status_20a_0a == "FAIL":
+        all_passed = False
+    print(f"  ACS712-20A (10.0 A/V): 0A with noise -> amps: {amps_20a_0a:.4f}A [{status_20a_0a}]")
+
+    samples_20a_load = generate_adc_samples(duration_s=0.100, dc_offset_v=1.65, ac_peak_amps=1.0 * math.sqrt(2.0), cal_a_per_v=cal_20a, noise_sigma_counts=8.0)
+    amps_20a_load = simulate_esp32_read_strip_amps(samples_20a_load, cal_a_per_v=cal_20a)
+    err_20a_load = abs(amps_20a_load - 1.0) / 1.0 * 100.0
+    status_20a_load = "PASS" if err_20a_load <= 5.0 else "FAIL"
+    if status_20a_load == "FAIL":
+        all_passed = False
+    print(f"  ACS712-20A (10.0 A/V): 1.0A load with noise -> amps: {amps_20a_load:.4f}A (err {err_20a_load:.2f}%) [{status_20a_load}]")
+
+    # ACS712-30A (15.0 A/V): 12.0 counts = 0.145A RMS (~33.4W at 230V)
+    cal_30a = 15.0
+    samples_30a_0a = generate_adc_samples(duration_s=0.100, dc_offset_v=1.65, ac_peak_amps=0.0, cal_a_per_v=cal_30a, noise_sigma_counts=10.0)
+    amps_30a_0a = simulate_esp32_read_strip_amps(samples_30a_0a, cal_a_per_v=cal_30a)
+    status_30a_0a = "PASS" if amps_30a_0a == 0.0 else "FAIL"
+    if status_30a_0a == "FAIL":
+        all_passed = False
+    print(f"  ACS712-30A (15.0 A/V): 0A with elevated noise (sigma=10.0) -> amps: {amps_30a_0a:.4f}A [{status_30a_0a}]")
+
+    # -------------------------------------------------------------
+    # Test 12: Extreme Edge Cases: Wide Frequency Drift & Motor Inrush
+    # -------------------------------------------------------------
+    print("\n[Test 12] Extreme Edge Cases: Wide Frequency Drift & Motor Inrush")
+    # Extreme frequency wander on cheap portable generators: 45 Hz and 65 Hz over 100ms window
+    for f in [45.0, 65.0]:
+        samples_f = generate_adc_samples(duration_s=0.100, dc_offset_v=1.65, ac_peak_amps=5.0, freq_hz=f)
+        amps_f = simulate_esp32_read_strip_amps(samples_f)
+        watts_f = simulate_esp32_publish(amps_f)
+        err_f_pct = abs(watts_f - 813.2) / 813.2 * 100.0
+        status_f = "PASS" if err_f_pct <= 2.0 else "FAIL"
+        if status_f == "FAIL":
+            all_passed = False
+        print(f"  Generator freq {f:4.1f} Hz -> amps: {amps_f:.4f}A, watts: {watts_f:.1f}W (err {err_f_pct:.2f}%) [{status_f}]")
+
+    # Heavy motor inrush current: 30A RMS (42.4A peak) hard-clipping at ADC rails (0V / 3.3V)
+    samples_inrush = generate_adc_samples(duration_s=0.100, dc_offset_v=1.65, ac_peak_amps=30.0 * math.sqrt(2.0))
+    amps_inrush = simulate_esp32_read_strip_amps(samples_inrush)
+    status_inrush = "PASS" if amps_inrush > 0.0 and not math.isnan(amps_inrush) and not math.isinf(amps_inrush) else "FAIL"
+    if status_inrush == "FAIL":
+        all_passed = False
+    print(f"  30A RMS motor inrush hard clipping -> amps: {amps_inrush:.4f}A, watts: {simulate_esp32_publish(amps_inrush):.1f}W [{status_inrush}]")
 
     print("\n-----------------------------------------------------------------")
     if all_passed:

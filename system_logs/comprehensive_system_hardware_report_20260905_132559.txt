@@ -1,0 +1,611 @@
+========================================
+ SYSTEM AND HARDWARE REPORT
+ Date: Sat Sep  5 13:25:59 +07 2026
+========================================
+
+
+--- 1. BASIC OS AND KERNEL INFO ---
+Darwin Khois-Mac-mini.local 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 22:02:53 PDT 2026; root:xnu-13432.1.9~3/RELEASE_ARM64_T8132 arm64
+ProductName:		macOS
+ProductVersion:		27.0
+BuildVersion:		26A5421a
+
+
+--- 2. HARDWARE OVERVIEW ---
+Hardware:
+
+    Hardware Overview:
+
+      Model Name: Mac mini
+      Model Identifier: Mac16,10
+      Model Number: MU9D3SA/A
+      Chip: Apple M4
+      Total Number of Cores: 10 (4 Performance and 6 Efficiency)
+      Memory: 16 GB
+      System Firmware Version: 20457.1.29
+      OS Loader Version: 20457.1.29
+      Serial Number (system): Y5V2L7KH96
+      Hardware UUID: AB9D26FB-C0C7-5603-9F1B-A5B375814DD9
+      Provisioning UDID: 00008132-000144380EC1801C
+      Activation Lock Status: Disabled
+
+
+
+--- 3. CPU DETAILED INFO ---
+hw.model: Mac16,10
+hw.machine: arm64
+hw.ncpu: 10
+hw.physicalcpu: 10
+hw.logicalcpu: 10
+hw.memsize: 17179869184
+hw.l1icachesize: 131072
+hw.l1dcachesize: 65536
+hw.l2cachesize: 4194304
+machdep.cpu.cores_per_package: 10
+machdep.cpu.core_count: 10
+machdep.cpu.logical_per_package: 10
+machdep.cpu.thread_count: 10
+machdep.cpu.brand_string: Apple M4
+
+
+--- 4. SOFTWARE OVERVIEW ---
+Software:
+
+    System Software Overview:
+
+      System Version: macOS 27.0 (26A5421a)
+      Kernel Version: Darwin 27.0.0
+      Boot Volume: Macintosh HD
+      Boot Mode: Normal
+      Computer Name: Khôi's Mac mini
+      User Name: Nguyễn Hoàng Khôi (nguyenhoangkhoi)
+      Secure Virtual Memory: Enabled
+      System Integrity Protection: Enabled
+      Time since boot: 3 days, 13 hours, 35 minutes
+
+
+
+--- 5. MEMORY ---
+Memory:
+
+      Memory: 16 GB
+      Type: LPDDR5
+      Manufacturer: Hynix
+
+
+
+--- 6. STORAGE AND DISKS ---
+--> system_profiler SPStorageDataType
+Storage:
+
+    Data:
+
+      Free: 36,74 GB (36.741.120.000 bytes)
+      Capacity: 245,11 GB (245.107.195.904 bytes)
+      Mount Point: /System/Volumes/Data
+      File System: APFS
+      Writable: Yes
+      Ignore Ownership: No
+      BSD Name: disk3s5
+      Volume UUID: 3E11CAAC-F54E-408A-8195-3D061A3E59EE
+      Physical Drive:
+          Device Name: APPLE SSD AP0256Z
+          Media Name: AppleAPFSMedia
+          Medium Type: SSD
+          Protocol: Apple Fabric
+          Internal: Yes
+          Partition Map Type: Unknown
+          S.M.A.R.T. Status: Verified
+
+    Macintosh HD:
+
+      Free: 36,74 GB (36.741.120.000 bytes)
+      Capacity: 245,11 GB (245.107.195.904 bytes)
+      Mount Point: /
+      File System: APFS
+      Writable: No
+      Ignore Ownership: No
+      BSD Name: disk3s1s1
+      Volume UUID: B406DDC9-3C9A-496F-A2B9-EB541E68F2D0
+      Physical Drive:
+          Device Name: APPLE SSD AP0256Z
+          Media Name: AppleAPFSMedia
+          Medium Type: SSD
+          Protocol: Apple Fabric
+          Internal: Yes
+          Partition Map Type: Unknown
+          S.M.A.R.T. Status: Verified
+
+    passport:
+
+      Free: 1,9 TB (1.904.640.000.000 bytes)
+      Capacity: 2 TB (2.000.021.315.584 bytes)
+      Mount Point: /Volumes/passport
+      File System: Journaled HFS+
+      Writable: Yes
+      Ignore Ownership: Yes
+      BSD Name: disk4s2
+      Volume UUID: 8647FD8E-786D-353F-A81B-FE71911220F1
+      Physical Drive:
+          Device Name: My Passport 260D
+          Media Name: WD My Passport 260D Media
+          Protocol: USB
+          Internal: No
+          Partition Map Type: GPT (GUID Partition Table)
+
+
+--> diskutil list
+/dev/disk0 (internal, physical):
+   #:                       TYPE NAME                    SIZE       IDENTIFIER
+   0:      GUID_partition_scheme                        *251.0 GB   disk0
+   1:             Apple_APFS_ISC Container disk1         524.3 MB   disk0s1
+   2:                 Apple_APFS Container disk3         245.1 GB   disk0s2
+   3:        Apple_APFS_Recovery Container disk2         5.4 GB     disk0s3
+
+/dev/disk3 (synthesized):
+   #:                       TYPE NAME                    SIZE       IDENTIFIER
+   0:      APFS Container Scheme -                      +245.1 GB   disk3
+                                 Physical Store disk0s2
+   1:                APFS Volume Macintosh HD            12.6 GB    disk3s1
+   2:              APFS Snapshot com.apple.os.update-... 12.6 GB    disk3s1s1
+   3:                APFS Volume Preboot                 10.8 GB    disk3s2
+   4:                APFS Volume Recovery                1.5 GB     disk3s3
+   5:                APFS Volume Data                    175.7 GB   disk3s5
+   6:                APFS Volume VM                      7.5 GB     disk3s6
+
+/dev/disk4 (external, physical):
+   #:                       TYPE NAME                    SIZE       IDENTIFIER
+   0:      GUID_partition_scheme                        *2.0 TB     disk4
+   1:                        EFI EFI                     209.7 MB   disk4s1
+   2:                  Apple_HFS passport                2.0 TB     disk4s2
+
+
+--> df -h
+Filesystem                           Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1                      228Gi    12Gi    34Gi    26%    483k  359M    0%   /
+devfs                               202Ki   202Ki     0Bi   100%     698     0  100%   /dev
+/dev/disk3s6                        228Gi   7.0Gi    34Gi    17%       7  359M    0%   /System/Volumes/VM
+/dev/disk3s2                        228Gi    10Gi    34Gi    23%    1.2k  359M    0%   /System/Volumes/Preboot
+/dev/disk3s4                        228Gi    76Mi    34Gi     1%      67  359M    0%   /System/Volumes/Update
+/dev/disk1s2                        500Mi   6.0Mi   480Mi     2%       1  4.9M    0%   /System/Volumes/xarts
+/dev/disk1s1                        500Mi   6.0Mi   480Mi     2%      32  4.9M    0%   /System/Volumes/iSCPreboot
+/dev/disk1s3                        500Mi   1.9Mi   480Mi     1%      83  4.9M    0%   /System/Volumes/Hardware
+/dev/disk3s5                        228Gi   163Gi    34Gi    83%    1.3M  359M    0%   /System/Volumes/Data
+map auto_home                         0Bi     0Bi     0Bi   100%       0     0     -   /System/Volumes/Data/home
+/dev/disk4s2                        1.8Ti    87Gi   1.7Ti     5%    224k  4.3G    0%   /Volumes/passport
+/Applications/醒图.app/Wrapper      228Gi   169Gi    35Gi    83%    1.5M  367M    0%   /private/var/folders/ly/cfcmgh311vs42qgrxznr320h0000gn/X/1D88F3AD-ED90-591A-AD0D-1E412C8019F6
+/Applications/Hypic.app/Wrapper     228Gi   169Gi    35Gi    83%    1.5M  368M    0%   /private/var/folders/ly/cfcmgh311vs42qgrxznr320h0000gn/X/4C905995-1FBB-56F1-95D4-75983C2AEDA9
+/Applications/Noteful.app/Wrapper   228Gi   171Gi    33Gi    84%    1.5M  345M    0%   /private/var/folders/ly/cfcmgh311vs42qgrxznr320h0000gn/X/D859C212-3792-5AAD-8772-2CB3CCA5E314
+/Applications/Hypic.app/Wrapper     228Gi   175Gi    29Gi    86%    1.5M  302M    0%   /private/var/folders/ly/cfcmgh311vs42qgrxznr320h0000gn/X/A58D0181-B601-5D90-B852-474E05CE0F25
+
+
+--- 7. NETWORK INFO ---
+Network:
+
+    Ethernet:
+
+      Type: Ethernet
+      Hardware: Ethernet
+      BSD Device Name: en0
+      IPv4 Addresses: 192.168.50.203
+      IPv4:
+          Additional Routes:
+              Destination Address: 192.168.50.203
+              Subnet Mask: 255.255.255.255
+              Destination Address: 169.254.0.0
+              Subnet Mask: 255.255.0.0
+          Addresses: 192.168.50.203
+          ARP Resolved Hardware Address: bc:fc:e7:bf:33:54
+          ARP Resolved IP Address: 192.168.50.1
+          Configuration Method: DHCP
+          Confirmed Interface Name: en0
+          Interface Name: en0
+          Network Signature: IPv4.Router=192.168.50.1;IPv4.RouterHardwareAddress=bc:fc:e7:bf:33:54
+          NetworkSignatureHash: {length = 20, bytes = 0x95060f8a3fe1edd89b2872b724ad8ebf13c35a93}
+          Router: 192.168.50.1
+          Subnet Masks: 255.255.255.0
+      IPv6:
+          Configuration Method: Automatic
+      DNS:
+          Server Addresses: 192.168.50.1
+      DHCP Server Responses:
+          Domain Name Servers: 192.168.50.1
+          Lease Duration (seconds): 0
+          DHCP Message Type: 0x05
+          Routers: 192.168.50.1
+          Server Identifier: 192.168.50.1
+          Subnet Mask: 255.255.255.0
+      Ethernet:
+          MAC Address: d0:11:e5:db:28:c4
+          Media Options: Full Duplex, Flow Control
+          Media Subtype: 1000baseT
+      Proxies:
+          Exceptions List: *.local, 169.254/16
+          FTP Passive Mode: Yes
+      Service Order: 0
+
+    Ethernet Adapter (en5):
+
+      Type: Ethernet
+      Hardware: Ethernet
+      BSD Device Name: en5
+      IPv4:
+          Configuration Method: DHCP
+      IPv6:
+          Configuration Method: Automatic
+      Ethernet:
+          MAC Address: ba:27:56:c3:6d:83
+          Media Options: 
+          Media Subtype: none
+      Proxies:
+          Exceptions List: *.local, 169.254/16
+          FTP Passive Mode: Yes
+      Service Order: 1
+
+    Ethernet Adapter (en6):
+
+      Type: Ethernet
+      Hardware: Ethernet
+      BSD Device Name: en6
+      IPv4:
+          Configuration Method: DHCP
+      IPv6:
+          Configuration Method: Automatic
+      Ethernet:
+          MAC Address: ba:27:56:c3:6d:84
+          Media Options: 
+          Media Subtype: none
+      Proxies:
+          Exceptions List: *.local, 169.254/16
+          FTP Passive Mode: Yes
+      Service Order: 2
+
+    Ethernet Adapter (en7):
+
+      Type: Ethernet
+      Hardware: Ethernet
+      BSD Device Name: en7
+      IPv4:
+          Configuration Method: DHCP
+      IPv6:
+          Configuration Method: Automatic
+      Ethernet:
+          MAC Address: ba:27:56:c3:6d:86
+          Media Options: 
+          Media Subtype: none
+      Proxies:
+          Exceptions List: *.local, 169.254/16
+          FTP Passive Mode: Yes
+      Service Order: 3
+
+    Thunderbolt Bridge:
+
+      Type: Ethernet
+      Hardware: Ethernet
+      BSD Device Name: bridge0
+      IPv4:
+          Configuration Method: DHCP
+      IPv6:
+          Configuration Method: Automatic
+      Proxies:
+          Exceptions List: *.local, 169.254/16
+          FTP Passive Mode: Yes
+      Service Order: 4
+
+    Wi-Fi:
+
+      Type: AirPort
+      Hardware: AirPort
+      BSD Device Name: en1
+      IPv4 Addresses: 192.168.50.81
+      IPv4:
+          Additional Routes:
+              Destination Address: 192.168.50.81
+              Subnet Mask: 255.255.255.255
+              Destination Address: 169.254.0.0
+              Subnet Mask: 255.255.0.0
+          Addresses: 192.168.50.81
+          ARP Resolved Hardware Address: bc:fc:e7:bf:33:54
+          ARP Resolved IP Address: 192.168.50.1
+          Configuration Method: DHCP
+          Confirmed Interface Name: en1
+          Interface Name: en1
+          Network Signature: IPv4.Router=192.168.50.1;IPv4.RouterHardwareAddress=bc:fc:e7:bf:33:54
+          NetworkSignatureHash: {length = 20, bytes = 0x95060f8a3fe1edd89b2872b724ad8ebf13c35a93}
+          Router: 192.168.50.1
+          Subnet Masks: 255.255.255.0
+      IPv6:
+          Configuration Method: Automatic
+      DNS:
+          Server Addresses: 192.168.50.1
+      DHCP Server Responses:
+          Domain Name Servers: 192.168.50.1
+          Lease Duration (seconds): 0
+          DHCP Message Type: 0x05
+          Routers: 192.168.50.1
+          Server Identifier: 192.168.50.1
+          Subnet Mask: 255.255.255.0
+      Ethernet:
+          MAC Address: d0:11:e5:db:ca:30
+          Media Options: 
+          Media Subtype: Auto Select
+      Proxies:
+          Exceptions List: *.local, 169.254/16
+          FTP Passive Mode: Yes
+      Service Order: 5
+
+
+--> ifconfig
+lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
+	options=1203<RXCSUM,TXCSUM,TXSTATUS,SW_TIMESTAMP>
+	inet 127.0.0.1 netmask 0xff000000
+	inet6 ::1 prefixlen 128 
+	inet6 fe80::1%lo0 prefixlen 64 scopeid 0x1 
+	nd6 options=201<PERFORMNUD,DAD>
+gif0: flags=8010<POINTOPOINT,MULTICAST> mtu 1280
+stf0: flags=0<> mtu 1280
+anpi0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=400<CHANNEL_IO>
+	ether ba:27:56:c3:6d:a3
+	media: none
+	status: inactive
+anpi1: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=400<CHANNEL_IO>
+	ether ba:27:56:c3:6d:a4
+	media: none
+	status: inactive
+anpi3: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=400<CHANNEL_IO>
+	ether ba:27:56:c3:6d:a6
+	media: none
+	status: inactive
+en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=50b<RXCSUM,TXCSUM,VLAN_HWTAGGING,AV,CHANNEL_IO>
+	ether d0:11:e5:db:28:c4
+	inet6 fe80::1800:7e29:832f:a7d2%en0 prefixlen 64 secured scopeid 0x7 
+	inet 192.168.50.203 netmask 0xffffff00 broadcast 192.168.50.255
+	nd6 options=201<PERFORMNUD,DAD>
+	media: autoselect (1000baseT <full-duplex,flow-control>)
+	status: active
+en5: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=400<CHANNEL_IO>
+	ether ba:27:56:c3:6d:83
+	nd6 options=201<PERFORMNUD,DAD>
+	media: none
+	status: inactive
+en6: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=400<CHANNEL_IO>
+	ether ba:27:56:c3:6d:84
+	nd6 options=201<PERFORMNUD,DAD>
+	media: none
+	status: inactive
+en7: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=400<CHANNEL_IO>
+	ether ba:27:56:c3:6d:86
+	nd6 options=201<PERFORMNUD,DAD>
+	media: none
+	status: inactive
+en2: flags=8963<UP,BROADCAST,SMART,RUNNING,PROMISC,SIMPLEX,MULTICAST> mtu 1500
+	options=460<TSO4,TSO6,CHANNEL_IO>
+	ether 36:15:1b:00:b9:80
+	media: autoselect <full-duplex>
+	status: inactive
+en3: flags=8963<UP,BROADCAST,SMART,RUNNING,PROMISC,SIMPLEX,MULTICAST> mtu 1500
+	options=460<TSO4,TSO6,CHANNEL_IO>
+	ether 36:15:1b:00:b9:84
+	media: autoselect <full-duplex>
+	status: inactive
+en4: flags=8963<UP,BROADCAST,SMART,RUNNING,PROMISC,SIMPLEX,MULTICAST> mtu 1500
+	options=460<TSO4,TSO6,CHANNEL_IO>
+	ether 36:15:1b:00:b9:8c
+	media: autoselect <full-duplex>
+	status: inactive
+ap1: flags=8822<BROADCAST,SMART,SIMPLEX,MULTICAST> mtu 1500
+	options=400<CHANNEL_IO>
+	ether ee:ed:cd:2c:86:2e
+	media: autoselect (none)
+en1: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=6460<TSO4,TSO6,CHANNEL_IO,PARTIAL_CSUM,ZEROINVERT_CSUM>
+	ether d0:11:e5:db:ca:30
+	inet6 fe80::1cd5:f19d:e510:5664%en1 prefixlen 64 secured scopeid 0xf 
+	inet 192.168.50.81 netmask 0xffffff00 broadcast 192.168.50.255
+	nd6 options=201<PERFORMNUD,DAD>
+	media: autoselect
+	status: active
+bridge0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=63<RXCSUM,TXCSUM,TSO4,TSO6>
+	ether 36:15:1b:00:b9:80
+	Configuration:
+		id 0:0:0:0:0:0 priority 0 hellotime 0 fwddelay 0
+		maxage 0 holdcnt 0 proto stp maxaddr 256 timeout 1200
+		root id 0:0:0:0:0:0 priority 0 ifcost 0 port 0
+		ipfilter disabled flags 0x0
+	member: en2 flags=3<LEARNING,DISCOVER>
+	        ifmaxaddr 0 port 11 priority 0 path cost 0
+	member: en3 flags=3<LEARNING,DISCOVER>
+	        ifmaxaddr 0 port 12 priority 0 path cost 0
+	member: en4 flags=3<LEARNING,DISCOVER>
+	        ifmaxaddr 0 port 13 priority 0 path cost 0
+	nd6 options=201<PERFORMNUD,DAD>
+	media: <unknown type>
+	status: inactive
+awdl0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=6460<TSO4,TSO6,CHANNEL_IO,PARTIAL_CSUM,ZEROINVERT_CSUM>
+	ether fa:97:af:74:b7:1f
+	inet6 fe80::f897:afff:fe74:b71f%awdl0 prefixlen 64 scopeid 0x11 
+	nd6 options=201<PERFORMNUD,DAD>
+	media: autoselect
+	status: active
+llw0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	options=400<CHANNEL_IO>
+	ether fa:97:af:74:b7:1f
+	inet6 fe80::f897:afff:fe74:b71f%llw0 prefixlen 64 scopeid 0x12 
+	nd6 options=201<PERFORMNUD,DAD>
+	media: autoselect (none)
+nan0: flags=8822<BROADCAST,SMART,SIMPLEX,MULTICAST> mtu 1500
+	options=6460<TSO4,TSO6,CHANNEL_IO,PARTIAL_CSUM,ZEROINVERT_CSUM>
+	ether a2:9c:ab:c9:a9:c0
+	inet6 fe80::a09c:abff:fec9:a9c0%nan0 prefixlen 64 scopeid 0x13 
+	nd6 options=201<PERFORMNUD,DAD>
+	media: autoselect (none)
+	status: inactive
+utun0: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1380
+	inet6 fe80::3b1a:b3bf:3819:c7cf%utun0 prefixlen 64 scopeid 0x14 
+	nd6 options=201<PERFORMNUD,DAD>
+utun1: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1500
+	inet6 fe80::b83f:dd52:3d8e:c387%utun1 prefixlen 64 scopeid 0x15 
+	nd6 options=201<PERFORMNUD,DAD>
+utun2: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 2000
+	inet6 fe80::4c50:6e09:1824:13f5%utun2 prefixlen 64 scopeid 0x16 
+	nd6 options=201<PERFORMNUD,DAD>
+utun3: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1000
+	inet6 fe80::ce81:b1c:bd2c:69e%utun3 prefixlen 64 scopeid 0x17 
+	nd6 options=201<PERFORMNUD,DAD>
+utun4: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1380
+	inet6 fe80::5e0c:6f7f:139e:b0de%utun4 prefixlen 64 scopeid 0x18 
+	nd6 options=201<PERFORMNUD,DAD>
+utun5: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1380
+	inet6 fe80::1870:a3e8:6c3d:8ef%utun5 prefixlen 64 scopeid 0x19 
+	nd6 options=201<PERFORMNUD,DAD>
+utun6: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1380
+	inet6 fe80::7422:3099:7bc8:5ff7%utun6 prefixlen 64 scopeid 0x1a 
+	nd6 options=201<PERFORMNUD,DAD>
+
+
+--- 8. DISPLAYS ---
+Graphics/Displays:
+
+    Apple M4:
+
+      Chipset Model: Apple M4
+      Type: GPU
+      Bus: Built-In
+      Total Number of Cores: 10
+      Vendor: Apple (0x106b)
+      Metal Support: Metal 4
+      Displays:
+        LC32G5xT:
+          Resolution: 5120 x 2880 (5K/UHD+ - Ultra High Definition Plus)
+          UI Looks like: 2560 x 1440 @ 120.00Hz
+          Main Display: Yes
+          Mirror: Off
+          Online: Yes
+          Rotation: Supported
+
+
+
+--- 9. POWER & BATTERY ---
+Power:
+
+    System Power Settings:
+
+      AC Power:
+          System Sleep Timer (Minutes): 1
+          Disk Sleep Timer (Minutes): 10
+          Display Sleep Timer (Minutes): 10
+          Sleep on Power Button: Yes
+          Automatic Restart on Power Loss: No
+          Wake on LAN: No
+          Automatic Restart On Power Connect: 0
+          Current Power Source: Yes
+          Low Power Mode: No
+          Prioritize Network Reachability Over Sleep: No
+
+    Hardware Configuration:
+
+      UPS Installed: No
+
+    AC Charger Information:
+
+      Family: 0x0000
+
+
+
+--- 10. USB & THUNDERBOLT DEVICES ---
+Thunderbolt/USB4:
+
+    Thunderbolt/USB4 Bus 3:
+
+      Vendor Name: Apple Inc.
+      Device Name: Mac mini
+      UID: 0x05AC7E7F99402E63
+      Route String: 0
+      Domain UUID: 68C820BD-22D4-475A-81E3-338D7C514596
+      Port:
+          Status: No device connected
+          Link Status: 0x100
+          Speed: Up to 40 Gb/s
+          Receptacle: 4
+
+    Thunderbolt/USB4 Bus 1:
+
+      Vendor Name: Apple Inc.
+      Device Name: Mac mini
+      UID: 0x05AC7E7F99402E61
+      Route String: 0
+      Domain UUID: 3567F77F-28D1-4C08-92D8-06E60EFB5643
+      Port:
+          Status: No device connected
+          Link Status: 0x100
+          Speed: Up to 40 Gb/s
+          Receptacle: 2
+
+    Thunderbolt/USB4 Bus 0:
+
+      Vendor Name: Apple Inc.
+      Device Name: Mac mini
+      UID: 0x05AC7E7F99402E60
+      Route String: 0
+      Domain UUID: 11904D88-7EF7-455E-ACB6-524D13160D78
+      Port:
+          Status: No device connected
+          Link Status: 0x100
+          Speed: Up to 40 Gb/s
+          Receptacle: 1
+
+
+
+--- 11. PCI & BLUETOOTH DEVICES ---
+Bluetooth:
+
+      Bluetooth Controller:
+          Address: D0:11:E5:DA:C5:F5
+          State: On
+          Chipset: BCM_4388C2
+          Discoverable: Off
+          Firmware Version: 24.1.240.1883
+          Product ID: 0x4A3E
+          Supported services: 0x1390039 < HFP AVRCP A2DP HID LEA AACP GATT SerialPort SCO >
+          Transport: PCIe
+          Vendor ID: 0x004C (Apple)
+      Not Connected:
+          Hoàng Khôi’s AirPods Pro:
+              Address: EC:73:79:01:2E:38
+              Vendor ID: 0x004C
+              Product ID: 0x2014
+              Case Version: 74.10.0
+              Firmware Version: 9A347a
+              Minor Type: Headphones
+              Serial Number: JRRYXMF451
+              Serial Number (Left): GX6KQ3G518JQ
+              Serial Number (Right): GN2KQ42718JP
+          Khôi's iPad:
+              Address: CC:11:5A:3D:88:6A
+              RSSI: -42
+          Khôi’s Apple Watch:
+              Address: 98:FE:E1:95:D2:06
+              RSSI: -57
+          Khôi’s iPhone:
+              Address: D0:B3:24:91:24:2F
+          Khôi’s MacBook Air:
+              Address: EE:18:30:C5:95:03
+          MX KEYS S:
+              Address: DC:FF:02:B2:AC:D6
+              Minor Type: Keyboard
+          MX Master 3S:
+              Address: DB:07:68:0F:81:D9
+              Minor Type: Mouse
+
+
+
+--- 12. ACTIVE PROCESSES SNAPSHOT ---

@@ -83,8 +83,9 @@ type ZoneSim struct {
 	Live          bool      // true once real occupancy has been received for this zone
 	VacantTicks   int       // consecutive ticks at 0 occupancy (safety delay before setback)
 	LightsOn      bool      // last actuated lighting state
-	MqttTopic     string    // telemetry suffix this zone was seen on (commands route back here)
-	OverrideUntil time.Time // Latch manual overrides so optimizer doesn't overwrite
+	MqttTopic        string    // telemetry suffix this zone was seen on (commands route back here)
+	DetectedProtocol string    // dynamic IR protocol discovered by edge cameras (e.g. "PANASONIC_AC")
+	OverrideUntil    time.Time // Latch manual overrides so optimizer doesn't overwrite
 	// Hardware-in-the-loop (physical ESP32 / Pico nodes). While the bound node's
 	// measured temperature is fresh, the zone's air temp is pulled to the measurement
 	// instead of the 2R1C integration — the dashboard shows the physical room, not the
@@ -697,6 +698,17 @@ func (e *Engine) SetZoneOccupancy(zoneRef, topicSuffix string, count int) {
 	e.IngestTelemetry(zoneRef, topicSuffix, Measurement{Occupancy: &occ, Source: "cv"})
 }
 
+func (e *Engine) UpdateDetectedProtocol(zoneId, protocol string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	z := e.resolveZone(zoneId)
+	if z != nil {
+		z.DetectedProtocol = protocol
+		return true
+	}
+	return false
+}
+
 // resolveZone maps an inbound identifier (real zoneId or demo alias) to a zone. Lock held.
 func (e *Engine) resolveZone(ref string) *ZoneSim {
 	if z, ok := e.Zones[ref]; ok {
@@ -895,6 +907,9 @@ func (e *Engine) actuate() {
 			lightStr = "ON"
 		}
 		cmd := fmt.Sprintf("LIGHTS_%s;SETPOINT=%.1f", lightStr, desiredSp)
+		if z.DetectedProtocol != "" {
+			cmd = fmt.Sprintf("PROTOCOL=%s;%s", z.DetectedProtocol, cmd)
+		}
 		if e.lastCmd[id] != cmd {
 			e.lastCmd[id] = cmd
 			// Only command zones a real device is bound to; sim zones just changed state.
@@ -1133,6 +1148,7 @@ func (e *Engine) SetNodeStatus(topicSuffix string, online bool) {
 			z.HwCo2At = time.Time{}
 			z.HwPlugAt = time.Time{}
 			z.HwStripAt = time.Time{}
+			z.DetectedProtocol = ""
 		}
 	}
 }
@@ -1484,6 +1500,9 @@ type HardwareNode struct {
 	// AcControlKnown is false for firmware predating the acReal field.
 	AcReal         bool `json:"acReal"`
 	AcControlKnown bool `json:"acControlKnown"`
+	// [GEMINI IMPLEMENTATION START]
+	DetectedProtocol string `json:"detectedProtocol"`
+	// [GEMINI IMPLEMENTATION END]
 }
 
 // HardwareStatus snapshots every zone currently bound to a physical edge node, for the
@@ -1536,6 +1555,9 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 			// Whether this node's setpoint commands actually reach an air conditioner.
 			AcReal:         z.HwAcReal,
 			AcControlKnown: z.HwAcRealSeen,
+			// [GEMINI IMPLEMENTATION START]
+			DetectedProtocol: z.DetectedProtocol,
+			// [GEMINI IMPLEMENTATION END]
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ZoneId < out[j].ZoneId })
@@ -2381,10 +2403,20 @@ func (e *Engine) PublishCommand(action, zoneRef string) {
 
 	z := e.resolveZone(zoneRef)
 	topic := zoneRef
-	if z != nil {
-		if z.MqttTopic != "" {
-			topic = z.MqttTopic
+	if z != nil && z.MqttTopic != "" {
+		topic = z.MqttTopic
+	}
+
+	if strings.HasPrefix(action, "CONFIG:") {
+		payload := strings.TrimSpace(action[7:])
+		log.Printf("[config] manual config payload to %s: %s", topic, payload)
+		if e.Publish != nil {
+			e.Publish("econ/config/"+topic, payload)
 		}
+		return
+	}
+
+	if z != nil {
 		// Set a 15-minute latch so the optimizer respects the human veto
 		z.OverrideUntil = time.Now().Add(15 * time.Minute)
 	}
@@ -2401,6 +2433,8 @@ func (e *Engine) PublishCommand(action, zoneRef string) {
 		e.Publish("econ/commands/"+topic, cmd)
 	}
 }
+
+
 
 // applyCommandToZone applies a firmware-format command string to the engine's zone
 // state. Mirrors the edge firmware's parser: ;-separated LIGHTS_x / SETPOINT= /

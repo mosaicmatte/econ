@@ -76,7 +76,7 @@ const int RELAY_PIN  = 13;  // lighting relay (active HIGH)
 // GPIO19, NOT GPIO22: 22 is the I2C clock. applyHvacSetpoint() pulses this pin, so leaving
 // the emitter on 22 made every setpoint command drive SCL directly and corrupt any read from
 // the SHT30 or the ACD1200 sharing that bus.
-const int IR_PIN     = 19;  // HVAC IR emitter (see applyHvacSetpoint)
+const int IR_PIN     = 25;  // HVAC IR emitter (see applyHvacSetpoint)
 const int STATUS_LED = 2;   // onboard LED = MQTT link status
 
 // ---------------- SENSORS ----------------
@@ -207,7 +207,7 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   // Plug-circuit relay (active HIGH), separate from the lighting relay on GPIO23. Boots
   // ON: a reboot must never leave the room's sockets dead (fail-energized, like a BMS).
   #ifndef PLUG_RELAY_PIN
-    #define PLUG_RELAY_PIN 25
+    #define PLUG_RELAY_PIN 27
   #endif
   // Calibration: amps of primary current per volt at the ADC. 100 A / (0.05 A × 33 Ω)
   // ≈ 60.6 for the -000 variant with a 33 Ω burden; 30.0 for the -030 (30 A / 1 V).
@@ -236,11 +236,11 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #if I2C_SDA == 23 || I2C_SCL == 23
     #error "I2C pin collides with RELAY_PIN (GPIO23) - pick another pin via -DI2C_SDA/-DI2C_SCL"
   #endif
-  #if I2C_SDA == 19 || I2C_SCL == 19
-    #error "I2C pin collides with IR_PIN (GPIO19) - pick another pin via -DI2C_SDA/-DI2C_SCL"
+  #if I2C_SDA == 25 || I2C_SCL == 25
+    #error "I2C pin collides with IR_PIN (GPIO25) - pick another pin via -DI2C_SDA/-DI2C_SCL"
   #endif
-  #if USE_PLUG && (I2C_SDA == 25 || I2C_SCL == 25)
-    #error "I2C pin collides with PLUG_RELAY_PIN (GPIO25) - pick another pin via -DI2C_SDA/-DI2C_SCL"
+  #if USE_PLUG && (I2C_SDA == 27 || I2C_SCL == 27)
+    #error "I2C pin collides with PLUG_RELAY_PIN (GPIO27) - pick another pin via -DI2C_SDA/-DI2C_SCL"
   #endif
 
   // CRC-8, polynomial 0x31, init 0xFF. Shared: the SHT30 (datasheet 4.12) and the ASAIR
@@ -429,12 +429,25 @@ bool  lightsOn = true;
 float hvacSetpointC = 24.0;
 
 // ---------------- WIFI ----------------
+String current_ssid = WIFI_SSID;
+String current_pass = WIFI_PASS;
+
 void setupWifi() {
+  if (current_ssid.length() == 0) return;
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.printf("[wifi] connecting to %s", WIFI_SSID);
-  while (WiFi.status() != WL_CONNECTED) { delay(400); Serial.print("."); }
-  Serial.printf("\n[wifi] connected, ip=%s\n", WiFi.localIP().toString().c_str());
+  WiFi.begin(current_ssid.c_str(), current_pass.c_str());
+  Serial.printf("[wifi] connecting to %s\n", current_ssid.c_str());
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 15) { 
+    delay(400); 
+    Serial.print("."); 
+    attempts++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("\n[wifi] connected, ip=%s\n", WiFi.localIP().toString().c_str());
+  } else {
+    Serial.println("\n[wifi] failed to connect, falling back to local connection.");
+  }
 }
 
 // ---------------- HVAC IR ----------------
@@ -455,6 +468,7 @@ void setupWifi() {
   #include <IRremoteESP8266.h>
   #include <IRsend.h>
   #include <IRac.h>
+  #include <IRutils.h>
 
   // Which brand's protocol to speak. IRremoteESP8266's IRac wraps ~50 vendor protocols
   // behind one state struct, so switching brands is a build flag, not a rewrite:
@@ -475,7 +489,8 @@ void setupWifi() {
   #endif
 
   IRac ac(IR_PIN);
-  bool irAcReady = false;            // protocol compiled AND supported by the library
+  bool irAcReady = true;             // Dynamically evaluated now
+  decode_type_t currentIrProtocol = decode_type_t::IR_AC_PROTOCOL;
 #endif
 
 // applyHvacSetpoint drives the room's air conditioner to `celsius`.
@@ -502,7 +517,7 @@ void applyHvacSetpoint(float celsius) {
     // The AC's full desired state, not just a temperature: these units are stateless
     // receivers — each frame carries mode, fan and power as well, so omitting them would
     // let the machine fall back to whatever it last heard from the handset.
-    ac.next.protocol = decode_type_t::IR_AC_PROTOCOL;
+    ac.next.protocol = currentIrProtocol;
     ac.next.model    = IR_AC_MODEL;
     ac.next.mode     = stdAc::opmode_t::kCool;
     ac.next.celsius  = true;
@@ -522,7 +537,7 @@ void applyHvacSetpoint(float celsius) {
     ac.next.power    = true;
     ac.sendAc();
     Serial.printf("[hvac] IR frame sent: %s -> %.1f C\n",
-                  typeToString(decode_type_t::IR_AC_PROTOCOL).c_str(), celsius);
+                  typeToString(currentIrProtocol).c_str(), celsius);
     return;
   }
   Serial.println("[hvac] WARNING: IR AC compiled in but protocol unsupported -> not sent");
@@ -594,24 +609,36 @@ float readAcAmps() {
 #endif
 
 #if USE_STRIP
-// True-RMS current over ~100 ms (≈5 mains cycles at 50 Hz) for ACS712 power strip sensor.
-// Subtracts the ~2.5V DC bias dynamically as the window mean, and calculates RMS of AC residue.
+// True-RMS current over exactly 100 ms (5 mains cycles at 50 Hz, 6 cycles at 60 Hz)
+// for ACS712 Hall-effect power strip sensor on STRIP_ADC_PIN (GPIO35).
+// - Sub-millisecond window timing via micros() eliminates the +/-1 ms jitter of millis()
+//   which otherwise introduces window truncation and spectral leakage on 50/60 Hz cycles.
+// - Paced sampling (100 us delay between reads) yields a deterministic ~9-10 kHz sample rate,
+//   giving ~180 samples per 50 Hz cycle, settling the ADC S/H capacitor and preventing CPU hogging.
+// - Dynamic mean subtraction (Var = E[V^2] - (E[V])^2) isolates AC variance from DC bias,
+//   automatically accommodating any quiescent offset (direct 2.5V or divided 1.65V) and thermal drift.
+// - Noise floor threshold is evaluated in ADC counts (12.0 counts RMS, ~9.7 mV) rather than a
+//   fixed ampere value. This directly matches ESP32 SAR ADC physical noise floor (sigma ~ 6-10 counts)
+//   and scales proportionally with stripCalAPerV across all ACS712 models (5A, 20A, 30A),
+//   preventing false ghost readings at 0A while accurately measuring loads above the noise floor.
 // Returns amps, or -1 when the sampling window was starved (< 100 samples).
 float readStripAmps() {
   double sum = 0, sumSq = 0;
   int n = 0;
-  unsigned long start = millis();
-  while (millis() - start < 100) {
+  unsigned long start = micros();
+  while ((unsigned long)(micros() - start) < 100000UL) {
     int v = analogRead(STRIP_ADC_PIN);
     sum += v;
     sumSq += (double)v * v;
     n++;
+    delayMicroseconds(100);
   }
-  if (n < 100) return -1;
+  if (n < 100) return -1.0f;
   double mean = sum / n;
   double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
-  float amps = (float)(rmsCounts * (3.3 / 4095.0) * gCfg.stripCalAPerV);
-  return amps < 0.10 ? 0.0f : amps;  // below noise floor = genuinely off
+  const double STRIP_NOISE_FLOOR_COUNTS = 12.0;
+  if (rmsCounts < STRIP_NOISE_FLOOR_COUNTS) return 0.0f;
+  return (float)(rmsCounts * (3.3 / 4095.0) * gCfg.stripCalAPerV);
 }
 #endif
 
@@ -656,6 +683,42 @@ void handleCommand(const String& msg) {
 
     if (tok == "LIGHTS_ON")       setLights(true);
     else if (tok == "LIGHTS_OFF") setLights(false);
+    else if (tok == "PIN_TEST") {
+      Serial.println("[test] Forcing GPIO 19 HIGH for 5 seconds...");
+      pinMode(25, OUTPUT);
+      digitalWrite(25, HIGH);
+      delay(5000);
+      digitalWrite(25, LOW);
+      Serial.println("[test] GPIO 19 LOW");
+    }
+    else if (tok.startsWith("PROTOCOL=")) {
+#if USE_IR_AC
+      String p = tok.substring(9);
+      currentIrProtocol = strToDecodeType(p.c_str());
+      Serial.printf("[hvac] Protocol dynamically changed to: %s\n", p.c_str());
+#endif
+    }
+    else if (tok.startsWith("RAW_IR=")) {
+#if USE_IR_AC
+      // Format: RAW_IR=NEC:0xFF00:32
+      int firstColon = tok.indexOf(':', 7);
+      int secondColon = tok.indexOf(':', firstColon + 1);
+      if (firstColon != -1 && secondColon != -1) {
+        String pStr = tok.substring(7, firstColon);
+        String hexStr = tok.substring(firstColon + 1, secondColon);
+        String bitStr = tok.substring(secondColon + 1);
+        
+        decode_type_t rawProto = strToDecodeType(pStr.c_str());
+        uint64_t data = strtoull(hexStr.c_str(), NULL, 16);
+        uint16_t nbits = bitStr.toInt();
+        
+        IRsend rawSender(IR_PIN);
+        rawSender.begin();
+        rawSender.send(rawProto, data, nbits);
+        Serial.printf("[ir] Raw IR sent: %s Data: 0x%llX Bits: %d\n", pStr.c_str(), data, nbits);
+      }
+#endif
+    }
     else if (tok.startsWith("SETPOINT=")) applyHvacSetpoint(tok.substring(9).toFloat());
     else if (tok.startsWith("HVAC_SET:")) applyHvacSetpoint(tok.substring(9).toFloat());
 #if USE_PLUG
@@ -888,6 +951,22 @@ bool mqttConnect() {
   return ok;
 }
 
+
+void mqttConnect_custom() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  Serial.print("[mqtt] connecting...");
+  if (client.connect(CLIENT_ID, "", "", STATUS_TOPIC, 1, true, "offline")) {
+    Serial.println(" connected");
+    client.subscribe(COMMAND_TOPIC);
+    client.subscribe(CONFIG_TOPIC);
+    client.publish(STATUS_TOPIC, "online", true);
+    digitalWrite(STATUS_LED, HIGH);
+  } else {
+    Serial.printf(" failed rc=%d\n", client.state());
+    digitalWrite(STATUS_LED, LOW);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   // Load the persisted configuration FIRST: every announcement printed below (clamp
@@ -1027,16 +1106,25 @@ void setup() {
   snprintf(CONFIG_STATE_TOPIC, sizeof(CONFIG_STATE_TOPIC), "econ/config/%s/state", ZONE_TOPIC);
   snprintf(CLIENT_ID,          sizeof(CLIENT_ID),          "econ-esp32-%s",       ZONE_TOPIC);
 
-  // setupWifi(); // Vô hiệu hóa Wi-Fi theo yêu cầu dùng USB
-  // client.setServer(MQTT_HOST, MQTT_PORT);
-  // client.setCallback(onMessage);
+    setupWifi();
+  client.setServer(MQTT_HOST, MQTT_PORT);
+  client.setCallback(onMessage);
 }
 
 void loop() {
-  while (Serial.available()) {
+    while (Serial.available()) {
     String line = Serial.readStringUntil('\n');
     line.trim();
-    if (line.startsWith("[mqtt] sub ")) {
+    if (line.startsWith("[wifi] connect ")) {
+      int space = line.indexOf(' ', 15);
+      if (space > 15) {
+        current_ssid = line.substring(15, space);
+        current_pass = line.substring(space + 1);
+        Serial.printf("[wifi] received new credentials: %s\n", current_ssid.c_str());
+        WiFi.disconnect();
+        setupWifi();
+      }
+    } else if (line.startsWith("[mqtt] sub ")) {
       int arrowIdx = line.indexOf(" -> ");
       if (arrowIdx > 0) {
         String topicStr = line.substring(11, arrowIdx);
@@ -1046,8 +1134,18 @@ void loop() {
     }
   }
 
-  // Bỏ qua MQTT loop nếu không dùng Wi-Fi
-  // if (!client.loop()) {
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!client.connected()) {
+      digitalWrite(STATUS_LED, LOW);
+      unsigned long now = millis();
+      if (now - lastReconnectAttempt > 5000) {
+        lastReconnectAttempt = now;
+        mqttConnect_custom();
+      }
+    } else {
+      client.loop();
+    }
+  }
   unsigned long now = millis();
   
 #if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
@@ -1068,4 +1166,5 @@ void loop() {
     lastPublish = now;
     readAndPublish();
   }
+
 }

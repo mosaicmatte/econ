@@ -19,6 +19,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <random>
 
 static int failures = 0;
 
@@ -44,8 +45,9 @@ static float calculateStripAmps(const std::vector<int>& samples, float stripCalA
   if (n < 100) return -1.0f;
   double mean = sum / n;
   double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
-  float amps = (float)(rmsCounts * (3.3 / 4095.0) * stripCalAPerV);
-  return amps < 0.10 ? 0.0f : amps;  // below noise floor = genuinely off
+  const double STRIP_NOISE_FLOOR_COUNTS = 12.0;
+  if (rmsCounts < STRIP_NOISE_FLOOR_COUNTS) return 0.0f;  // below ADC noise floor = genuinely off
+  return (float)(rmsCounts * (3.3 / 4095.0) * stripCalAPerV);
 }
 
 // Generate synthetic ADC samples
@@ -72,6 +74,36 @@ static std::vector<int> generateSamples(
     if (vTotal < clipMinV) vTotal = clipMinV;
     if (vTotal > clipMaxV) vTotal = clipMaxV;
     int count = (int)round(vTotal * (4095.0 / 3.3));
+    if (count < 0) count = 0;
+    if (count > 4095) count = 4095;
+    samples.push_back(count);
+  }
+  return samples;
+}
+
+// Generate synthetic ADC samples with Gaussian noise (ESP32 ADC simulation)
+static std::vector<int> generateSamplesWithNoise(
+    int nSamples,
+    double sampleRateHz,
+    double dcVolts,
+    double rmsAmps,
+    double stripCalAPerV,
+    double noiseSigmaCounts,
+    double freqHz = 50.0)
+{
+  std::vector<int> samples;
+  samples.reserve(nSamples);
+  double vPeak = (stripCalAPerV > 0) ? (rmsAmps * sqrt(2.0) / stripCalAPerV) : 0.0;
+  double dt = 1.0 / sampleRateHz;
+  std::mt19937 gen(42); // deterministic seed for reproducibility
+  std::normal_distribution<double> noiseDist(0.0, noiseSigmaCounts);
+
+  for (int i = 0; i < nSamples; i++) {
+    double t = i * dt;
+    double vAc = vPeak * sin(2.0 * M_PI * freqHz * t);
+    double vTotal = dcVolts + vAc;
+    double rawCount = vTotal * (4095.0 / 3.3) + noiseDist(gen);
+    int count = (int)round(rawCount);
     if (count < 0) count = 0;
     if (count > 4095) count = 4095;
     samples.push_back(count);
@@ -117,14 +149,14 @@ int main() {
   }
 
   // -------------------------------------------------------------
-  // Test Group 3: Pure Noise vs. Noise Floor Gating (< 0.10A -> 0.0W)
+  // Test Group 3: Pure Noise vs. Noise Floor Gating (< 12.0 counts RMS -> 0.0W)
   // -------------------------------------------------------------
-  printf("strip_power: noise floor gating (< 0.10A -> 0.0W)\n");
+  printf("strip_power: noise floor gating (< 12.0 counts RMS -> 0.0W)\n");
   {
-    // Sub-threshold AC current: 0.07A RMS (0.099A peak)
+    // Sub-threshold AC current: 0.07A RMS (0.099A peak, ~5.8 counts < 12.0 counts)
     auto samplesSub = generateSamples(1000, 10000.0, 2.5, 0.07 * sqrt(2.0), gCfg.stripCalAPerV);
     float ampsSub = calculateStripAmps(samplesSub, gCfg.stripCalAPerV);
-    check(ampsSub == 0.0f, "0.07A RMS (< 0.10A) is clamped to 0.0A");
+    check(ampsSub == 0.0f, "0.07A RMS (~5.8 counts < 12.0 counts threshold) is clamped to 0.0A");
 
     // Pure ADC quantization noise around 2.5V (simulated by alternating +- 3 counts)
     std::vector<int> noiseSamples(1000);
@@ -133,12 +165,12 @@ int main() {
       noiseSamples[i] = center + ((i % 4 == 0) ? 3 : ((i % 4 == 2) ? -3 : 0));
     }
     float ampsNoise = calculateStripAmps(noiseSamples, gCfg.stripCalAPerV);
-    check(ampsNoise == 0.0f, "ADC noise of +-3 counts is clamped to 0.0A (below 0.10A threshold)");
+    check(ampsNoise == 0.0f, "ADC noise of +-3 counts is clamped to 0.0A (below 12.0 counts threshold)");
 
-    // Above-threshold AC current: 0.15A RMS (0.212A peak)
+    // Above-threshold AC current: 0.15A RMS (0.212A peak, ~12.4 counts > 12.0 counts)
     auto samplesAbove = generateSamples(1000, 10000.0, 2.5, 0.15 * sqrt(2.0), gCfg.stripCalAPerV);
     float ampsAbove = calculateStripAmps(samplesAbove, gCfg.stripCalAPerV);
-    check(ampsAbove >= 0.14f && ampsAbove <= 0.16f, "0.15A RMS (> 0.10A) is correctly reported");
+    check(ampsAbove >= 0.14f && ampsAbove <= 0.16f, "0.15A RMS (~12.4 counts > 12.0 counts threshold) is correctly reported");
   }
 
   // -------------------------------------------------------------
@@ -261,6 +293,100 @@ int main() {
       snprintf(msg, sizeof(msg), "Cal %.1f A/V with 1V RMS input -> %.2f A (expected %.2f A)", cal, amps, cal);
       check(std::abs(amps - cal) / cal < 0.005f, msg);
     }
+  }
+
+  // -------------------------------------------------------------
+  // Test Group 9: R3 Waveform Reconstruction with ESP32 ADC Noise (0A, 0.5A, 2A, 10A)
+  // -------------------------------------------------------------
+  printf("strip_power: R3 waveform reconstruction with ESP32 ADC noise (0A, 0.5A, 2A, 10A)\n");
+  {
+    // Test 0A with typical ESP32 ADC noise (sigma = 8.0 counts): must output 0.0A (prevent ghost readings)
+    auto samples0A = generateSamplesWithNoise(1000, 10000.0, 1.65, 0.0, gCfg.stripCalAPerV, 8.0);
+    float amps0A = calculateStripAmps(samples0A, gCfg.stripCalAPerV);
+    check(amps0A == 0.0f, "0A with typical ESP32 ADC noise (sigma=8) outputs exactly 0.0A (no ghost reading)");
+
+    // Test 0A with elevated ESP32 ADC noise (sigma = 10.0 counts): must output 0.0A
+    auto samples0AHigh = generateSamplesWithNoise(1000, 10000.0, 1.65, 0.0, gCfg.stripCalAPerV, 10.0);
+    float amps0AHigh = calculateStripAmps(samples0AHigh, gCfg.stripCalAPerV);
+    check(amps0AHigh == 0.0f, "0A with elevated ESP32 ADC noise (sigma=10) outputs exactly 0.0A (no ghost reading)");
+
+    // Test known AC loads with typical ESP32 ADC noise (sigma = 8.0 counts): must reconstruct within 5% accuracy
+    struct NoiseTestCase { double targetAmps; const char* desc; };
+    NoiseTestCase noiseCases[] = {
+      { 0.5, "0.5A RMS with typical noise reconstructed within 5% accuracy" },
+      { 2.0, "2.0A RMS with typical noise reconstructed within 5% accuracy" },
+      { 10.0, "10.0A RMS with typical noise reconstructed within 5% accuracy" }
+    };
+
+    for (auto& tc : noiseCases) {
+      auto samples = generateSamplesWithNoise(1000, 10000.0, 1.65, tc.targetAmps, gCfg.stripCalAPerV, 8.0);
+      float amps = calculateStripAmps(samples, gCfg.stripCalAPerV);
+      double errPct = std::abs((double)amps - tc.targetAmps) / tc.targetAmps * 100.0;
+      char msg[128];
+      snprintf(msg, sizeof(msg), "%s (got %.4fA, target %.4fA, err %.2f%%)", tc.desc, amps, tc.targetAmps, errPct);
+      check(errPct <= 5.0, msg);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Test Group 10: Multi-Model ACS712 Sensitivity Scaling (5A, 20A, 30A)
+  // -------------------------------------------------------------
+  printf("strip_power: multi-model ACS712 sensitivity scaling (5A, 20A, 30A)\n");
+  {
+    // ACS712-05B (5.4 A/V): 12.0 counts = 0.052A RMS (~12.0W at 230V)
+    // A light load of 0.08A RMS (~18.4W) was previously suppressed by the fixed 0.10A threshold.
+    // With count-based threshold (12.0 counts), 0.08A = 18.4 counts > 12.0 counts, so it is reported!
+    float cal05B = 5.4f;
+    auto samples05B_0A = generateSamplesWithNoise(1000, 10000.0, 1.65, 0.0, cal05B, 8.0);
+    check(calculateStripAmps(samples05B_0A, cal05B) == 0.0f, "ACS712-05B: 0A with noise cleanly suppressed to 0.0A");
+
+    auto samples05B_light = generateSamplesWithNoise(1000, 10000.0, 1.65, 0.08, cal05B, 8.0);
+    float amps05B = calculateStripAmps(samples05B_light, cal05B);
+    check(amps05B > 0.0f && std::abs(amps05B - 0.08f) / 0.08f <= 0.10f,
+          "ACS712-05B: light load 0.08A (~18.4W) detected and within 10% (fixed 0.10A would zero it)");
+
+    auto samples05B_15 = generateSamplesWithNoise(1000, 10000.0, 1.65, 0.15, cal05B, 8.0);
+    float amps05B_15 = calculateStripAmps(samples05B_15, cal05B);
+    check(std::abs(amps05B_15 - 0.15f) / 0.15f <= 0.05f,
+          "ACS712-05B: 0.15A load with noise reconstructed within 5% accuracy");
+
+    // ACS712-20A (10.0 A/V): 12.0 counts = 0.097A RMS (~22.2W at 230V)
+    float cal20A = 10.0f;
+    auto samples20A_0A = generateSamplesWithNoise(1000, 10000.0, 1.65, 0.0, cal20A, 8.0);
+    check(calculateStripAmps(samples20A_0A, cal20A) == 0.0f, "ACS712-20A: 0A with noise cleanly suppressed to 0.0A");
+    auto samples20A_load = generateSamplesWithNoise(1000, 10000.0, 1.65, 1.0, cal20A, 8.0);
+    float amps20A = calculateStripAmps(samples20A_load, cal20A);
+    check(std::abs(amps20A - 1.0f) / 1.0f <= 0.05f, "ACS712-20A: 1.0A load reconstructed within 5%");
+
+    // ACS712-30A (15.0 A/V): 12.0 counts = 0.145A RMS (~33.4W at 230V)
+    float cal30A = 15.0f;
+    auto samples30A_0A = generateSamplesWithNoise(1000, 10000.0, 1.65, 0.0, cal30A, 10.0);
+    check(calculateStripAmps(samples30A_0A, cal30A) == 0.0f, "ACS712-30A: 0A with elevated noise (sigma=10) cleanly suppressed to 0.0A");
+  }
+
+  // -------------------------------------------------------------
+  // Test Group 11: Extreme Edge Cases: Wide Frequency Drift & Motor Inrush
+  // -------------------------------------------------------------
+  printf("strip_power: extreme generator frequency drift & motor inrush clipping\n");
+  {
+    // Extreme frequency wander on cheap portable generators: 45 Hz and 65 Hz over 100ms window
+    double extremeFreqs[] = { 45.0, 65.0 };
+    for (double f : extremeFreqs) {
+      auto samples = generateSamples(1000, 10000.0, 1.65, 5.0, gCfg.stripCalAPerV, f);
+      float amps = calculateStripAmps(samples, gCfg.stripCalAPerV);
+      float watts = round(amps * gCfg.plugMainsV * 10.0f) / 10.0f;
+      double errPct = std::abs(watts - 813.2f) / 813.2f * 100.0;
+      char msg[128];
+      snprintf(msg, sizeof(msg), "Generator freq %.1f Hz: got %.1fW (err %.2f%% <= 2.0%%)", f, watts, errPct);
+      check(errPct <= 2.0, msg);
+    }
+
+    // Heavy motor inrush current: 30A RMS (42.4A peak) hard-clipping at ADC rails (0V / 3.3V)
+    // Sensor calculation must not crash, produce NaN, negative values, or freeze.
+    auto samplesInrush = generateSamples(1000, 10000.0, 1.65, 30.0 * sqrt(2.0), gCfg.stripCalAPerV);
+    float ampsInrush = calculateStripAmps(samplesInrush, gCfg.stripCalAPerV);
+    check(ampsInrush > 0.0f && !std::isnan(ampsInrush) && !std::isinf(ampsInrush),
+          "30A motor inrush hard clipping produces valid finite positive RMS without crashing");
   }
 
   printf("\n---------------------------------------------------\n");

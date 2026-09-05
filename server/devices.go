@@ -14,6 +14,7 @@ package main
 // exactly where bring-up problems live.
 
 import (
+	"econ/simulation"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -205,13 +206,23 @@ type deviceView struct {
 	AgeSec    float64 `json:"ageSec"`
 	RateHz    float64 `json:"rateHz"`
 	LastJSON  string  `json:"lastJson"`
-	Bound     bool    `json:"bound"`     // does the engine have this node bound to a zone?
-	BoundZone string  `json:"boundZone"` // which zone id, if so
+	Bound            bool    `json:"bound"`     // does the engine have this node bound to a zone?
+	BoundZone        string  `json:"boundZone"` // which zone id, if so
+	DetectedProtocol string  `json:"detectedProtocol"`
 }
 
-func devicesHandler(engineBound func() map[string]string) http.HandlerFunc {
+func devicesHandler(engineHardware func() []simulation.HardwareNode) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		bound := engineBound()
+		hardware := engineHardware()
+		bound := map[string]string{}
+		protocols := map[string]string{}
+		for _, n := range hardware {
+			parts := strings.Split(n.Topic, "/")
+			id := parts[len(parts)-1]
+			bound[id] = n.ZoneId
+			protocols[id] = n.DetectedProtocol
+		}
+
 		registry.mu.RLock()
 		defer registry.mu.RUnlock()
 
@@ -223,9 +234,10 @@ func devicesHandler(engineBound func() map[string]string) http.HandlerFunc {
 				rate = float64(dev.Messages) / span
 			}
 			zoneId, isBound := bound[id]
+			proto := protocols[id]
 			out = append(out, deviceView{
 				device: dev, Online: dev.online, AgeSec: age, RateHz: rate,
-				LastJSON: dev.lastJSON, Bound: isBound, BoundZone: zoneId,
+				LastJSON: dev.lastJSON, Bound: isBound, BoundZone: zoneId, DetectedProtocol: proto,
 			})
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -390,8 +402,8 @@ func writeJSON(w http.ResponseWriter, v interface{}) {
 // registerDeviceRoutes wires the inspector. Read-only: nothing here actuates, so it is
 // safe to leave reachable during bring-up without widening the control surface auth.go
 // closed. Deleting this call and devices.go removes the module entirely.
-func registerDeviceRoutes(engineBound func() map[string]string) {
-	http.HandleFunc("/api/devices", devicesHandler(engineBound))
+func registerDeviceRoutes(engineHardware func() []simulation.HardwareNode) {
+	http.HandleFunc("/api/devices", devicesHandler(engineHardware))
 	http.HandleFunc("/api/devices/series", deviceSeriesHandler)
 	http.HandleFunc("/api/devices/events", deviceEventsHandler)
 	http.HandleFunc("/api/devices/quality", dataQualityHandler)

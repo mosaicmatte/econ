@@ -251,6 +251,7 @@ int main() {
 
     printf("  Worst-Case Serialized: %s\n", harness.buf);
     printf("  Worst-Case Length: %zu bytes (buf size: 384 bytes)\n", n);
+    check(n == measured, "serializeJson return matches measureJson");
     check(n < 384, "Theoretical worst-case length strictly < 384 bytes");
     check(harness.guardIntact(), "Guard bytes untouched");
     printf("  Guaranteed buffer margin: %zu bytes remaining\n", 384 - n);
