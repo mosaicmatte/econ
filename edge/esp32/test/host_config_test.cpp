@@ -48,6 +48,7 @@ int main() {
   check(d.publishIntervalMs == 5000,           "publish interval defaults to the old 5000 ms");
   check(std::abs(d.plugCalAPerV - 60.6f) < 1e-3, "plug calibration defaults to the -000 + 33ohm figure");
   check(std::abs(d.plugMainsV - 230.0f) < 1e-3, "plug mains defaults to Vietnam 230 V");
+  check(std::abs(d.stripCalAPerV - 15.0f) < 1e-3, "strip calibration defaults to 15.0 A/V");
   check(d.touchEnterPct == 62 && d.touchExitPct == 82, "touch hysteresis defaults to the observed 62/82");
   check(d.cfgRev == 0,                          "a node that was never configured is at rev 0");
   check(cfgValidate(d),                         "the compiled defaults are themselves valid");
@@ -58,6 +59,9 @@ int main() {
   check(std::abs(gCfg.plugCalAPerV - 42.6f) < 1e-3, "value took effect");
   check(gCfg.cfgRev == 1,                       "cfgRev bumped to 1");
   check(gCfg.plugMainsV == d.plugMainsV,        "untouched fields kept their defaults");
+  check(apply("{\"stripCalAPerV\":15.2}"),      "strip calibration accepted");
+  check(std::abs(gCfg.stripCalAPerV - 15.2f) < 1e-3, "stripCalAPerV took effect");
+  check(gCfg.cfgRev == 2,                       "cfgRev bumped to 2");
 
   printf("node_config: rejects what it cannot physically be\n");
   uint32_t revBefore = gCfg.cfgRev;
@@ -65,6 +69,11 @@ int main() {
   check(std::abs(gCfg.plugCalAPerV - 42.6f) < 1e-3, "running calibration UNCHANGED after refusal");
   check(gCfg.cfgRev == revBefore,               "a refused message does not bump cfgRev");
   check(!apply("{\"plugMainsV\":12}"),          "12 V mains refused");
+  check(!apply("{\"stripCalAPerV\":0.5}"),      "0.5 A/V strip calibration refused (< 1.0)");
+  check(!apply("{\"stripCalAPerV\":501.0}"),    "501.0 A/V strip calibration refused (> 500.0)");
+  check(apply("{\"stripCalAPerV\":1.0}"),       "boundary min 1.0 A/V strip calibration accepted");
+  check(apply("{\"stripCalAPerV\":500.0}"),     "boundary max 500.0 A/V strip calibration accepted");
+  check(apply("{\"stripCalAPerV\":15.5}"),      "set stripCalAPerV override for state test");
   check(!apply("{\"publishIntervalMs\":50}"),   "50 ms publish interval refused (would flood the broker)");
   check(!apply("{\"publishIntervalMs\":900000}"), "15 min interval refused (zone would sit unpinned)");
   check(!apply("{\"zoneLabel\":\"\"}"),         "empty zone label refused");
@@ -100,6 +109,8 @@ int main() {
         "state lists plugCalAPerV as overridden");
   check(overrides.find("publishIntervalMs") != std::string::npos,
         "state lists publishIntervalMs as overridden");
+  check(overrides.find("stripCalAPerV") != std::string::npos,
+        "state lists stripCalAPerV as overridden");
   check(overrides.find("acMainsV") == std::string::npos,
         "state does NOT list a field still at its default");
 
@@ -107,6 +118,7 @@ int main() {
   uint32_t preReset = gCfg.cfgRev;
   cfgFactoryReset();
   check(std::abs(gCfg.plugCalAPerV - d.plugCalAPerV) < 1e-3, "reset restores the compiled calibration");
+  check(std::abs(gCfg.stripCalAPerV - d.stripCalAPerV) < 1e-3, "reset restores the compiled strip calibration");
   check(gCfg.publishIntervalMs == d.publishIntervalMs, "reset restores the compiled interval");
   check(gCfg.cfgRev == preReset + 1,
         "reset BUMPS cfgRev — it is a change, and the series is not comparable across it");

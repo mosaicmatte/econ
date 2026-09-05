@@ -10,10 +10,13 @@ CREATE TABLE sensor_readings (
   -- Without these two columns a modelled temperature and one off a real SHT30 are the
   -- same row, which makes any historical chart unable to say which curve is evidence.
   device_id   TEXT,
-  quality     TEXT
+  quality     TEXT,
+  strip_w     DOUBLE PRECISION
 );
 
 SELECT create_hypertable('sensor_readings', 'time');
+
+CREATE OR REPLACE VIEW telemetry AS SELECT * FROM sensor_readings;
 
 CREATE INDEX ON sensor_readings (zone_id, time DESC);
 CREATE INDEX ON sensor_readings (device_id, time DESC);

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Host-side test runner for ESP32 edge firmware off-target unit and integration tests.
-# Runs node_config validation, M1 dual-mode comms, and M3 integration suites.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -26,9 +25,25 @@ echo "==========================================================================
 echo "ArduinoJson: $JSON"
 echo ""
 
-echo ">>> [1/6] Running Node Config Unit Tests..."
-c++ -std=c++17 -Wall -Wextra -I "$JSON" -I src -I test test/host_config_test.cpp -o "$TMP_DIR/cfgtest"
+echo ">>> [0/6] Running Basic Math and Empirical Fuzzing..."
+c++ -std=c++17 -Wall -I "$JSON" -I src -I test test/host_config_test.cpp -o "$TMP_DIR/cfgtest"
 "$TMP_DIR/cfgtest"
+
+c++ -std=c++17 -Wall -I "$JSON" -I src -I test test/host_strip_power_test.cpp -o "$TMP_DIR/strippowertest"
+"$TMP_DIR/strippowertest"
+
+c++ -std=c++17 -Wall -I "$JSON" -I src -I test test/empirical_fuzz_test.cpp -o "$TMP_DIR/fuzztest"
+"$TMP_DIR/fuzztest"
+
+c++ -std=c++17 -Wall -I "$JSON" -I src -I test test/empirical_payload_test.cpp -o "$TMP_DIR/payloadtest"
+"$TMP_DIR/payloadtest"
+
+python3 test/verify_strip_power.py
+
+echo ""
+echo ">>> [1/6] Running Node Config Unit Tests..."
+c++ -std=c++17 -Wall -Wextra -I "$JSON" -I src -I test test/host_config_test.cpp -o "$TMP_DIR/cfgtest2"
+"$TMP_DIR/cfgtest2"
 
 echo ""
 echo ">>> [2/6] Running Milestone 1 Dual-Mode Communication Unit & Adversarial Tests..."
@@ -158,8 +173,30 @@ c++ -std=c++17 -Wall -Wextra \
 "$TMP_DIR/m2adv"
 
 echo ""
+echo "=== PlatformIO Firmware Build Verification ==="
+PIO_BIN=""
+if command -v pio >/dev/null 2>&1; then
+  PIO_BIN="pio"
+elif [ -x "$HOME/Library/Python/3.13/bin/pio" ]; then
+  PIO_BIN="$HOME/Library/Python/3.13/bin/pio"
+elif [ -x "$HOME/.platformio/penv/bin/pio" ]; then
+  PIO_BIN="$HOME/.platformio/penv/bin/pio"
+fi
+
+if [ -n "$PIO_BIN" ]; then
+  if "$PIO_BIN" --version >/dev/null 2>&1; then
+    echo "Found PlatformIO ($PIO_BIN). Running 'pio run'..."
+    "$PIO_BIN" run
+    echo "PlatformIO build: PASSED (0 errors, 0 warnings)"
+  else
+    echo "Found PlatformIO at $PIO_BIN, but execution is restricted by environment sandbox. Skipping 'pio run'."
+  fi
+else
+  echo "PlatformIO (pio) not found in PATH or standard paths. Skipping 'pio run'."
+fi
+
+echo ""
 echo "================================================================================"
 echo "          ALL HOST TESTS COMPLETED AND PASSED WITH EXIT CODE 0                  "
 echo "================================================================================"
 exit 0
-

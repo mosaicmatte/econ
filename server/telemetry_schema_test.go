@@ -26,6 +26,7 @@ func TestAppendedFieldsRoundTrip(t *testing.T) {
 	Telemetry.ZoneDataAddPlugShed(b, true)
 	Telemetry.ZoneDataAddSupplyC(b, 9.5)
 	Telemetry.ZoneDataAddSupplyReal(b, true)
+	Telemetry.ZoneDataAddStripW(b, 185.4)
 	off := Telemetry.ZoneDataEnd(b)
 	b.Finish(off)
 
@@ -41,6 +42,7 @@ func TestAppendedFieldsRoundTrip(t *testing.T) {
 		{"co2", z.Co2(), 842},
 		{"plugW", z.PlugW(), 310},
 		{"supplyC", z.SupplyC(), 9.5},
+		{"stripW", z.StripW(), 185.4},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s = %v, want %v", c.name, c.got, c.want)
@@ -69,8 +71,8 @@ func TestAppendedFieldsRoundTrip(t *testing.T) {
 	off2 := Telemetry.ZoneDataEnd(b2)
 	b2.Finish(off2)
 	old := Telemetry.GetRootAsZoneData(b2.FinishedBytes(), 0)
-	if old.SupplyC() != 0 || old.SupplyReal() {
-		t.Errorf("absent appended fields must default: supplyC=%v supplyReal=%v", old.SupplyC(), old.SupplyReal())
+	if old.SupplyC() != 0 || old.SupplyReal() || old.StripW() != 0 {
+		t.Errorf("absent appended fields must default: supplyC=%v supplyReal=%v stripW=%v", old.SupplyC(), old.SupplyReal(), old.StripW())
 	}
 	if !old.LightsOn() {
 		t.Error("lightsOn default must stay true")

@@ -74,16 +74,54 @@ func main() {
 		json.NewEncoder(w).Encode(engine.HardwareStatus())
 	})
 
-	// 4b. TEMPORARY bring-up module (devices.go): the raw MQTT view one level below
+	// 4a. Teammate Vision Interface: Accepts JSON payload with detected brand to set IR protocols.
+	http.HandleFunc("/api/vision/detection", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			ZoneId   string `json:"zone"`
+			Protocol string `json:"protocol"` // e.g. "PANASONIC_AC", "ELECTRA_AC"
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if engine.UpdateDetectedProtocol(payload.ZoneId, payload.Protocol) {
+			log.Printf("[vision] Zone %s IR protocol dynamically set to: %s", payload.ZoneId, payload.Protocol)
+			w.WriteHeader(http.StatusOK)
+		} else {
+			http.Error(w, "zone not found", http.StatusNotFound)
+		}
+	})
+
+	// 4b. Hardware Inspector Manual Commands: allows direct human overrides from the device view.
+	http.HandleFunc("/api/command", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			Zone    string `json:"zone"`
+			Command string `json:"command"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		engine.PublishCommand(payload.Command, payload.Zone)
+		w.WriteHeader(http.StatusOK)
+	})
+
+
+
+	// 4c. TEMPORARY bring-up module (devices.go): the raw MQTT view one level below
 	// /api/hardware — every node seen, per-field freshness, dropout log, and the
 	// measured/modelled split of stored history. Delete this line and devices.go to
 	// remove it once the hardware is stable.
-	registerDeviceRoutes(func() map[string]string {
-		bound := map[string]string{}
-		for _, n := range engine.HardwareStatus() {
-			bound[topicSuffixOf(n.Topic)] = n.ZoneId
-		}
-		return bound
+	registerDeviceRoutes(func() []simulation.HardwareNode {
+		return engine.HardwareStatus()
 	})
 
 	// 5. Forecast-driven pre-cooling: GET = window status, POST = open a window now.
@@ -147,6 +185,12 @@ func main() {
 	// other — which is the only way to decide which one this building should trust.
 	http.HandleFunc("/api/forecast/compare", compareForecastHandler(engine))
 
+	// 12. Sustainability & Decarbonization module (carbon.go): Scope 2 operational carbon tracking,
+	// predictive maintenance, space utilization efficiency, and live carbon credit recommendations.
+	carbonTracker := newCarbonTracker(engine)
+	loadSustainabilityState(carbonTracker, engine.BuildingId())
+	http.HandleFunc("/api/sustainability", sustainabilityHandler(engine, carbonTracker))
+
 	// Connect to the MQTT broker: ingest real occupancy from the CV/edge layer and
 	// publish actuation commands to the ESP32. Non-blocking; the sim runs regardless.
 	startMQTT(engine)
@@ -156,6 +200,7 @@ func main() {
 	go weatherLoop(engine)
 	go plugPersistLoop(engine)
 	go baselinePersistLoop(engine)
+	go carbonPersistLoop(carbonTracker, engine)
 
 	// 2. WebSocket endpoint for telemetry streaming
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {

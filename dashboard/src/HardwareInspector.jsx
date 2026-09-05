@@ -192,6 +192,258 @@ function DeviceCard({ dev, staleAfter }) {
   );
 }
 
+function SustainabilityTab() {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    const fetchSus = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/sustainability`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setData(await res.json());
+        setErr(null);
+      } catch (e) {
+        setErr(e.message);
+      }
+    };
+    fetchSus();
+    const interval = setInterval(fetchSus, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (err) return <div style={S.error}>Error fetching sustainability data: {err}</div>;
+  if (!data) return <div style={S.dim}>Loading sustainability data...</div>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={S.card}>
+        <h2 style={{marginTop: 0, color: '#4ade80'}}>Scope 2 Carbon Accounting</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+          <div>
+            <div style={S.dim}>Instantaneous Power</div>
+            <div style={{fontSize: 24, fontWeight: 'bold'}}>{data.carbonAccounting.instantaneousPowerW.toFixed(1)} W</div>
+          </div>
+          <div>
+            <div style={S.dim}>Emission Rate</div>
+            <div style={{fontSize: 24, fontWeight: 'bold'}}>{data.carbonAccounting.instantaneousEmissionRateKgPerHour.toFixed(3)} kgCO2e/h</div>
+          </div>
+          <div>
+            <div style={S.dim}>Grid Factor</div>
+            <div style={{fontSize: 24, fontWeight: 'bold'}}>{data.carbonAccounting.gridEmissionFactorKgPerKwh.toFixed(2)} kg/kWh</div>
+          </div>
+          <div>
+            <div style={S.dim}>Cumulative Emissions</div>
+            <div style={{fontSize: 24, fontWeight: 'bold'}}>{data.carbonAccounting.cumulativeEmissionsKgCO2e.toFixed(3)} kgCO2e</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <h2 style={{marginTop: 0, color: '#60a5fa'}}>Carbon Credit Recommendations (Live Market)</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{marginBottom: 8}}><strong>Status:</strong> {data.carbonCreditRecommendations.recommendation}</div>
+            {data.carbonCreditRecommendations.overBudget && (
+              <>
+                <div style={{color: '#f87171', marginBottom: 4}}>Deficit: {data.carbonCreditRecommendations.deficitKgCO2e.toFixed(2)} kgCO2e</div>
+                <div style={{marginBottom: 4}}>Credits Needed: {data.carbonCreditRecommendations.wholeCertificatesNeeded} (approx {data.carbonCreditRecommendations.creditsNeededMetricTons?.toFixed(3)} MT)</div>
+                <div style={{color: '#fbbf24', fontSize: 18, fontWeight: 'bold', marginTop: 8}}>Estimated Cost: ${data.carbonCreditRecommendations.estimatedCostUSD.toFixed(2)}</div>
+              </>
+            )}
+          </div>
+          <div style={{textAlign: 'right', background: '#111827', padding: '12px', borderRadius: '4px', border: '1px solid #374151'}}>
+            <div style={{fontSize: 10, color: '#9ca3af', textTransform: 'uppercase'}}>Live Quote Source</div>
+            <div style={{fontWeight: 'bold'}}>{data.carbonCreditRecommendations.marketQuote.source}</div>
+            <div style={{color: '#4ade80', fontSize: 18}}>${data.carbonCreditRecommendations.marketQuote.spotPricePerMetricTonUSD.toFixed(6)} / MT</div>
+            <div style={{fontSize: 10, color: '#9ca3af', marginTop: 4}}>Updated: {new Date(data.carbonCreditRecommendations.marketQuote.fetchedAt).toLocaleTimeString()}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <div style={S.card}>
+          <h2 style={{marginTop: 0, color: '#fbbf24'}}>Predictive Maintenance</h2>
+          {data.predictiveMaintenance.activeAlertsCount === 0 ? (
+            <div style={{color: '#4ade80'}}>All systems operating within normal parameters.</div>
+          ) : (
+            <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+              {data.predictiveMaintenance.warnings.map((w, i) => (
+                <div key={i} style={{background: '#7f1d1d30', border: '1px solid #ef444450', padding: '8px', borderRadius: '4px'}}>
+                  <div style={{color: '#f87171', fontWeight: 'bold', fontSize: 11, marginBottom: 4}}>[{w.type.toUpperCase()}] {w.equipmentId}</div>
+                  <div style={{fontSize: 12}}>{w.message}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={S.card}>
+          <h2 style={{marginTop: 0, color: '#a78bfa'}}>Space Utilization</h2>
+          <div style={{marginBottom: 12}}>
+            <span style={{fontSize: 24, fontWeight: 'bold'}}>{data.spaceUtilization.overallEfficiencyPercent.toFixed(1)}%</span>
+            <span style={S.dim}> Overall Efficiency</span>
+          </div>
+          <table style={{width: '100%', borderCollapse: 'collapse'}}>
+            <thead>
+              <tr>
+                <th style={S.th}>Zone</th>
+                <th style={S.th}>Occupants</th>
+                <th style={S.th}>Capacity</th>
+                <th style={S.th}>Efficiency</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.spaceUtilization.zones.map((z, i) => (
+                <tr key={i}>
+                  <td style={S.td}>{z.zoneId}</td>
+                  <td style={S.td}>{z.liveOccupants}</td>
+                  <td style={S.td}>{z.designCapacity}</td>
+                  <td style={S.td}>
+                    <span style={{color: z.efficiencyPercent > 100 ? '#f87171' : z.efficiencyPercent > 50 ? '#4ade80' : '#fbbf24'}}>
+                      {z.efficiencyPercent.toFixed(0)}%
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UsbTab() {
+  const [port, setPort] = useState(null);
+  const [log, setLog] = useState('');
+  const [input, setInput] = useState('');
+  
+  const [ssid, setSsid] = useState('');
+  const [password, setPassword] = useState('');
+
+  const connect = async () => {
+    if (!('serial' in navigator)) {
+      setLog(l => l + 'WebSerial API not supported in this browser.\n');
+      return;
+    }
+    try {
+      const p = await navigator.serial.requestPort();
+      await p.open({ baudRate: 115200 });
+      setPort(p);
+      readLoop(p);
+    } catch (e) {
+      setLog(l => l + `Error: ${e.message}\n`);
+    }
+  };
+
+  const readLoop = async (p) => {
+    const textDecoder = new TextDecoderStream();
+    p.readable.pipeTo(textDecoder.writable).catch(e => setLog(l => l + `Pipe Error: ${e.message}\n`));
+    const reader = textDecoder.readable.getReader();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        setLog(l => l + value);
+      }
+    } catch (e) {
+      setLog(l => l + `Read Error: ${e.message}\n`);
+    } finally {
+      reader.releaseLock();
+      setPort(null);
+    }
+  };
+
+  const send = async (text) => {
+    if (!port) return;
+    try {
+      const encoder = new TextEncoder();
+      const writer = port.writable.getWriter();
+      await writer.write(encoder.encode(text + '\r\n'));
+      writer.releaseLock();
+      setLog(l => l + `> ${text}\n`);
+    } catch (e) {
+      setLog(l => l + `Write Error: ${e.message}\n`);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={S.card}>
+        <h2 style={{marginTop: 0, color: '#3b82f6'}}>USB Serial Console</h2>
+        <div style={{ marginBottom: 12 }}>
+          {!port ? (
+            <button style={{...S.btn(true), padding: '6px 14px'}} onClick={connect}>Connect to USB Device</button>
+          ) : (
+            <span style={S.badge('#4ade80')}>CONNECTED</span>
+          )}
+        </div>
+        <div style={{...S.pre, height: 300, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all'}}>
+          {log || 'No data'}
+        </div>
+        
+        <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+          <input style={S.input} value={input} onChange={e => setInput(e.target.value)} placeholder="Send command..." onKeyDown={e => e.key === 'Enter' && (send(input), setInput(''))} />
+          <button style={{...S.btn(true), padding: '6px 14px'}} onClick={() => { send(input); setInput(''); }}>Send</button>
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <h2 style={{marginTop: 0, color: '#a855f7'}}>WiFi Provisioning (USB)</h2>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button style={{...S.btn(false), padding: '6px 14px'}} onClick={() => { setSsid('homewifi'); setPassword(''); }}>Preset: homewifi</button>
+          <button style={{...S.btn(false), padding: '6px 14px'}} onClick={() => { setSsid('wifi chua'); setPassword(''); }}>Preset: wifi chua</button>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input style={S.input} placeholder="SSID" value={ssid} onChange={e => setSsid(e.target.value)} />
+          <input style={S.input} placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
+          <button style={{...S.btn(true), padding: '6px 14px'}} onClick={() => send(`WIFI ${ssid} ${password}`)}>Send WiFi Config</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfigTab() {
+  const [cmd, setCmd] = useState('');
+  const [status, setStatus] = useState(null);
+
+  const sendCmd = async (e) => {
+    e.preventDefault();
+    if (!cmd.trim()) return;
+    setStatus({ msg: 'Sending...', ok: true });
+    try {
+      const res = await fetch(`${API_BASE}/api/command`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: `CONFIG:${cmd}`, zone: 'all' })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setStatus({ msg: 'Command sent successfully', ok: true });
+      setCmd('');
+    } catch (err) {
+      setStatus({ msg: err.message, ok: false });
+    }
+  };
+
+  return (
+    <div style={S.card}>
+      <h2 style={{marginTop: 0, color: '#f59e0b'}}>HARDWARE CONFIGURATION</h2>
+      <p style={S.dim}>Broadcast configuration to all listening hardware nodes via <code>POST /api/command</code>.</p>
+      <form onSubmit={sendCmd} style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <input style={S.input} value={cmd} onChange={e => setCmd(e.target.value)} placeholder="e.g. SET_REPORT_INTERVAL 5000" />
+        <button type="submit" style={{...S.btn(true), padding: '6px 14px'}}>Send CONFIG</button>
+      </form>
+      {status && (
+        <div style={{ marginTop: 12, color: status.ok ? '#4ade80' : '#ef4444', fontSize: 12 }}>
+          {status.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function HardwareInspector() {
   const [data, setData] = useState(null);
   const [events, setEvents] = useState(null);
@@ -267,7 +519,7 @@ export default function HardwareInspector() {
       </div>
 
       <div style={S.tabs}>
-        {['devices', 'events', 'quality', 'forecast'].map((t) => (
+        {['devices', 'events', 'quality', 'forecast', 'sustainability', 'usb', 'config'].map((t) => (
           <button key={t} style={S.tab(tab === t)} onClick={() => setTab(t)}>{t}</button>
         ))}
         <a href={window.location.pathname} style={S.back}>← back to console</a>
@@ -323,6 +575,9 @@ export default function HardwareInspector() {
       )}
 
       {tab === 'forecast' && <ForecastTab />}
+      {tab === 'sustainability' && <SustainabilityTab />}
+      {tab === 'usb' && <UsbTab />}
+      {tab === 'config' && <ConfigTab />}
 
       {tab === 'quality' && (
         <div style={S.card}>
@@ -549,4 +804,6 @@ const S = {
   empty: { color: '#6b7280', padding: 16, textAlign: 'center', lineHeight: 1.6 },
   totals: { display: 'flex', gap: 28, margin: '12px 0 16px', flexWrap: 'wrap' },
   total: { minWidth: 100 },
+  input: { background: '#1f2937', color: '#e5e7eb', border: '1px solid #374151', padding: '6px 10px', borderRadius: 3, fontFamily: mono, fontSize: 12, flex: 1, outline: 'none' },
 };
+

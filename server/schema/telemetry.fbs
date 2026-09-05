@@ -17,6 +17,7 @@ table ZoneData {
   // never travels on a channel that implies it was measured.
   supplyC: float = 0;       // appended: degC, 0 = engine reported none
   supplyReal: bool = false; // appended: true only when a live probe measured it
+  stripW: float = 0;        // appended: measured power-strip draw in W (ACS712)
 }
 
 table VavData {

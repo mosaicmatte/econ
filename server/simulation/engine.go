@@ -83,8 +83,9 @@ type ZoneSim struct {
 	Live          bool      // true once real occupancy has been received for this zone
 	VacantTicks   int       // consecutive ticks at 0 occupancy (safety delay before setback)
 	LightsOn      bool      // last actuated lighting state
-	MqttTopic     string    // telemetry suffix this zone was seen on (commands route back here)
-	OverrideUntil time.Time // Latch manual overrides so optimizer doesn't overwrite
+	MqttTopic        string    // telemetry suffix this zone was seen on (commands route back here)
+	DetectedProtocol string    // dynamic IR protocol discovered by edge cameras (e.g. "PANASONIC_AC")
+	OverrideUntil    time.Time // Latch manual overrides so optimizer doesn't overwrite
 	// Hardware-in-the-loop (physical ESP32 / Pico nodes). While the bound node's
 	// measured temperature is fresh, the zone's air temp is pulled to the measurement
 	// instead of the 2R1C integration — the dashboard shows the physical room, not the
@@ -114,6 +115,8 @@ type ZoneSim struct {
 	PlugVacantSince       time.Time // zero while occupied; set at the moment occupancy hits 0
 	HwPlugW               float64
 	HwPlugAt              time.Time
+	HwStripW              float64
+	HwStripAt             time.Time
 	LastBroadcastPlugShed bool
 	// Physics-grounded AFDD (roadmap challenge 2): while a real sensor pins this zone,
 	// ShadowTemp keeps integrating the pure 2R1C model with NO sensor pull. The smoothed
@@ -612,6 +615,7 @@ type Measurement struct {
 	AcW       *float64
 	Lux       *float64
 	PlugW     *float64 // measured plug-circuit draw (SCT-013 clamp), watts
+	StripW    *float64 // measured power-strip draw (ACS712 sensor), watts
 	Source    string
 	TempReal  bool
 	// AcReal reports whether the node's setpoint commands actually reach an air
@@ -681,6 +685,10 @@ func (e *Engine) IngestTelemetry(zoneRef, topicSuffix string, m Measurement) {
 		z.HwPlugW = *m.PlugW
 		z.HwPlugAt = time.Now()
 	}
+	if m.StripW != nil {
+		z.HwStripW = *m.StripW
+		z.HwStripAt = time.Now()
+	}
 	// Measurements that displace an assumption in the model. Each carries its own
 	// arrival time for the same reason every other field does: a probe that falls out of
 	// the louvre must stop being believed without taking the rest of the node with it.
@@ -703,6 +711,17 @@ func (e *Engine) IngestTelemetry(zoneRef, topicSuffix string, m Measurement) {
 func (e *Engine) SetZoneOccupancy(zoneRef, topicSuffix string, count int) {
 	occ := count
 	e.IngestTelemetry(zoneRef, topicSuffix, Measurement{Occupancy: &occ, Source: "cv"})
+}
+
+func (e *Engine) UpdateDetectedProtocol(zoneId, protocol string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	z := e.resolveZone(zoneId)
+	if z != nil {
+		z.DetectedProtocol = protocol
+		return true
+	}
+	return false
 }
 
 // resolveZone maps an inbound identifier (real zoneId or demo alias) to a zone. Lock held.
@@ -903,6 +922,9 @@ func (e *Engine) actuate() {
 			lightStr = "ON"
 		}
 		cmd := fmt.Sprintf("LIGHTS_%s;SETPOINT=%.1f", lightStr, desiredSp)
+		if z.DetectedProtocol != "" {
+			cmd = fmt.Sprintf("PROTOCOL=%s;%s", z.DetectedProtocol, cmd)
+		}
 		if e.lastCmd[id] != cmd {
 			e.lastCmd[id] = cmd
 			// Only command zones a real device is bound to; sim zones just changed state.
@@ -1045,6 +1067,10 @@ func (z *ZoneSim) acFresh() bool {
 
 func (z *ZoneSim) luxFresh() bool {
 	return !z.HwLuxAt.IsZero() && time.Since(z.HwLuxAt) < hwStaleAfter
+}
+
+func (z *ZoneSim) stripFresh() bool {
+	return !z.HwStripAt.IsZero() && time.Since(z.HwStripAt) < hwStaleAfter
 }
 
 // supplyC is the discharge temperature the cooling law is evaluated against: a DS18B20 in
@@ -1267,6 +1293,8 @@ func (e *Engine) SetNodeStatus(topicSuffix string, online bool) {
 			z.HwHumAt = time.Time{}
 			z.HwCo2At = time.Time{}
 			z.HwPlugAt = time.Time{}
+			z.HwStripAt = time.Time{}
+			z.DetectedProtocol = ""
 		}
 	}
 }
@@ -1684,10 +1712,14 @@ type HardwareNode struct {
 	// APLC: live clamp watts (0 = no meter reporting) and current sweep state.
 	PlugW    float64 `json:"plugW"`
 	PlugShed bool    `json:"plugShed"`
+	StripW   float64 `json:"stripW"`
 	// Closed-loop AC control: whether this node's setpoint commands reach a real machine.
 	// AcControlKnown is false for firmware predating the acReal field.
 	AcReal         bool `json:"acReal"`
 	AcControlKnown bool `json:"acControlKnown"`
+	// [GEMINI IMPLEMENTATION START]
+	DetectedProtocol string `json:"detectedProtocol"`
+	// [GEMINI IMPLEMENTATION END]
 }
 
 // HardwareStatus snapshots every zone currently bound to a physical edge node, for the
@@ -1704,7 +1736,7 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 		// Report an environmental only while its own sensor is still reporting, so this
 		// endpoint agrees with the telemetry stream rather than showing a last-known value
 		// the dashboard has already dropped.
-		hum, co2, plugW := 0.0, 0.0, 0.0
+		hum, co2, plugW, stripW := 0.0, 0.0, 0.0, 0.0
 		if z.humFresh() {
 			hum = z.HwHum
 		}
@@ -1713,6 +1745,9 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 		}
 		if z.plugFresh() {
 			plugW = z.HwPlugW
+		}
+		if z.stripFresh() {
+			stripW = z.HwStripW
 		}
 		out = append(out, HardwareNode{
 			ZoneId:     id,
@@ -1733,9 +1768,13 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 			AfddAlert:  z.ShadowTemp != 0 && z.ResidualEma > afddThreshold,
 			PlugW:      plugW,
 			PlugShed:   z.PlugShed,
+			StripW:     stripW,
 			// Whether this node's setpoint commands actually reach an air conditioner.
 			AcReal:         z.HwAcReal,
 			AcControlKnown: z.HwAcRealSeen,
+			// [GEMINI IMPLEMENTATION START]
+			DetectedProtocol: z.DetectedProtocol,
+			// [GEMINI IMPLEMENTATION END]
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ZoneId < out[j].ZoneId })
@@ -2660,6 +2699,11 @@ func (e *Engine) broadcast() {
 			// distinguishable at the far end.
 			Telemetry.ZoneDataAddSupplyC(builder, float32(z.supplyC(z.Setpoint)))
 			Telemetry.ZoneDataAddSupplyReal(builder, z.supplyFresh() && z.HwSupplyC > 0)
+			var stripW float64
+			if z.stripFresh() {
+				stripW = z.HwStripW
+			}
+			Telemetry.ZoneDataAddStripW(builder, float32(stripW))
 			zoneOffsets = append(zoneOffsets, Telemetry.ZoneDataEnd(builder))
 		}
 	}
@@ -2769,10 +2813,20 @@ func (e *Engine) PublishCommand(action, zoneRef string) {
 
 	z := e.resolveZone(zoneRef)
 	topic := zoneRef
-	if z != nil {
-		if z.MqttTopic != "" {
-			topic = z.MqttTopic
+	if z != nil && z.MqttTopic != "" {
+		topic = z.MqttTopic
+	}
+
+	if strings.HasPrefix(action, "CONFIG:") {
+		payload := strings.TrimSpace(action[7:])
+		log.Printf("[config] manual config payload to %s: %s", topic, payload)
+		if e.Publish != nil {
+			e.Publish("econ/config/"+topic, payload)
 		}
+		return
+	}
+
+	if z != nil {
 		// Set a 15-minute latch so the optimizer respects the human veto
 		z.OverrideUntil = time.Now().Add(15 * time.Minute)
 	}
@@ -2789,6 +2843,8 @@ func (e *Engine) PublishCommand(action, zoneRef string) {
 		e.Publish("econ/commands/"+topic, cmd)
 	}
 }
+
+
 
 // applyCommandToZone applies a firmware-format command string to the engine's zone
 // state. Mirrors the edge firmware's parser: ;-separated LIGHTS_x / SETPOINT= /

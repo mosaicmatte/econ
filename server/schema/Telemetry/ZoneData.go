@@ -169,8 +169,20 @@ func (rcv *ZoneData) MutateSupplyReal(n bool) bool {
 	return rcv._tab.MutateBoolSlot(24, n)
 }
 
+func (rcv *ZoneData) StripW() float32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(26))
+	if o != 0 {
+		return rcv._tab.GetFloat32(o + rcv._tab.Pos)
+	}
+	return 0.0
+}
+
+func (rcv *ZoneData) MutateStripW(n float32) bool {
+	return rcv._tab.MutateFloat32Slot(26, n)
+}
+
 func ZoneDataStart(builder *flatbuffers.Builder) {
-	builder.StartObject(11)
+	builder.StartObject(12)
 }
 func ZoneDataAddId(builder *flatbuffers.Builder, id flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(id), 0)
@@ -204,6 +216,9 @@ func ZoneDataAddSupplyC(builder *flatbuffers.Builder, supplyC float32) {
 }
 func ZoneDataAddSupplyReal(builder *flatbuffers.Builder, supplyReal bool) {
 	builder.PrependBoolSlot(10, supplyReal, false)
+}
+func ZoneDataAddStripW(builder *flatbuffers.Builder, stripW float32) {
+	builder.PrependFloat32Slot(11, stripW, 0.0)
 }
 func ZoneDataEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

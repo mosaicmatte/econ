@@ -678,13 +678,25 @@ function App() {
                 }}>
                   ⚡ LIVE HARDWARE — {(hardwareNodes[selectedZone].source || 'edge').toUpperCase()}{hardwareNodes[selectedZone].online ? '' : ' (OFFLINE)'}
                 </span>
-                {hardwareNodes[selectedZone].tempPinned && (
-                  <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
-                    sensor {hardwareNodes[selectedZone].hwTemp.toFixed(1)}°C
-                  </span>
-                )}
-              </div>
-            )}
+		          {hardwareNodes[selectedZone].tempPinned && (
+		            <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+		              sensor {hardwareNodes[selectedZone].hwTemp.toFixed(1)}°C
+		            </span>
+		          )}
+		          {/* [GEMINI IMPLEMENTATION START] */}
+		          {hardwareNodes[selectedZone].detectedProtocol && (
+		            <span style={{ 
+		              fontSize: '9px', fontWeight: 'bold', color: 'var(--accent-blue)', 
+		              border: '1px solid var(--accent-blue)', padding: '2px 6px', 
+		              borderRadius: '4px', backgroundColor: 'rgba(52, 152, 219, 0.1)',
+		              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100px'
+		            }}>
+		              👁 VISION: {hardwareNodes[selectedZone].detectedProtocol}
+		            </span>
+		          )}
+		          {/* [GEMINI IMPLEMENTATION END] */}
+		        </div>
+		      )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {/* CO₂ and humidity come straight off the telemetry stream: non-zero means a
@@ -754,6 +766,26 @@ function App() {
                 <button onClick={() => sendManualOverride('LIGHTS_OFF;SETPOINT=26.0', selectedZone)} style={{ flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent-blue)', color: 'var(--accent-blue)', fontSize: '10px', padding: '6px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold' }}>FORCE OFF</button>
                 <button onClick={() => sendManualOverride('LIGHTS_ON;SETPOINT=20.0', selectedZone)} style={{ flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent-red)', color: 'var(--accent-red)', fontSize: '10px', padding: '6px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold' }}>MAX COOL</button>
                 <button onClick={() => sendManualOverride('IR_SEND:NEC:0xFF00FF:32', selectedZone)} title="Universal IR Blaster Test" style={{ flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent-green)', color: 'var(--accent-green)', fontSize: '10px', padding: '6px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold' }}>IR FAN</button>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', alignSelf: 'center' }}>IR PROTOCOL:</span>
+                <select 
+                  style={{ flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid #3498db', color: '#3498db', fontSize: '10px', padding: '6px', borderRadius: '4px', outline: 'none', cursor: 'pointer' }}
+                  value={hardwareNodes[selectedZone]?.detectedProtocol || ""}
+                  onChange={(e) => {
+                    fetch(`${API_BASE}/api/vision/detection`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ zone: selectedZone, protocol: e.target.value })
+                    });
+                  }}
+                >
+                  <option value="">(Auto-Detect / None)</option>
+                  <option value="ELECTRA_AC">Casper AC (ELECTRA_AC)</option>
+                  <option value="PANASONIC_AC">Panasonic AC</option>
+                  <option value="MITSUBISHI_AC">Mitsubishi AC</option>
+                  <option value="NEC:0x20DF10EF:32">Dyson Fan (Raw Hex)</option>
+                </select>
               </div>
               {/* [GEMINI IMPLEMENTATION END] */}
             </div>

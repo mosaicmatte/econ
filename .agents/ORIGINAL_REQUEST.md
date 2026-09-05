@@ -1,42 +1,78 @@
 # Original User Request
 
-## 2026-08-30T13:40:06Z
+## Initial Request — 2026-09-05T02:46:18+07:00
 
-This is a single self-contained fix; keep it small and focused. 
-Update the dashboard so that data changes dynamically when toggling a building level in the UI. Additionally, scan the project to identify unimplemented features, hardcoded values, and mock data.
+You are the SWE Light Orchestrator for this task.
+
+Working directory: /Users/nguyenhoangkhoi/Documents/econ/.agents/teamwork_preview_swe_1
+Project root / Workspace directory: /Users/nguyenhoangkhoi/Documents/econ
+Authoritative user request: /Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md
+
+Task summary:
+This is a single self-contained fix; keep it small and focused.
+Investigate and audit the ACS712 current sensor integration in the ESP32 firmware, diagnosing algorithm issues in ADC sampling, RMS calculation, noise floor cutoff, and calibration.
+Working directory: /Users/nguyenhoangkhoi/Documents/econ
+Integrity mode: development
+
+Requirements:
+R1. Audit ACS712 Firmware Sampling and Mathematics:
+Analyze `readStripAmps()` in `edge/esp32/src/main.cpp`. Identify issues regarding ADC sampling timing, sample count, DC offset removal, ESP32 ADC non-linearity, and True-RMS variance calculations.
+
+R2. Noise Floor and Calibration Verification:
+Evaluate the noise threshold logic (`amps < 0.10`) and sensitivity scaling (`stripCalAPerV`, `plugMainsV`). Determine why the sensor may output 0 W under load or trigger false ghost readings, and provide calibrated, robust thresholding.
+
+R3. Implementation and Verification Harness:
+Implement the necessary fixes in `edge/esp32/src/main.cpp` and provide a reproducible host test (or test script) that validates the RMS calculation against synthetic AC sine waveforms (e.g., 0A, 0.5A, 2A, 10A) with typical ESP32 ADC noise.
+
+Acceptance Criteria:
+- Root-cause analysis documented explaining mathematical and sampling behavior of `readStripAmps()`.
+- Unit test or validation script verifying that the current calculation correctly reconstructs known test waveforms within 5% accuracy.
+- Firmware compiles cleanly without errors or warnings via PlatformIO (`pio run` in `edge/esp32`).
+- Noise floor cutoff prevents ghost readings at 0A while accurately measuring loads above the noise threshold.
+
+Please execute the SWE Light lifecycle (implementer and review rounds), maintain progress.md in your working directory, establish correctness by running tests, and report completion when done.
+
+## 2026-09-05T02:47:06Z
+
+# Teamwork Project Prompt — Draft
+
+> Status: Launched
+> Goal: Craft prompt → get user approval → delegate to teamwork_preview
+> Requested team: [none — teamwork routes from the description]
+
+Implement a core "Sustainability & Decarbonization" backend module for the `econ` building management system. Based on the provided domain knowledge, this module should translate existing telemetry into carbon metrics, support predictive maintenance, and expose a unified API for the dashboard that includes live carbon credit purchasing recommendations.
 
 Working directory: /Users/nguyenhoangkhoi/Documents/econ
 Integrity mode: development
 
 ## Requirements
 
-### R1. Dynamic Level Toggle
-Update the dashboard codebase so that toggling a building level successfully fetches and displays real telemetry/building data for that specific level, removing any reliance on hardcoded mock data for this feature.
+### R1. Carbon Accounting (Scope 2 & Operational Carbon)
+Implement a Go backend module (e.g., `server/carbon.go`) that continuously calculates **Scope 2 Operational Carbon** by translating energy consumption (from `plugW`, `stripW`, and AC states) into kgCO2e using configurable grid emission factors.
 
-### R2. Codebase Scan Report
-Scan the frontend and backend codebase for unimplemented features, hardcoded values, and mock data. Produce a clear markdown report (`mock_data_report.md`) detailing your findings and where they are located.
+### R2. Predictive Maintenance & Space Utilization
+Extend the existing engine logic (e.g., `ZoneSim`) to track equipment health. Flag abnormal power draws or track total runtime hours to simulate **Predictive Maintenance** alerts. Utilize the existing `occupancy` data to calculate space utilization efficiency.
 
+### R3. Carbon Credit Recommendations (Live Data)
+Implement logic that compares the calculated emissions against a target "carbon budget". If the infrastructure fails to meet the requirement, the system must fetch live carbon credit pricing data from the internet (via public APIs or web scraping) and recommend purchasing the exact amount of carbon certificates needed to offset the difference, including the estimated cost.
 
-## 2026-08-31T04:27:29Z
+### R4. Sustainability API Endpoint
+Create a new REST endpoint (e.g., `/api/sustainability`) that exposes the aggregated data: total Scope 2 emissions, current space utilization efficiency, active predictive maintenance warnings, and the dynamic carbon credit recommendations.
 
-Replace all remaining hardcoded data in the application with live telemetry from connected sensors. Implement smart fallback logic for unavailable sensors using the simulation engine's physics, and ensure data accurately updates when switching between different Building Information Models (e.g., Office vs. Domestic House).
-
-Working directory: /Users/nguyenhoangkhoi/Documents/econ
-Integrity mode: development
-
-## Requirements
-
-### R1. Live Data Integration
-Audit the codebase and replace any remaining hardcoded or mocked data with live telemetry from the connected hardware sensors and backend APIs.
-
-### R2. Smart Fallbacks for Missing Sensors
-When a specific physical sensor is unavailable, do not use static mock data. Instead, leverage the Go backend's physics and simulation engine to estimate and derive realistic values based on the data from the sensors that *are* available.
-
-### R3. BIM Context Switching
-Implement functionality to switch the active Building Information Model (BIM) entirely—specifically between the office building model and the domestic house model. Ensure that all associated data, rendering, and telemetry context update accurately according to the newly chosen model.
+## Verification Resources
+The current backend is written in Go and runs in the `server` directory. It has existing telemetry streams handling `plugW`, `stripW`, and `occupancy`.
 
 ## Acceptance Criteria
 
-### Verification
-- [ ] Go unit/integration tests are written and pass, explicitly asserting that when specific sensor inputs are omitted, the simulation engine calculates realistic derived values using physics models instead of falling back to static mock data.
-- [ ] A new Puppeteer/Node test script (e.g., `dashboard/verify_bim_switching.js`) is created and passes. It must programmatically interact with the BIM toggle to switch between the Office and Domestic House models, and assert that the underlying telemetry context and UI accurately reflect the newly chosen model.
+### Code Integrity
+- [ ] The `server` directory compiles successfully (`go build .`) with the new code.
+- [ ] The existing backend functionality is not broken.
+
+### Mathematical & External Verification
+- [ ] A new Go test (e.g., `carbon_test.go`) is written to programmatically verify the carbon calculation logic (e.g., asserting that 1000W drawn for 1 hour with a 0.5 kgCO2e/kWh factor results in exactly 0.5 kg of emitted carbon).
+- [ ] The backend demonstrably makes an outbound HTTP request to pull live carbon market pricing.
+- [ ] `go test ./...` passes successfully.
+
+### API Functionality
+- [ ] A `curl` request to the new endpoint (`/api/sustainability`) returns a valid JSON payload containing carbon totals, maintenance alerts, and (if over budget) the recommended carbon credit offset amount and live cost.
+

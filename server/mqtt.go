@@ -31,6 +31,7 @@ type telemetryMsg struct {
 	SupplyC     *float64 `json:"supplyC"` // measured AC supply-air temperature (DS18B20)
 	AcW         *float64 `json:"acW"`     // measured air-conditioner power (2nd SCT-013)
 	Lux         *float64 `json:"lux"`     // measured ambient illuminance (BH1750)
+	StripW      *float64 `json:"stripW"`  // measured power-strip draw in watts (ACS712)
 	Source      string   `json:"source"`
 	TempReal    bool     `json:"tempReal"`
 	AcReal      *bool    `json:"acReal"` // nil = firmware predates the field
@@ -140,6 +141,7 @@ func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 			Lux:       msg.Lux,
 			TempReal:  msg.TempReal,
 			AcReal:    msg.AcReal,
+			StripW:    msg.StripW,
 		})
 	}
 	occ := -1
