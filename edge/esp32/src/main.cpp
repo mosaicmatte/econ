@@ -73,7 +73,7 @@ char CLIENT_ID[32];                         // econ-esp32-<ZONE_TOPIC>
 #define ZONE_LABEL (gCfg.zoneLabel)
 
 // ---------------- HARDWARE PINS ----------------
-const int RELAY_PIN  = 23;  // lighting relay (active HIGH)
+const int RELAY_PIN  = 13;  // lighting relay (D13, user wiring)
 // GPIO19, NOT GPIO22: 22 is the I2C clock. applyHvacSetpoint() pulses this pin, so leaving
 // the emitter on 22 made every setpoint command drive SCL directly and corrupt any read from
 // the SHT30 or the ACD1200 sharing that bus.

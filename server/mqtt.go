@@ -131,18 +131,19 @@ func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 	}
 	if engine != nil {
 		engine.IngestTelemetry(ref, suffix, simulation.Measurement{
-			Occupancy: msg.Occupancy,
-			Temp:      msg.Temperature,
-			Humidity:  msg.Humidity,
-			Co2:       msg.Co2,
-			PlugW:     msg.PlugW,
-			Source:    msg.Source,
-			SupplyC:   msg.SupplyC,
-			AcW:       msg.AcW,
-			Lux:       msg.Lux,
-			TempReal:  msg.TempReal,
-			AcReal:    msg.AcReal,
-			StripW:    msg.StripW,
+			Occupancy:  msg.Occupancy,
+			Occupancy2: msg.Occupancy2,
+			Temp:       msg.Temperature,
+			Humidity:   msg.Humidity,
+			Co2:        msg.Co2,
+			PlugW:      msg.PlugW,
+			Source:     msg.Source,
+			SupplyC:    msg.SupplyC,
+			AcW:        msg.AcW,
+			Lux:        msg.Lux,
+			TempReal:   msg.TempReal,
+			AcReal:     msg.AcReal,
+			StripW:     msg.StripW,
 		})
 	}
 	occ := -1

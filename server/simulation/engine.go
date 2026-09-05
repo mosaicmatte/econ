@@ -607,15 +607,16 @@ var demoZoneAlias = map[string]string{
 // opposed to a firmware's simulated placeholder — only real temperatures may pin the
 // zone's physics to the sensor.
 type Measurement struct {
-	Occupancy *int
-	Temp      *float64
-	Humidity  *float64
-	Co2       *float64
-	SupplyC   *float64
-	AcW       *float64
-	Lux       *float64
-	PlugW     *float64 // measured plug-circuit draw (SCT-013 clamp), watts
-	StripW    *float64 // measured power-strip draw (ACS712 sensor), watts
+	Occupancy  *int
+	Occupancy2 *int
+	Temp       *float64
+	Humidity   *float64
+	Co2        *float64
+	SupplyC    *float64
+	AcW        *float64
+	Lux        *float64
+	PlugW      *float64 // measured plug-circuit draw (SCT-013 clamp), watts
+	StripW     *float64 // measured power-strip draw (ACS712 sensor), watts
 	Source    string
 	TempReal  bool
 	// AcReal reports whether the node's setpoint commands actually reach an air
@@ -636,8 +637,15 @@ func (e *Engine) IngestTelemetry(zoneRef, topicSuffix string, m Measurement) {
 		log.Printf("[telemetry] no zone matches %q; ignoring", zoneRef)
 		return
 	}
-	if m.Occupancy != nil {
-		z.Occupancy = *m.Occupancy
+	if m.Occupancy != nil || m.Occupancy2 != nil {
+		occ := 0
+		if m.Occupancy != nil {
+			occ += *m.Occupancy
+		}
+		if m.Occupancy2 != nil {
+			occ += *m.Occupancy2
+		}
+		z.Occupancy = occ
 		z.Live = true
 	}
 	if topicSuffix != "" {

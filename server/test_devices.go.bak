@@ -1,0 +1,28 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+)
+
+func main() {
+	payload := []byte(`{"zone": "Pico Lab", "occupancy": 1, "occupancy_2": 2, "source": "pico"}`)
+	var msg telemetryMsg
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("msg.Occupancy2 is %v\n", msg.Occupancy2)
+	if msg.Occupancy2 != nil {
+		fmt.Printf("Value is %d\n", *msg.Occupancy2)
+	}
+
+	registry.observe("pico_1", msg, payload)
+	
+	registry.mu.RLock()
+	dev := registry.d["pico_1"]
+	
+	out, _ := json.MarshalIndent(dev, "", "  ")
+	fmt.Println(string(out))
+}
