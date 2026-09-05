@@ -140,7 +140,7 @@ int main() {
     for (double dc : testOffsets) {
       auto samples = generateSamples(1000, 10000.0, dc, 5.0, gCfg.stripCalAPerV);
       float amps = calculateStripAmps(samples, gCfg.stripCalAPerV);
-      float watts = round(amps * gCfg.plugMainsV * 10.0f) / 10.0f;
+      float watts = static_cast<float>(round(static_cast<double>(amps) * static_cast<double>(gCfg.plugMainsV) * 10.0) / 10.0);
       char msg[128];
       snprintf(msg, sizeof(msg), "DC %.2fV: amps=%.3fA, watts=%.1fW (expected ~813.2W)", dc, amps, watts);
       // Allow minor discretization error of <= 0.3W out of 813.2W (< 0.04%)
@@ -189,7 +189,7 @@ int main() {
     for (auto& tc : cases) {
       auto samples = generateSamples(1000, 10000.0, 1.65, tc.rmsAmps * sqrt(2.0), gCfg.stripCalAPerV);
       float amps = calculateStripAmps(samples, gCfg.stripCalAPerV);
-      float watts = round(amps * gCfg.plugMainsV * 10.0f) / 10.0f;
+      float watts = static_cast<float>(round(static_cast<double>(amps) * static_cast<double>(gCfg.plugMainsV) * 10.0) / 10.0);
       char msg[128];
       snprintf(msg, sizeof(msg), "Target %.3fA: got %.3fA, %.1fW (exp %.1fW)", tc.rmsAmps, amps, watts, tc.expWatts);
       check(std::abs(watts - (float)tc.expWatts) <= 0.5f, msg);
@@ -254,7 +254,7 @@ int main() {
       harmSamples.push_back(count);
     }
     float ampsHarm = calculateStripAmps(harmSamples, gCfg.stripCalAPerV);
-    float wattsHarm = round(ampsHarm * gCfg.plugMainsV * 10.0f) / 10.0f;
+    float wattsHarm = static_cast<float>(round(static_cast<double>(ampsHarm) * static_cast<double>(gCfg.plugMainsV) * 10.0) / 10.0);
     check(std::abs(ampsHarm - 1.7029f) < 0.01f, "SMPS harmonics: RMS current within 0.01A of theoretical 1.703A");
     check(std::abs(wattsHarm - 391.7f) <= 0.5f, "SMPS harmonics: Watts within 0.5W of theoretical 391.7W");
   }
@@ -268,7 +268,7 @@ int main() {
     for (double f : testFreqs) {
       auto samples = generateSamples(1000, 10000.0, 1.65, 5.0, gCfg.stripCalAPerV, f);
       float amps = calculateStripAmps(samples, gCfg.stripCalAPerV);
-      float watts = round(amps * gCfg.plugMainsV * 10.0f) / 10.0f;
+      float watts = static_cast<float>(round(static_cast<double>(amps) * static_cast<double>(gCfg.plugMainsV) * 10.0) / 10.0);
       char msg[128];
       snprintf(msg, sizeof(msg), "Grid freq %.1f Hz: got %.1fW (leakage error < 1.0%%)", f, watts);
       check(std::abs(watts - 813.2f) < 10.0f, msg);
@@ -374,7 +374,7 @@ int main() {
     for (double f : extremeFreqs) {
       auto samples = generateSamples(1000, 10000.0, 1.65, 5.0, gCfg.stripCalAPerV, f);
       float amps = calculateStripAmps(samples, gCfg.stripCalAPerV);
-      float watts = round(amps * gCfg.plugMainsV * 10.0f) / 10.0f;
+      float watts = static_cast<float>(round(static_cast<double>(amps) * static_cast<double>(gCfg.plugMainsV) * 10.0) / 10.0);
       double errPct = std::abs(watts - 813.2f) / 813.2f * 100.0;
       char msg[128];
       snprintf(msg, sizeof(msg), "Generator freq %.1f Hz: got %.1fW (err %.2f%% <= 2.0%%)", f, watts, errPct);
