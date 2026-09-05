@@ -160,7 +160,7 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 #endif
 #if USE_STRIP
   #ifndef STRIP_ADC_PIN
-    #define STRIP_ADC_PIN 35
+    #define STRIP_ADC_PIN 33
   #endif
 #endif
 #ifndef USE_LUX
