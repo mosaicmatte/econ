@@ -1140,10 +1140,48 @@ void loop() {
     String line = Serial.readStringUntil('\n');
     line.trim();
     if (line.startsWith("[wifi] connect ")) {
-      int space = line.indexOf(' ', 15);
-      if (space > 15) {
-        String current_ssid = line.substring(15, space);
-        String current_pass = line.substring(space + 1);
+      String payload = line.substring(15);
+      payload.trim();
+      String current_ssid = "";
+      String current_pass = "";
+
+      int pos = 0;
+      auto parseNextToken = [&]() -> String {
+        while (pos < payload.length() && (payload.charAt(pos) == ' ' || payload.charAt(pos) == '\t')) pos++;
+        if (pos >= payload.length()) return "";
+        
+        String token = "";
+        bool inQuotes = (payload.charAt(pos) == '"');
+        if (inQuotes) pos++;
+        
+        while (pos < payload.length()) {
+          char c = payload.charAt(pos);
+          if (inQuotes) {
+            if (c == '\\' && pos + 1 < payload.length()) {
+              pos++;
+              token += payload.charAt(pos);
+            } else if (c == '"') {
+              pos++;
+              break;
+            } else {
+              token += c;
+            }
+          } else {
+            if (c == ' ' || c == '\t') {
+              break;
+            } else {
+              token += c;
+            }
+          }
+          pos++;
+        }
+        return token;
+      };
+
+      current_ssid = parseNextToken();
+      current_pass = parseNextToken();
+
+      if (current_ssid.length() > 0) {
         Serial.printf("[wifi] received new credentials: %s\n", current_ssid.c_str());
         dualComm.setWifiCredentials(current_ssid.c_str(), current_pass.c_str());
         WiFi.disconnect();

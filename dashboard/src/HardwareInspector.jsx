@@ -255,7 +255,11 @@ function SustainabilityTab() {
           </div>
           <div style={{textAlign: 'right', background: '#111827', padding: '12px', borderRadius: '4px', border: '1px solid #374151'}}>
             <div style={{fontSize: 10, color: '#9ca3af', textTransform: 'uppercase'}}>Live Quote Source</div>
-            <div style={{fontWeight: 'bold'}}>{data.carbonCreditRecommendations.marketQuote.source}</div>
+            <div style={{fontWeight: 'bold'}}>
+              <a href="https://www.coingecko.com/en/coins/toucan-protocol-base-carbon-tonne" target="_blank" rel="noreferrer" style={{color: '#60a5fa', textDecoration: 'none'}}>
+                {data.carbonCreditRecommendations.marketQuote.source}
+              </a>
+            </div>
             <div style={{color: '#4ade80', fontSize: 18}}>${data.carbonCreditRecommendations.marketQuote.spotPricePerMetricTonUSD.toFixed(6)} / MT</div>
             <div style={{fontSize: 10, color: '#9ca3af', marginTop: 4}}>Updated: {new Date(data.carbonCreditRecommendations.marketQuote.fetchedAt).toLocaleTimeString()}</div>
           </div>
@@ -322,6 +326,13 @@ function UsbTab() {
   
   const [ssid, setSsid] = useState('');
   const [password, setPassword] = useState('');
+  const [presets, setPresets] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('wifi_presets')) || [];
+    } catch {
+      return [];
+    }
+  });
 
   const connect = async () => {
     if (!('serial' in navigator)) {
@@ -369,6 +380,25 @@ function UsbTab() {
     }
   };
 
+  const handleSendWifi = () => {
+    if (!ssid.trim()) return;
+    const newPresets = presets.filter(p => p.ssid !== ssid);
+    newPresets.unshift({ ssid, password });
+    if (newPresets.length > 5) newPresets.pop();
+    setPresets(newPresets);
+    localStorage.setItem('wifi_presets', JSON.stringify(newPresets));
+
+    // C++ firmware now supports parsing quotes around SSID and password,
+    // including escaped quotes. JSON.stringify safely adds quotes and escapes internal characters.
+    send(`[wifi] connect ${JSON.stringify(ssid)} ${JSON.stringify(password)}`);
+  };
+
+  const removePreset = (s) => {
+    const newPresets = presets.filter(p => p.ssid !== s);
+    setPresets(newPresets);
+    localStorage.setItem('wifi_presets', JSON.stringify(newPresets));
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div style={S.card}>
@@ -392,14 +422,47 @@ function UsbTab() {
 
       <div style={S.card}>
         <h2 style={{marginTop: 0, color: '#a855f7'}}>WiFi Provisioning (USB)</h2>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button style={{...S.btn(false), padding: '6px 14px'}} onClick={() => { setSsid('homewifi'); setPassword(''); }}>Preset: homewifi</button>
-          <button style={{...S.btn(false), padding: '6px 14px'}} onClick={() => { setSsid('wifi chua'); setPassword(''); }}>Preset: wifi chua</button>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input style={S.input} placeholder="SSID" value={ssid} onChange={e => setSsid(e.target.value)} />
-          <input style={S.input} placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
-          <button style={{...S.btn(true), padding: '6px 14px'}} onClick={() => send(`WIFI ${ssid} ${password}`)}>Send WiFi Config</button>
+        <p style={{ ...S.dim, marginTop: 0, marginBottom: 12 }}>
+          Send credentials to the connected edge node. Ensure a USB connection is open first.
+        </p>
+        
+        {presets.length > 0 && (
+          <div style={{ marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {presets.map(p => (
+              <div key={p.ssid} style={{ display: 'flex', alignItems: 'center', background: '#374151', borderRadius: 4, overflow: 'hidden' }}>
+                <button 
+                  style={{...S.btn(false), background: 'transparent', border: 'none', padding: '4px 8px', fontSize: 13}} 
+                  onClick={() => { setSsid(p.ssid); setPassword(p.password); }}
+                  title="Load preset"
+                >
+                  {p.ssid}
+                </button>
+                <button 
+                  style={{ background: 'transparent', border: 'none', borderLeft: '1px solid #4b5563', color: '#9ca3af', padding: '4px 6px', cursor: 'pointer' }}
+                  onClick={() => removePreset(p.ssid)}
+                  title="Remove preset"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input style={{...S.input, flex: 1}} placeholder="SSID" value={ssid} onChange={e => setSsid(e.target.value)} />
+            <input style={{...S.input, flex: 1}} type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'flex-end' }}>
+            <button 
+              style={{...S.btn(true), padding: '6px 14px', opacity: port ? 1 : 0.5}} 
+              disabled={!port}
+              onClick={handleSendWifi}
+            >
+              Send WiFi Config
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -552,7 +615,22 @@ export default function HardwareInspector() {
             No node has published yet. The engine is up but nothing has arrived on
             <code> econ/telemetry/+</code>. Check the node is powered, on WiFi, and pointed at this broker.
           </div>
-        ) : devices.map((d) => <DeviceCard key={d.id} dev={d} staleAfter={data?.staleAfter || 20} />)
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {devices.filter(d => !d.id.includes('pico')).length > 0 && (
+              <div>
+                <h3 style={{ color: '#9ca3af', fontSize: '13px', margin: '0 0 10px 0', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>ESP32 Edge Nodes</h3>
+                {devices.filter(d => !d.id.includes('pico')).map((d) => <DeviceCard key={d.id} dev={d} staleAfter={data?.staleAfter || 20} />)}
+              </div>
+            )}
+            {devices.filter(d => d.id.includes('pico')).length > 0 && (
+              <div>
+                <h3 style={{ color: '#9ca3af', fontSize: '13px', margin: '0 0 10px 0', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>Pico Radar Modules</h3>
+                {devices.filter(d => d.id.includes('pico')).map((d) => <DeviceCard key={d.id} dev={d} staleAfter={data?.staleAfter || 20} />)}
+              </div>
+            )}
+          </div>
+        )
       )}
 
       {tab === 'events' && (
