@@ -24,6 +24,7 @@ import (
 type telemetryMsg struct {
 	Zone        string   `json:"zone"`
 	Occupancy   *int     `json:"occupancy"`
+	Occupancy2  *int     `json:"occupancy_2"`
 	Temperature *float64 `json:"temperature"`
 	Humidity    *float64 `json:"humidity"`
 	Co2         *float64 `json:"co2"`

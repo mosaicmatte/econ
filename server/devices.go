@@ -168,6 +168,12 @@ func (r *deviceRegistry) observe(topicSuffix string, msg telemetryMsg, raw []byt
 	} else {
 		track("occupancy", nil)
 	}
+	if msg.Occupancy2 != nil {
+		occ2 := float64(*msg.Occupancy2)
+		track("occupancy_2", &occ2)
+	} else {
+		track("occupancy_2", nil)
+	}
 }
 
 func (r *deviceRegistry) observeMalformed(topicSuffix string, err error) {

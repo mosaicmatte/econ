@@ -27,6 +27,7 @@ const FIELDS = {
   humidity:    { unit: '%',  flag: 'USE_SHT30 (or USE_DHT)' },
   co2:         { unit: 'ppm', flag: 'USE_CO2' },
   occupancy:   { unit: '',   flag: 'USE_MMWAVE / USE_PIR' },
+  occupancy_2: { unit: '',   flag: 'USE_MMWAVE / USE_PIR' },
   plugW:       { unit: 'W',  flag: 'USE_PLUG' },
   supplyC:     { unit: '°C', flag: 'USE_SUPPLY_TEMP' },
   acW:         { unit: 'W',  flag: 'USE_AC_CLAMP' },
