@@ -1088,6 +1088,29 @@ void setup() {
 }
 
 void loop() {
+  while (Serial.available()) {
+    String line = Serial.readStringUntil('\n');
+    line.trim();
+    if (line.startsWith("[wifi] connect ")) {
+      int space = line.indexOf(' ', 15);
+      if (space > 15) {
+        String current_ssid = line.substring(15, space);
+        String current_pass = line.substring(space + 1);
+        Serial.printf("[wifi] received new credentials: %s\n", current_ssid.c_str());
+        dualComm.setWifiCredentials(current_ssid.c_str(), current_pass.c_str());
+        WiFi.disconnect();
+        WiFi.begin(current_ssid.c_str(), current_pass.c_str());
+      }
+    } else if (line.startsWith("[mqtt] sub ")) {
+      int arrowIdx = line.indexOf(" -> ");
+      if (arrowIdx > 0) {
+        String topicStr = line.substring(11, arrowIdx);
+        String payloadStr = line.substring(arrowIdx + 4);
+        onMessage((char*)topicStr.c_str(), (byte*)payloadStr.c_str(), payloadStr.length());
+      }
+    }
+  }
+
   // Non-blocking dual-mode communications state machine tick (<0.2ms)
   dualComm.tick();
 

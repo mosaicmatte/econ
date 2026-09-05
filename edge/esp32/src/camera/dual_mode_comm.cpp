@@ -352,3 +352,22 @@ void DualModeComm::reconnect() {
   transitionTo(COMM_STATE_CONNECTED);
   _last_wifi_connected = true;
 }
+
+void DualModeComm::setWifiCredentials(const char* ssid, const char* pass) {
+  // Free existing dynamic memory if we allocated it previously
+  // For simplicity since we pass pointers, we should strdup them so they persist
+  // if they came from a local String
+  static char dyn_ssid[64];
+  static char dyn_pass[64];
+  
+  if (ssid) {
+    strncpy(dyn_ssid, ssid, sizeof(dyn_ssid) - 1);
+    dyn_ssid[sizeof(dyn_ssid) - 1] = '\0';
+    _config.wifi_ssid = dyn_ssid;
+  }
+  if (pass) {
+    strncpy(dyn_pass, pass, sizeof(dyn_pass) - 1);
+    dyn_pass[sizeof(dyn_pass) - 1] = '\0';
+    _config.wifi_pass = dyn_pass;
+  }
+}

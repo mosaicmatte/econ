@@ -115,6 +115,7 @@ public:
   // Control & Testing Helpers
   void forceDisconnect();
   void reconnect();
+  void setWifiCredentials(const char* ssid, const char* pass);
 
 private:
   CommConfig        _config;

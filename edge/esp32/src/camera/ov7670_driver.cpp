@@ -2,6 +2,8 @@
 // ov7670_driver.cpp — OV7670 Camera Driver Implementation
 // -----------------------------------------------------------------------------
 #include "ov7670_driver.h"
+#if USE_CAMERA
+
 #include <cstring>
 #include <cstdlib>
 
@@ -389,3 +391,4 @@ void OV7670Driver::generateCheckerboardFrame() {
     }
   }
 }
+#endif
