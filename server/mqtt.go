@@ -110,6 +110,7 @@ func startMQTT(engine *simulation.Engine) {
 }
 
 func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
+	debugLog("received MQTT telemetry on topic %s (bytes=%d)", topic, len(payload))
 	var msg telemetryMsg
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		log.Printf("[mqtt] bad telemetry payload on %s: %v", topic, err)
@@ -127,26 +128,28 @@ func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 	if ref == "" {
 		ref = suffix
 	}
-	engine.IngestTelemetry(ref, suffix, simulation.Measurement{
-		Occupancy: msg.Occupancy,
-		Temp:      msg.Temperature,
-		Humidity:  msg.Humidity,
-		Co2:       msg.Co2,
-		PlugW:     msg.PlugW,
-		Source:    msg.Source,
-		SupplyC:   msg.SupplyC,
-		AcW:       msg.AcW,
-		Lux:       msg.Lux,
-		TempReal:  msg.TempReal,
-		AcReal:    msg.AcReal,
-		StripW:    msg.StripW,
-	})
+	if engine != nil {
+		engine.IngestTelemetry(ref, suffix, simulation.Measurement{
+			Occupancy: msg.Occupancy,
+			Temp:      msg.Temperature,
+			Humidity:  msg.Humidity,
+			Co2:       msg.Co2,
+			PlugW:     msg.PlugW,
+			Source:    msg.Source,
+			SupplyC:   msg.SupplyC,
+			AcW:       msg.AcW,
+			Lux:       msg.Lux,
+			TempReal:  msg.TempReal,
+			AcReal:    msg.AcReal,
+			StripW:    msg.StripW,
+		})
+	}
 	occ := -1
 	if msg.Occupancy != nil {
 		occ = *msg.Occupancy
 	}
-	log.Printf("[mqtt] telemetry %s occ=%d src=%q real_temp=%v (zone=%q)",
-		suffix, occ, msg.Source, msg.TempReal && msg.Temperature != nil, msg.Zone)
+	log.Printf("[mqtt] telemetry %s payload=%s occ=%d src=%q real_temp=%v (zone=%q)",
+		suffix, string(payload), occ, msg.Source, msg.TempReal && msg.Temperature != nil, msg.Zone)
 }
 
 // handleStatus ingests the retained online/offline flags the nodes (and the broker's
@@ -155,7 +158,9 @@ func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 func handleStatus(engine *simulation.Engine, topic string, payload []byte) {
 	suffix := topicSuffix(topic)
 	online := string(payload) == "online"
-	engine.SetNodeStatus(suffix, online)
+	if engine != nil {
+		engine.SetNodeStatus(suffix, online)
+	}
 	log.Printf("[mqtt] status %s -> %s", suffix, string(payload))
 }
 

@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -203,5 +204,266 @@ func TestVavsAreSizedFromTheirZoneNotTheZoneCount(t *testing.T) {
 			t.Fatalf("%s in a 40-zone building flows %.4f m³/s, want ≈%.4f — per-box flow "+
 				"still depends on the zone count", id, vv.Flow, want)
 		}
+	}
+}
+
+// State can be stale for a second reason: it can describe THIS building under a model the
+// engine no longer runs. Occupancy drives the zone temperatures the baselines score, the
+// whole-building load the pre-cool trigger reads, the recorded megawatt series both
+// forecasters consume, the range the plausibility check refuses a forecast against, and the
+// peak the battery's nameplate is sized from. When a fix changed the modelled occupancy from
+// a fixed random draw to a real diurnal schedule, every one of those files went on
+// describing a house with twenty-eight phantom occupants in it — and unlike a wrong-building
+// restore, the building id matched, so nothing caught it.
+
+func withModelVersion(t *testing.T, raw []byte, ver int) []byte {
+	t.Helper()
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	m["occupancyModelVersion"] = json.RawMessage(itoa(ver))
+	out, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return out
+}
+
+func itoa(v int) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+func TestLoadHistoryFromAPreviousOccupancyModelIsDiscarded(t *testing.T) {
+	a := engineFor(t, houseA)
+	a.loadHist = []float64{1.5, 1.6, 1.7}
+	saved, err := a.MarshalLoadHistory()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	stale := withModelVersion(t, saved, OccupancyModelVersion-1)
+	a2 := engineFor(t, houseA)
+	if err := a2.LoadLoadHistory(stale); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := len(a2.LoadHistory()); got != 0 {
+		t.Errorf("restored %d samples recorded under a superseded occupancy model; the "+
+			"plausibility check and the battery's nameplate would both be anchored to them", got)
+	}
+
+	// The current version still restores — the whole point of persisting it.
+	a3 := engineFor(t, houseA)
+	if err := a3.LoadLoadHistory(saved); err != nil {
+		t.Fatalf("load current: %v", err)
+	}
+	if got := len(a3.LoadHistory()); got != 3 {
+		t.Errorf("current model restored %d of 3 samples; a restart must not cost the context", got)
+	}
+}
+
+func TestRoomModelsFromAPreviousOccupancyModelAreDiscarded(t *testing.T) {
+	a := engineFor(t, houseA)
+	// Enough moving samples that the room passes the fit's persistence threshold; the
+	// drivers vary so the excitation gate accepts them.
+	for i := 0; i < 12; i++ {
+		a.dynamics.Observe([]RoomCondition{{
+			Zone: "zone-office-lvl1", Temp: 26 + 0.4*float64(i%4),
+			OutdoorC: 31 + 0.5*float64(i%3), FlowRatio: 0.3 + 0.05*float64(i%5),
+			Occupancy: i % 4,
+		}}, float64(i)*dynamicsSampleSimSecs)
+	}
+	saved, err := a.MarshalDynamics()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	stale := withModelVersion(t, saved, OccupancyModelVersion-1)
+	b := engineFor(t, houseA)
+	if err := b.LoadDynamics(stale); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	// Occupancy is a regressor in the thermal fit; a fit made when it was a constant never
+	// had that coefficient constrained by data.
+	if id, learning := b.dynamics.Coverage(); id+learning > 0 {
+		t.Errorf("restored %d rooms identified under a superseded occupancy model", id+learning)
+	}
+
+	// The current version still restores, or a restart throws away every hour of
+	// identification the twin has done.
+	c := engineFor(t, houseA)
+	if err := c.LoadDynamics(saved); err != nil {
+		t.Fatalf("load current: %v", err)
+	}
+	if id, learning := c.dynamics.Coverage(); id+learning == 0 {
+		t.Error("current model restored no rooms; a restart would cost the identification")
+	}
+}
+
+func TestBaselinesFromAPreviousOccupancyModelAreDiscarded(t *testing.T) {
+	a := engineFor(t, houseA)
+	now := time.Now()
+	for i := 0; i < 40; i++ {
+		a.baselines.Observe("zone-office-lvl1", "temp", 26+float64(i%3), now.Add(time.Duration(i)*time.Minute))
+		a.baselines.Observe("GLOBAL", "buildingLoadMw", 0.6, now.Add(time.Duration(i)*time.Minute))
+	}
+	saved, err := a.MarshalBaselines()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	stale := withModelVersion(t, saved, OccupancyModelVersion-1)
+	b := engineFor(t, houseA)
+	if err := b.LoadBaselines(stale); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := len(b.baselines.Snapshot()); got != 0 {
+		t.Errorf("restored %d baseline series learned under a superseded occupancy model; "+
+			"what a zone's normal looks like changed with the occupancy that drives it", got)
+	}
+
+	// Current version still restores, including the per-zone series.
+	c := engineFor(t, houseA)
+	if err := c.LoadBaselines(saved); err != nil {
+		t.Fatalf("load current: %v", err)
+	}
+	if got := len(c.baselines.Snapshot()); got == 0 {
+		t.Error("current model restored nothing; a restart would cost every learned baseline")
+	}
+}
+
+func TestUnversionedBaselinesAreDiscardedRatherThanPartlyTrusted(t *testing.T) {
+	// The legacy on-disk form records neither a building nor a model version. It used to
+	// be restored with only its whole-building buckets dropped, which left every per-zone
+	// normal in place — learned under an occupancy this engine no longer drives.
+	legacy := []byte(`{"zone-office-lvl1|temp":{"14":{"n":40,"mean":26.0,"m2":12.0}}}`)
+	e := engineFor(t, houseA)
+	if err := e.LoadBaselines(legacy); err != nil {
+		t.Fatalf("load legacy: %v", err)
+	}
+	if got := len(e.baselines.Snapshot()); got != 0 {
+		t.Errorf("restored %d unversioned baseline series; they cannot show which building "+
+			"or which occupancy model they describe", got)
+	}
+}
+
+// The third axis: state can describe the right building, under the right model, and still
+// have been learned somewhere else. The fixture travels with the machine — a laptop running
+// building-data.local.json at a demo keeps the same buildingId, so every other check passes
+// while the engine folds a different building's ambient, occupancy and load into the house's
+// learned normal.
+
+func withSite(t *testing.T, raw []byte, site string) []byte {
+	t.Helper()
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	b, _ := json.Marshal(site)
+	m["site"] = b
+	out, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return out
+}
+
+// declareSite pins this process's own fingerprint for the duration of a test.
+func declareSite(t *testing.T, name string) string {
+	t.Helper()
+	prev, had := os.LookupEnv("SITE_FINGERPRINT")
+	os.Setenv("SITE_FINGERPRINT", name)
+	t.Cleanup(func() {
+		if had {
+			os.Setenv("SITE_FINGERPRINT", prev)
+		} else {
+			os.Unsetenv("SITE_FINGERPRINT")
+		}
+	})
+	return SiteFingerprint()
+}
+
+func TestLoadHistoryLearnedAtAnotherSiteIsDiscarded(t *testing.T) {
+	here := declareSite(t, "the-house")
+	away := declareSite(t, "a-conference-room")
+	_ = away
+
+	a := engineFor(t, houseA)
+	a.loadHist = []float64{1.5, 1.6, 1.7}
+	saved, err := a.MarshalLoadHistory()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	// Same building, same occupancy model, different network.
+	elsewhere := withSite(t, saved, "a-different-network-entirely")
+	b := engineFor(t, houseA)
+	if err := b.LoadLoadHistory(elsewhere); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := len(b.LoadHistory()); got != 0 {
+		t.Errorf("restored %d samples measured on another network; they are the range the "+
+			"plausibility check refuses a forecast against and the peak the battery is "+
+			"sized from", got)
+	}
+
+	// The same network still restores — the whole point of persisting it.
+	sameNet := withSite(t, saved, here)
+	declareSite(t, "the-house")
+	c := engineFor(t, houseA)
+	if err := c.LoadLoadHistory(sameNet); err != nil {
+		t.Fatalf("load same site: %v", err)
+	}
+	if got := len(c.LoadHistory()); got != 3 {
+		t.Errorf("same site restored %d of 3 samples; a restart at home must not cost the context", got)
+	}
+}
+
+func TestStateWithNoRecordedSiteStillRestores(t *testing.T) {
+	// State written before this check existed carries no site, and an engine with no
+	// gateway to probe can offer none. Neither is grounds for destroying it: an unanswered
+	// question is not evidence of a different building.
+	declareSite(t, "the-house")
+
+	a := engineFor(t, houseA)
+	a.loadHist = []float64{1.5, 1.6, 1.7}
+	saved, err := a.MarshalLoadHistory()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	untagged := withSite(t, saved, "")
+
+	b := engineFor(t, houseA)
+	if err := b.LoadLoadHistory(untagged); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := len(b.LoadHistory()); got != 3 {
+		t.Errorf("discarded %d untagged samples; state that predates the site check must "+
+			"still restore", 3-got)
+	}
+}
+
+func TestBaselinesLearnedAtAnotherSiteAreDiscarded(t *testing.T) {
+	declareSite(t, "the-house")
+
+	a := engineFor(t, houseA)
+	now := time.Now()
+	for i := 0; i < 40; i++ {
+		a.baselines.Observe("zone-office-lvl1", "temp", 26+float64(i%3), now.Add(time.Duration(i)*time.Minute))
+	}
+	saved, err := a.MarshalBaselines()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	elsewhere := withSite(t, saved, "a-different-network-entirely")
+	b := engineFor(t, houseA)
+	if err := b.LoadBaselines(elsewhere); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := len(b.baselines.Snapshot()); got != 0 {
+		t.Errorf("restored %d baseline series learned on another network as this "+
+			"building's own normal", got)
 	}
 }

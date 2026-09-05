@@ -1,0 +1,87 @@
+[
+  {
+    "subject": "ahu-main",
+    "predicate": "brick:feeds",
+    "object": "vav-kitchen-rear-service-lvl1"
+  },
+  {
+    "subject": "ahu-main",
+    "predicate": "brick:feeds",
+    "object": "vav-office-lvl1"
+  },
+  {
+    "subject": "ahu-main",
+    "predicate": "brick:feeds",
+    "object": "vav-living-room-lvl1"
+  },
+  {
+    "subject": "ahu-main",
+    "predicate": "brick:feeds",
+    "object": "vav-passage-lvl1"
+  },
+  {
+    "subject": "ahu-main",
+    "predicate": "brick:feeds",
+    "object": "vav-bathroom-lvl1"
+  },
+  {
+    "subject": "vav-kitchen-rear-service-lvl1",
+    "predicate": "brick:feeds",
+    "object": "zone-kitchen-rear-service-lvl1"
+  },
+  {
+    "subject": "vav-office-lvl1",
+    "predicate": "brick:feeds",
+    "object": "zone-office-lvl1"
+  },
+  {
+    "subject": "vav-living-room-lvl1",
+    "predicate": "brick:feeds",
+    "object": "zone-living-room-lvl1"
+  },
+  {
+    "subject": "vav-passage-lvl1",
+    "predicate": "brick:feeds",
+    "object": "zone-passage-lvl1"
+  },
+  {
+    "subject": "vav-bathroom-lvl1",
+    "predicate": "brick:feeds",
+    "object": "zone-bathroom-lvl1"
+  },
+  {
+    "subject": "zone-kitchen-rear-service-lvl1",
+    "predicate": "brick:adjacentTo",
+    "object": "zone-passage-lvl1"
+  },
+  {
+    "subject": "zone-kitchen-rear-service-lvl1",
+    "predicate": "brick:adjacentTo",
+    "object": "zone-bathroom-lvl1"
+  },
+  {
+    "subject": "zone-kitchen-rear-service-lvl1",
+    "predicate": "brick:adjacentTo",
+    "object": "zone-office-lvl1"
+  },
+  {
+    "subject": "zone-office-lvl1",
+    "predicate": "brick:adjacentTo",
+    "object": "zone-living-room-lvl1"
+  },
+  {
+    "subject": "zone-office-lvl1",
+    "predicate": "brick:adjacentTo",
+    "object": "zone-bathroom-lvl1"
+  },
+  {
+    "subject": "zone-living-room-lvl1",
+    "predicate": "brick:adjacentTo",
+    "object": "zone-passage-lvl1"
+  },
+  {
+    "subject": "zone-bathroom-lvl1",
+    "predicate": "brick:adjacentTo",
+    "object": "zone-passage-lvl1"
+  }
+]

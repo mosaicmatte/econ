@@ -39,7 +39,11 @@ TELEMETRY_SUB = "econ/telemetry/+"
 COMMAND_SUB   = "econ/commands/+"
 FAILSAFE_TAG  = ";SRC=FAILSAFE"
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.DEBUG),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s"
+)
 log = logging.getLogger("econ-gateway")
 
 zones = {}            # suffix -> state dict
@@ -65,11 +69,13 @@ def on_message(client, userdata, msg):
     topic = msg.topic
     payload = msg.payload.decode(errors="ignore")
     now = time.time()
+    log.debug("received %s: %s", topic, payload)
 
     if topic.startswith("econ/telemetry/"):
         try:
             occ = int(json.loads(payload).get("occupancy", 0))
-        except Exception:
+        except Exception as e:
+            log.debug("failed to parse telemetry payload on %s: %s", topic, e)
             return
         with lock:
             st = _zone(_suffix(topic))
@@ -93,6 +99,7 @@ def failsafe_loop(client):
         time.sleep(TICK_S)
         now = time.time()
         with lock:
+            log.debug("failsafe tick: inspecting %d zones", len(zones))
             for z, st in zones.items():
                 engine_alive = (now - st["last_engine_cmd"]) < ENGINE_TIMEOUT_S
                 vacant_for = (now - st["vacant_since"]) if st["vacant_since"] else 0

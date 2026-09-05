@@ -397,6 +397,45 @@ coefficients fitted to the old physics:
 rm -f server/data/room-dynamics.json && go run .
 ```
 
+### What the engine discards on its own
+
+Every file of learned state — `baseline-model.json`, `room-dynamics.json`,
+`load-history.json`, `plug-state.json` — records three things about where it came from, and
+the engine refuses to restore it when any of them no longer describes the run:
+
+| Stamp | Discarded when | Why it matters |
+|---|---|---|
+| `buildingId` | the fixture describes a different building | zone ids collide across buildings, so one room's identified physics would be applied to another |
+| `occupancyModelVersion` | the occupancy model has changed | occupancy drives the load, so a normal learned under the old one describes a building that was never there |
+| `site` | the engine is on a different network | the fixture travels with the machine; the building id alone cannot tell you the engine is *at* that building |
+
+`site` is a hash of the default gateway's MAC and subnet — the router's own address, so it
+is the same on Wi-Fi and on ethernet at one site and does not move with a DHCP lease. Only
+the hash is stored; the address is never written to a file or a log line.
+
+Two things follow from that. A **replaced router** looks like a new site and the state is
+relearned — harmless, and the log says so explicitly. And a machine with **no reachable
+gateway** produces no fingerprint at all, which is read as "cannot tell" and never discards
+anything: state written before this check existed restores normally.
+
+Set `SITE_FINGERPRINT` to pin the identity yourself — for a deployment behind a router it
+does not control, or to let several machines share one site:
+
+```bash
+SITE_FINGERPRINT=hcmc-tube-house go run .
+```
+
+**Test — the log says what it kept and why:**
+
+```
+[recommend] restored learned baselines: 132 established, 24 still learning
+[recommend] restored room models: 4 identified, 1 still learning
+[forecast] restored 89 load samples for the zero-shot forecaster
+```
+
+Any discard prints the reason and both fingerprints. A silent restore of the wrong
+building's model is the failure this exists to make impossible.
+
 ---
 
 ## 9. When something is wrong

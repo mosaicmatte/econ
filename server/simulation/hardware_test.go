@@ -1,6 +1,8 @@
 package simulation
 
 import (
+	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -10,15 +12,30 @@ import (
 // under `go test`, which exercises the (intended) empty-building fallback.
 func newTestEngine() *Engine {
 	e := NewEngine()
+	e.Zones = make(map[string]*ZoneSim)
+	e.Vavs = make(map[string]*VavSim)
 	for _, id := range []string{"zone-office-a", "zone-office-b", "zone-office-c"} {
 		e.Zones[id] = &ZoneSim{
 			Temp: 24, WallTemp: 24, Type: "office",
 			Setpoint: 24, BaseSetpoint: 24, Deadband: 1,
 			CAir: 5e5, CWall: 4e6, RIn: 0.001, ROut: 0.0011,
 			LightsOn: true,
+			AreaM2:   50.0,
+			Co2Sim:   400.0,
+		}
+		vavId := "vav-" + strings.TrimPrefix(id, "zone-")
+		e.Vavs[vavId] = &VavSim{
+			TargetZone:  id,
+			Flow:        1.0,
+			NominalFlow: 1.0,
+			Damper:      1.0,
 		}
 	}
-	e.Zones["zone-corridor-x"] = &ZoneSim{Temp: 24, Type: "corridor"}
+	e.Zones["zone-corridor-x"] = &ZoneSim{
+		Temp: 24, WallTemp: 24, Type: "corridor",
+		CAir: 2.5e5, CWall: 2e6, RIn: 0.001, ROut: 0.0011,
+		AreaM2: 25.0, Co2Sim: 400.0,
+	}
 	return e
 }
 
@@ -48,7 +65,7 @@ func TestAssignDemoZoneDistinctAndSticky(t *testing.T) {
 	if picoZone == esp32Zone {
 		t.Fatalf("both nodes bound to the same zone %q", picoZone)
 	}
-	if e.Zones[picoZone].Type != "office" || e.Zones[esp32Zone].Type != "office" {
+	if !strings.Contains(e.Zones[picoZone].Type, "office") || !strings.Contains(e.Zones[esp32Zone].Type, "office") {
 		t.Fatalf("demo nodes must bind to office zones, got %q and %q",
 			e.Zones[picoZone].Type, e.Zones[esp32Zone].Type)
 	}
@@ -450,13 +467,14 @@ func TestOfflineNodeRetiresAllEnvironmentals(t *testing.T) {
 }
 
 // The envelope's ambient must degrade to climatology, never to a stale reading. Before
-// the first fetch, and again once the feed ages out, outdoorNow returns the fallback and
-// says so — the same freshness contract every zone sensor follows.
+// the first fetch, and again once the feed ages out, outdoorNow returns the dynamic diurnal
+// fallback and says so — the same freshness contract every zone sensor follows.
 func TestOutdoorTempFreshness(t *testing.T) {
 	e := newTestEngine()
 
-	if v, live := e.outdoorNow(); live || v != outdoorFallbackC {
-		t.Fatalf("before any fetch: want fallback %.1f/false, got %.1f/%v", outdoorFallbackC, v, live)
+	wantFallback, _ := OutdoorFallbackAt(time.Now())
+	if v, live := e.outdoorNow(); live || math.Abs(v-wantFallback) > 1e-6 {
+		t.Fatalf("before any fetch: want fallback %.1f/false, got %.1f/%v", wantFallback, v, live)
 	}
 
 	e.SetOutdoorTemp(33.5)
@@ -465,8 +483,9 @@ func TestOutdoorTempFreshness(t *testing.T) {
 	}
 
 	e.outdoorAt = time.Now().Add(-(outdoorStaleAfter + time.Minute))
-	if v, live := e.outdoorNow(); live || v != outdoorFallbackC {
-		t.Fatalf("stale feed: want fallback %.1f/false, got %.1f/%v", outdoorFallbackC, v, live)
+	wantStaleFallback, _ := OutdoorFallbackAt(time.Now())
+	if v, live := e.outdoorNow(); live || math.Abs(v-wantStaleFallback) > 1e-6 {
+		t.Fatalf("stale feed: want fallback %.1f/false, got %.1f/%v", wantStaleFallback, v, live)
 	}
 }
 

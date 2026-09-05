@@ -1,0 +1,376 @@
+{
+  "buildingId": "bldg-econ-house-hcmc",
+  "floors": [
+    {
+      "level": 1,
+      "elevation": 0.0,
+      "height": 2.8,
+      "name": "Ground floor",
+      "geometry": {
+        "outline": [
+          [
+            0,
+            0
+          ],
+          [
+            13.56,
+            0
+          ],
+          [
+            13.56,
+            5.51
+          ],
+          [
+            0,
+            5.51
+          ]
+        ],
+        "exteriorPolygon": [
+          [
+            0,
+            0
+          ],
+          [
+            13.56,
+            0
+          ],
+          [
+            13.56,
+            5.51
+          ],
+          [
+            0,
+            5.51
+          ]
+        ],
+        "corePolygon": [],
+        "wallThickness": 0.2
+      },
+      "airflowDomain": {
+        "doors": [
+          {
+            "x": 4.61,
+            "y": 3.12,
+            "tx": 0,
+            "tz": 1
+          },
+          {
+            "x": 4.13,
+            "y": 3.86,
+            "tx": 0,
+            "tz": 1
+          },
+          {
+            "x": 3.78,
+            "y": 4.31,
+            "tx": 0,
+            "tz": 1
+          },
+          {
+            "x": 4.24,
+            "y": 3.11,
+            "tx": 0,
+            "tz": 1
+          },
+          {
+            "x": 5.15,
+            "y": 3.11,
+            "tx": 0,
+            "tz": 1
+          }
+        ],
+        "windows": []
+      },
+      "zones": [
+        {
+          "zoneId": "zone-kitchen-rear-service-lvl1",
+          "name": "Kitchen & rear service",
+          "zoneType": "kitchen",
+          "bim_asset_id": "c699f27b-256e-5fd8-923a-84af1e06dadc",
+          "polygon": [
+            [
+              13.56,
+              5.51
+            ],
+            [
+              2.44,
+              5.51
+            ],
+            [
+              2.44,
+              4.53
+            ],
+            [
+              0.0,
+              4.53
+            ],
+            [
+              0.0,
+              0.0
+            ],
+            [
+              2.46,
+              0.0
+            ],
+            [
+              2.46,
+              3.44
+            ],
+            [
+              4.14,
+              3.44
+            ],
+            [
+              4.14,
+              4.46
+            ],
+            [
+              7.33,
+              4.46
+            ],
+            [
+              12.46,
+              4.46
+            ],
+            [
+              12.46,
+              0.0
+            ],
+            [
+              13.56,
+              0.0
+            ],
+            [
+              13.56,
+              4.41
+            ],
+            [
+              13.56,
+              5.51
+            ]
+          ],
+          "centroid": {
+            "x": 6.97,
+            "y": 3.35
+          },
+          "thermalProperties": {
+            "setpoint": 28.0,
+            "deadband": 3.0,
+            "baseHeatLoad": 283,
+            "solarGainMultiplier": 0.267,
+            "rWall": 0.006066,
+            "cAir": 459245,
+            "areaM2": 27.2,
+            "exteriorWallM2": 38.5,
+            "roofM2": 0.0,
+            "partitionM2": 71.4,
+            "timeConstantH": 0.77
+          },
+          "hvacMapping": {
+            "vavId": "vav-kitchen-rear-service-lvl1"
+          }
+        },
+        {
+          "zoneId": "zone-office-lvl1",
+          "name": "Office",
+          "zoneType": "home-office",
+          "bim_asset_id": "906073da-5841-54f3-bff8-d7e42249d7dd",
+          "polygon": [
+            [
+              7.33,
+              0.0
+            ],
+            [
+              12.46,
+              0.0
+            ],
+            [
+              12.46,
+              4.46
+            ],
+            [
+              7.33,
+              4.46
+            ],
+            [
+              7.33,
+              3.11
+            ],
+            [
+              7.33,
+              0.0
+            ]
+          ],
+          "centroid": {
+            "x": 9.04,
+            "y": 2.0
+          },
+          "thermalProperties": {
+            "setpoint": 26.0,
+            "deadband": 2.0,
+            "baseHeatLoad": 233,
+            "solarGainMultiplier": 0.8,
+            "rWall": 0.015015,
+            "cAir": 369760,
+            "areaM2": 21.9,
+            "exteriorWallM2": 15.5,
+            "roofM2": 0.0,
+            "partitionM2": 28.9,
+            "timeConstantH": 1.54
+          },
+          "hvacMapping": {
+            "vavId": "vav-office-lvl1"
+          }
+        },
+        {
+          "zoneId": "zone-living-room-lvl1",
+          "name": "Living room",
+          "zoneType": "living",
+          "bim_asset_id": "a4279465-e870-5124-a80c-852a3ca087e0",
+          "polygon": [
+            [
+              4.14,
+              3.11
+            ],
+            [
+              4.14,
+              0.0
+            ],
+            [
+              7.33,
+              0.0
+            ],
+            [
+              7.33,
+              3.11
+            ],
+            [
+              4.14,
+              3.11
+            ]
+          ],
+          "centroid": {
+            "x": 5.42,
+            "y": 1.87
+          },
+          "thermalProperties": {
+            "setpoint": 27.0,
+            "deadband": 2.5,
+            "baseHeatLoad": 86,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.02002,
+            "cAir": 157021,
+            "areaM2": 9.3,
+            "exteriorWallM2": 11.7,
+            "roofM2": 0.0,
+            "partitionM2": 21.6,
+            "timeConstantH": 0.87
+          },
+          "hvacMapping": {
+            "vavId": "vav-living-room-lvl1"
+          }
+        },
+        {
+          "zoneId": "zone-passage-lvl1",
+          "name": "Passage",
+          "zoneType": "circulation",
+          "bim_asset_id": "f7c08b67-4e24-5044-bdcd-3d5b3b90a76f",
+          "polygon": [
+            [
+              2.46,
+              3.44
+            ],
+            [
+              2.46,
+              0.0
+            ],
+            [
+              4.14,
+              0.0
+            ],
+            [
+              4.14,
+              3.11
+            ],
+            [
+              4.14,
+              3.44
+            ],
+            [
+              2.46,
+              3.44
+            ]
+          ],
+          "centroid": {
+            "x": 3.3,
+            "y": 2.24
+          },
+          "thermalProperties": {
+            "setpoint": 29.0,
+            "deadband": 4.0,
+            "baseHeatLoad": 22,
+            "solarGainMultiplier": 0.267,
+            "rWall": 0.026455,
+            "cAir": 113967,
+            "areaM2": 5.4,
+            "exteriorWallM2": 8.8,
+            "roofM2": 0.0,
+            "partitionM2": 16.4,
+            "timeConstantH": 0.84
+          },
+          "hvacMapping": {
+            "vavId": "vav-passage-lvl1"
+          }
+        },
+        {
+          "zoneId": "zone-bathroom-lvl1",
+          "name": "Bathroom",
+          "zoneType": "bathroom",
+          "bim_asset_id": "27b16195-8a98-5fc0-bdcd-7556b26e357a",
+          "polygon": [
+            [
+              7.33,
+              4.46
+            ],
+            [
+              4.14,
+              4.46
+            ],
+            [
+              4.14,
+              3.11
+            ],
+            [
+              7.33,
+              3.11
+            ],
+            [
+              7.33,
+              4.46
+            ]
+          ],
+          "centroid": {
+            "x": 6.05,
+            "y": 3.92
+          },
+          "thermalProperties": {
+            "setpoint": 29.0,
+            "deadband": 4.0,
+            "baseHeatLoad": 20,
+            "solarGainMultiplier": 0.0,
+            "rWall": 0.033841,
+            "cAir": 65848,
+            "areaM2": 3.9,
+            "exteriorWallM2": 6.9,
+            "roofM2": 0.0,
+            "partitionM2": 12.8,
+            "timeConstantH": 0.62
+          },
+          "hvacMapping": {
+            "vavId": "vav-bathroom-lvl1"
+          }
+        }
+      ]
+    }
+  ]
+}

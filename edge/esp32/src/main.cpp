@@ -25,6 +25,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 
@@ -72,11 +73,11 @@ char CLIENT_ID[32];                         // econ-esp32-<ZONE_TOPIC>
 #define ZONE_LABEL (gCfg.zoneLabel)
 
 // ---------------- HARDWARE PINS ----------------
-const int RELAY_PIN  = 13;  // lighting relay (active HIGH)
+const int RELAY_PIN  = 23;  // lighting relay (active HIGH)
 // GPIO19, NOT GPIO22: 22 is the I2C clock. applyHvacSetpoint() pulses this pin, so leaving
 // the emitter on 22 made every setpoint command drive SCL directly and corrupt any read from
 // the SHT30 or the ACD1200 sharing that bus.
-const int IR_PIN     = 25;  // HVAC IR emitter (see applyHvacSetpoint)
+const int IR_PIN     = 19;  // HVAC IR emitter (see applyHvacSetpoint)
 const int STATUS_LED = 2;   // onboard LED = MQTT link status
 
 // ---------------- SENSORS ----------------
@@ -92,28 +93,38 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 #ifndef USE_REAL_SENSORS
   #define USE_REAL_SENSORS 0
 #endif
+#ifndef USE_CAMERA
+  #define USE_CAMERA 0                // Camera-based ML person detection disabled in main loop
+#endif
 #ifndef USE_SHT30
-  #define USE_SHT30 1                // SHT30 over I2C -> measured temperature + humidity
+  #define USE_SHT30 0                // SHT30 over I2C -> measured temperature + humidity
 #endif
 #ifndef USE_DHT
   // DHT is the fallback path; SHT30 wins when both are compiled in.
   #define USE_DHT (USE_REAL_SENSORS && !USE_SHT30)
 #endif
 #ifndef USE_PIR
-  #define USE_PIR USE_REAL_SENSORS   // PIR   -> measured presence
+  #define USE_PIR 1                   // Dual PIR motion sensors -> measured presence
 #endif
 #ifndef USE_CO2
-  #define USE_CO2 1                  // ASAIR ACD1200 NDIR (I2C) -> measured CO2 ppm
+  #define USE_CO2 0                  // ASAIR ACD1200 NDIR (I2C) -> measured CO2 ppm
 #endif
 #ifndef USE_MMWAVE
-  #define USE_MMWAVE 0               // HLK-LD2410C / Rd-03 radar -> presence incl. stationary people
+  #define USE_MMWAVE 0               // HLK-LD2410C radar -> presence incl. stationary people
 #endif
+
+#include "camera/camera_config.h"
+#include "camera/tracking_payload.h"
+#include "camera/dual_mode_comm.h"
+#include "camera/ov7670_driver.h"
+#include "camera/model_data.h"
+#include "camera/person_detector.h"
 #ifndef USE_PLUG
   // Plug-load node (APLC): SCT-013 current clamp -> measured plug-circuit watts, plus a
   // second relay that switches the zone's non-critical socket circuit. This is the load a
   // conventional BMS neither meters nor controls — 26.4% of energy in the Hanoi office
   // case study — and the reason this node exists.
-  #define USE_PLUG 1
+  #define USE_PLUG 0
 #endif
 
 // ---------------------------------------------------------------------------------
@@ -144,11 +155,6 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   // clamping it turns that regressor from a simulation artifact into a measurement.
   #define USE_AC_CLAMP 0
 #endif
-#ifndef USE_STRIP
-  // ACS712 Hall-effect current sensor on power strip, GPIO35 (ADC1 channel 7, input-only).
-  // Measures inline load current for power strip metering. True-RMS algorithm removes ~2.5V DC offset.
-  #define USE_STRIP 1
-#endif
 #ifndef USE_LUX
   // BH1750 ambient light (I2C 0x23), facing the facade.
   //
@@ -168,12 +174,6 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #endif
   #ifndef AC_MAINS_V
     #define AC_MAINS_V 220.0f
-  #endif
-#endif
-
-#if USE_STRIP
-  #ifndef STRIP_ADC_PIN
-    #define STRIP_ADC_PIN 35
   #endif
 #endif
 
@@ -207,7 +207,7 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   // Plug-circuit relay (active HIGH), separate from the lighting relay on GPIO23. Boots
   // ON: a reboot must never leave the room's sockets dead (fail-energized, like a BMS).
   #ifndef PLUG_RELAY_PIN
-    #define PLUG_RELAY_PIN 27
+    #define PLUG_RELAY_PIN 25
   #endif
   // Calibration: amps of primary current per volt at the ADC. 100 A / (0.05 A × 33 Ω)
   // ≈ 60.6 for the -000 variant with a 33 Ω burden; 30.0 for the -030 (30 A / 1 V).
@@ -236,11 +236,11 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
   #if I2C_SDA == 23 || I2C_SCL == 23
     #error "I2C pin collides with RELAY_PIN (GPIO23) - pick another pin via -DI2C_SDA/-DI2C_SCL"
   #endif
-  #if I2C_SDA == 25 || I2C_SCL == 25
-    #error "I2C pin collides with IR_PIN (GPIO25) - pick another pin via -DI2C_SDA/-DI2C_SCL"
+  #if I2C_SDA == 19 || I2C_SCL == 19
+    #error "I2C pin collides with IR_PIN (GPIO19) - pick another pin via -DI2C_SDA/-DI2C_SCL"
   #endif
-  #if USE_PLUG && (I2C_SDA == 27 || I2C_SCL == 27)
-    #error "I2C pin collides with PLUG_RELAY_PIN (GPIO27) - pick another pin via -DI2C_SDA/-DI2C_SCL"
+  #if USE_PLUG && (I2C_SDA == 25 || I2C_SCL == 25)
+    #error "I2C pin collides with PLUG_RELAY_PIN (GPIO25) - pick another pin via -DI2C_SDA/-DI2C_SCL"
   #endif
 
   // CRC-8, polynomial 0x31, init 0xFF. Shared: the SHT30 (datasheet 4.12) and the ASAIR
@@ -298,8 +298,24 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 #endif
 
 #if USE_PIR
+  #ifndef PIR1_PIN
+    #ifdef PIR_PIN
+      #define PIR1_PIN PIR_PIN
+    #else
+      #define PIR1_PIN 5
+    #endif
+  #endif
+  #ifndef PIR2_PIN
+    #ifdef PIR_PIN_2
+      #define PIR2_PIN PIR_PIN_2
+    #elif USE_MMWAVE
+      #define PIR2_PIN 17
+    #else
+      #define PIR2_PIN 18
+    #endif
+  #endif
   #ifndef PIR_PIN
-    #define PIR_PIN 5
+    #define PIR_PIN PIR1_PIN
   #endif
 #endif
 
@@ -395,7 +411,7 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 // touch. Touching the bare pin (or a jumper wire in it) drops the reading well below
 // the boot-time baseline -> occupied. Publishes immediately on change for a snappy demo.
 #define USE_TOUCH_PRESENCE 1
-#if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
+#if !USE_CAMERA && !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
   const int TOUCH_PIN = T9;      // GPIO32
   #define TOUCH_OCCUPANTS (gCfg.touchOccupants) // headcount reported while touched
   int touchBaseline = 0;         // calibrated in setup()
@@ -420,6 +436,24 @@ const int STATUS_LED = 2;   // onboard LED = MQTT link status
 
 WiFiClient   espClient;
 PubSubClient client(espClient);
+WiFiUDP      udpClient;
+DualModeComm dualComm(udpClient, client, Serial);
+#if USE_CAMERA
+CameraPersonDetector cameraDetector;
+#endif
+
+// Helper to broadcast presence tracking telemetry to DualModeComm (:4210 UDP + MQTT, fallback to Serial)
+void broadcastTrackingTelemetry(bool present) {
+  PersonTrackingData trackData;
+  initTrackingData(&trackData);
+  trackData.zone_id = ZONE_TOPIC;
+  trackData.sensor_id = CLIENT_ID;
+  trackData.timestamp_ms = millis();
+  trackData.person_detected = present;
+  trackData.confidence = present ? 1.0f : 0.0f;
+  trackData.person_count = present ? 1 : 0;
+  dualComm.transmit(trackData);
+}
 
 unsigned long lastPublish = 0;
 unsigned long lastReconnectAttempt = 0;
@@ -429,25 +463,12 @@ bool  lightsOn = true;
 float hvacSetpointC = 24.0;
 
 // ---------------- WIFI ----------------
-String current_ssid = WIFI_SSID;
-String current_pass = WIFI_PASS;
-
 void setupWifi() {
-  if (current_ssid.length() == 0) return;
   WiFi.mode(WIFI_STA);
-  WiFi.begin(current_ssid.c_str(), current_pass.c_str());
-  Serial.printf("[wifi] connecting to %s\n", current_ssid.c_str());
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 15) { 
-    delay(400); 
-    Serial.print("."); 
-    attempts++;
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n[wifi] connected, ip=%s\n", WiFi.localIP().toString().c_str());
-  } else {
-    Serial.println("\n[wifi] failed to connect, falling back to local connection.");
-  }
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.printf("[wifi] connecting to %s", WIFI_SSID);
+  while (WiFi.status() != WL_CONNECTED) { delay(400); Serial.print("."); }
+  Serial.printf("\n[wifi] connected, ip=%s\n", WiFi.localIP().toString().c_str());
 }
 
 // ---------------- HVAC IR ----------------
@@ -489,8 +510,8 @@ void setupWifi() {
   #endif
 
   IRac ac(IR_PIN);
-  bool irAcReady = true;             // Dynamically evaluated now
-  decode_type_t currentIrProtocol = decode_type_t::IR_AC_PROTOCOL;
+  IRsend customIrSend(IR_PIN);       // Generic IR sender for fans, TVs, etc.
+  bool irAcReady = false;            // protocol compiled AND supported by the library
 #endif
 
 // applyHvacSetpoint drives the room's air conditioner to `celsius`.
@@ -517,7 +538,7 @@ void applyHvacSetpoint(float celsius) {
     // The AC's full desired state, not just a temperature: these units are stateless
     // receivers — each frame carries mode, fan and power as well, so omitting them would
     // let the machine fall back to whatever it last heard from the handset.
-    ac.next.protocol = currentIrProtocol;
+    ac.next.protocol = decode_type_t::IR_AC_PROTOCOL;
     ac.next.model    = IR_AC_MODEL;
     ac.next.mode     = stdAc::opmode_t::kCool;
     ac.next.celsius  = true;
@@ -537,7 +558,7 @@ void applyHvacSetpoint(float celsius) {
     ac.next.power    = true;
     ac.sendAc();
     Serial.printf("[hvac] IR frame sent: %s -> %.1f C\n",
-                  typeToString(currentIrProtocol).c_str(), celsius);
+                  typeToString(decode_type_t::IR_AC_PROTOCOL).c_str(), celsius);
     return;
   }
   Serial.println("[hvac] WARNING: IR AC compiled in but protocol unsupported -> not sent");
@@ -550,11 +571,11 @@ void applyHvacSetpoint(float celsius) {
 #endif
 }
 
-  void setLights(bool on) {
-    lightsOn = on;
-    digitalWrite(RELAY_PIN, on ? HIGH : LOW);
-    Serial.printf("[relay] lights %s\n", on ? "ON" : "OFF");
-  }
+void setLights(bool on) {
+  lightsOn = on;
+  digitalWrite(RELAY_PIN, on ? HIGH : LOW);
+  Serial.printf("[relay] lights %s\n", on ? "ON" : "OFF");
+}
 
 #if USE_PLUG
 bool plugOn = true;  // fail-energized: sockets are live until the engine says otherwise
@@ -608,40 +629,6 @@ float readAcAmps() {
 }
 #endif
 
-#if USE_STRIP
-// True-RMS current over exactly 100 ms (5 mains cycles at 50 Hz, 6 cycles at 60 Hz)
-// for ACS712 Hall-effect power strip sensor on STRIP_ADC_PIN (GPIO35).
-// - Sub-millisecond window timing via micros() eliminates the +/-1 ms jitter of millis()
-//   which otherwise introduces window truncation and spectral leakage on 50/60 Hz cycles.
-// - Paced sampling (100 us delay between reads) yields a deterministic ~9-10 kHz sample rate,
-//   giving ~180 samples per 50 Hz cycle, settling the ADC S/H capacitor and preventing CPU hogging.
-// - Dynamic mean subtraction (Var = E[V^2] - (E[V])^2) isolates AC variance from DC bias,
-//   automatically accommodating any quiescent offset (direct 2.5V or divided 1.65V) and thermal drift.
-// - Noise floor threshold is evaluated in ADC counts (12.0 counts RMS, ~9.7 mV) rather than a
-//   fixed ampere value. This directly matches ESP32 SAR ADC physical noise floor (sigma ~ 6-10 counts)
-//   and scales proportionally with stripCalAPerV across all ACS712 models (5A, 20A, 30A),
-//   preventing false ghost readings at 0A while accurately measuring loads above the noise floor.
-// Returns amps, or -1 when the sampling window was starved (< 100 samples).
-float readStripAmps() {
-  double sum = 0, sumSq = 0;
-  int n = 0;
-  unsigned long start = micros();
-  while ((unsigned long)(micros() - start) < 100000UL) {
-    int v = analogRead(STRIP_ADC_PIN);
-    sum += v;
-    sumSq += (double)v * v;
-    n++;
-    delayMicroseconds(100);
-  }
-  if (n < 100) return -1.0f;
-  double mean = sum / n;
-  double rmsCounts = sqrt(fmax(0.0, sumSq / n - mean * mean));
-  const double STRIP_NOISE_FLOOR_COUNTS = 12.0;
-  if (rmsCounts < STRIP_NOISE_FLOOR_COUNTS) return 0.0f;
-  return (float)(rmsCounts * (3.3 / 4095.0) * gCfg.stripCalAPerV);
-}
-#endif
-
 #if USE_LUX
 // BH1750 in one-time high-resolution mode: 1 lx resolution, ~120 ms conversion. One-shot
 // rather than continuous so the part returns to low power between the node's 5 s cycles.
@@ -683,44 +670,34 @@ void handleCommand(const String& msg) {
 
     if (tok == "LIGHTS_ON")       setLights(true);
     else if (tok == "LIGHTS_OFF") setLights(false);
-    else if (tok == "PIN_TEST") {
-      Serial.println("[test] Forcing GPIO 19 HIGH for 5 seconds...");
-      pinMode(25, OUTPUT);
-      digitalWrite(25, HIGH);
-      delay(5000);
-      digitalWrite(25, LOW);
-      Serial.println("[test] GPIO 19 LOW");
-    }
-    else if (tok.startsWith("PROTOCOL=")) {
-#if USE_IR_AC
-      String p = tok.substring(9);
-      currentIrProtocol = strToDecodeType(p.c_str());
-      Serial.printf("[hvac] Protocol dynamically changed to: %s\n", p.c_str());
-#endif
-    }
-    else if (tok.startsWith("RAW_IR=")) {
-#if USE_IR_AC
-      // Format: RAW_IR=NEC:0xFF00:32
-      int firstColon = tok.indexOf(':', 7);
-      int secondColon = tok.indexOf(':', firstColon + 1);
-      if (firstColon != -1 && secondColon != -1) {
-        String pStr = tok.substring(7, firstColon);
-        String hexStr = tok.substring(firstColon + 1, secondColon);
-        String bitStr = tok.substring(secondColon + 1);
-        
-        decode_type_t rawProto = strToDecodeType(pStr.c_str());
-        uint64_t data = strtoull(hexStr.c_str(), NULL, 16);
-        uint16_t nbits = bitStr.toInt();
-        
-        IRsend rawSender(IR_PIN);
-        rawSender.begin();
-        rawSender.send(rawProto, data, nbits);
-        Serial.printf("[ir] Raw IR sent: %s Data: 0x%llX Bits: %d\n", pStr.c_str(), data, nbits);
-      }
-#endif
-    }
     else if (tok.startsWith("SETPOINT=")) applyHvacSetpoint(tok.substring(9).toFloat());
     else if (tok.startsWith("HVAC_SET:")) applyHvacSetpoint(tok.substring(9).toFloat());
+    else if (tok.startsWith("IR_SEND:")) {
+#if USE_IR_AC
+      int p1 = tok.indexOf(':', 8);
+      if (p1 != -1) {
+        int p2 = tok.indexOf(':', p1 + 1);
+        if (p2 != -1) {
+          String protoStr = tok.substring(8, p1);
+          String dataStr = tok.substring(p1 + 1, p2);
+          String bitsStr = tok.substring(p2 + 1);
+          
+          decode_type_t protocol = strToDecodeType(protoStr.c_str());
+          uint64_t data = strtoull(dataStr.c_str(), NULL, 16);
+          uint16_t nbits = bitsStr.toInt();
+          
+          if (protocol != decode_type_t::UNKNOWN) {
+            customIrSend.send(protocol, data, nbits);
+            Serial.printf("[ir] sent %s: 0x%llx (%d bits)\n", protoStr.c_str(), (unsigned long long)data, nbits);
+          } else {
+            Serial.printf("[ir] unknown protocol: %s\n", protoStr.c_str());
+          }
+        }
+      }
+#else
+      Serial.println("[ir] WARNING: IR_SEND requested but USE_IR_AC=0");
+#endif
+    }
 #if USE_PLUG
     // After-hours sweep (APLC, plugs.go): the engine sheds the zone's non-critical
     // sockets on verified vacancy and restores them the instant presence returns.
@@ -785,7 +762,7 @@ void onMessage(char* topic, byte* payload, unsigned int len) {
 // or failed its read is omitted, so the engine keeps modelling it rather than trusting an
 // invented number.
 void readAndPublish() {
-  StaticJsonDocument<384> doc;
+  StaticJsonDocument<256> doc;
   doc["zone"]   = ZONE_LABEL;
   doc["source"] = "esp32";
   // Configuration revision. A calibration change alters the MEANING of plugW/acW, so a
@@ -826,24 +803,41 @@ void readAndPublish() {
   doc["tempReal"] = tempReal;  // only a genuine measurement may pin zone physics
 
   // --- occupancy ---
-  int occupancy;
-#if USE_PIR || USE_MMWAVE
-  // Either sensor asserting means occupied. They fail in opposite directions — the PIR
-  // misses a person sitting still, the radar can hold on residual micro-motion after an
-  // exit — so OR-ing them errs toward "occupied", which for HVAC is the safe error: a
-  // few minutes of extra cooling, never a dark room with someone in it.
+  int occupancy = 0;
   bool present = false;
+#if USE_CAMERA
+  present = cameraDetector.isPersonDetected();
+  #if USE_MMWAVE
+    if (digitalRead(MMWAVE_PIN) == HIGH) present = true;
+  #endif
+  occupancy = present ? (cameraDetector.getPersonCount() > 0 ? cameraDetector.getPersonCount() : 1) : 0;
+  doc["confidence"] = round(cameraDetector.getConfidence() * 100) / 100.0;
+  doc["person_count"] = cameraDetector.getPersonCount();
+  cameraDetector.transmitTelemetry(dualComm);
+#elif USE_PIR || USE_MMWAVE
   #if USE_PIR
-    if (digitalRead(PIR_PIN) == HIGH) present = true;
+    bool pir1 = (digitalRead(PIR1_PIN) == HIGH);
+    bool pir2 = (digitalRead(PIR2_PIN) == HIGH);
+    if (pir1 || pir2) present = true;
   #endif
   #if USE_MMWAVE
     if (digitalRead(MMWAVE_PIN) == HIGH) present = true;
   #endif
   occupancy = present ? 1 : 0;  // presence, not a headcount
+  doc["confidence"] = present ? 1.0 : 0.0;
+  doc["person_count"] = occupancy;
+  broadcastTrackingTelemetry(present);
 #elif USE_TOUCH_PRESENCE
   occupancy = touchOccupied() ? TOUCH_OCCUPANTS : 0;  // real physical input
+  present = occupancy > 0;
+  doc["confidence"] = present ? 1.0 : 0.0;
+  doc["person_count"] = occupancy;
+  broadcastTrackingTelemetry(present);
 #else
   occupancy = random(0, 6);
+  present = occupancy > 0;
+  doc["confidence"] = present ? 1.0 : 0.0;
+  doc["person_count"] = occupancy;
 #endif
   doc["occupancy"] = occupancy;
 
@@ -868,14 +862,6 @@ void readAndPublish() {
     Serial.println("[plug] ADC window starved -> omitted (engine keeps modelling)");
   }
   doc["plug"] = plugOn ? "ON" : "OFF";
-#endif
-#if USE_STRIP
-  float stripAmps = readStripAmps();
-  if (stripAmps >= 0) {
-    doc["stripW"] = round(stripAmps * gCfg.plugMainsV * 10) / 10.0;
-  } else {
-    Serial.println("[strip] ADC window starved -> omitted (engine keeps modelling)");
-  }
 #endif
 
   // --- measurements that replace a modelled value in the twin ---
@@ -908,7 +894,7 @@ void readAndPublish() {
   doc["acReal"] = false;
 #endif
 
-  char buf[384];
+  char buf[288];
   size_t n = serializeJson(doc, buf);
   client.publish(TELEMETRY_TOPIC, buf, n);
   Serial.printf("[mqtt] pub %s -> %s\n", TELEMETRY_TOPIC, buf);
@@ -951,22 +937,6 @@ bool mqttConnect() {
   return ok;
 }
 
-
-void mqttConnect_custom() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  Serial.print("[mqtt] connecting...");
-  if (client.connect(CLIENT_ID, "", "", STATUS_TOPIC, 1, true, "offline")) {
-    Serial.println(" connected");
-    client.subscribe(COMMAND_TOPIC);
-    client.subscribe(CONFIG_TOPIC);
-    client.publish(STATUS_TOPIC, "online", true);
-    digitalWrite(STATUS_LED, HIGH);
-  } else {
-    Serial.printf(" failed rc=%d\n", client.state());
-    digitalWrite(STATUS_LED, LOW);
-  }
-}
-
 void setup() {
   Serial.begin(115200);
   // Load the persisted configuration FIRST: every announcement printed below (clamp
@@ -976,6 +946,7 @@ void setup() {
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(IR_PIN, OUTPUT);
 #if USE_IR_AC
+  customIrSend.begin();
   // IRac has no begin() — the per-protocol sender initialises itself on send. What DOES
   // need doing is seeding the state struct to the library's defaults, so any field this
   // firmware does not set explicitly holds a sane value rather than whatever was on the
@@ -1002,24 +973,6 @@ void setup() {
 #if USE_SHT30 || USE_CO2 || USE_LUX
   Wire.begin(I2C_SDA, I2C_SCL);
   Serial.printf("[i2c] bus up on SDA=GPIO%d SCL=GPIO%d\n", I2C_SDA, I2C_SCL);
-  
-  Serial.println("[i2c] Scanning bus...");
-  int nDevices = 0;
-  for(byte address = 1; address < 127; address++ ) {
-    Wire.beginTransmission(address);
-    byte error = Wire.endTransmission();
-    if (error == 0) {
-      Serial.printf("[i2c] I2C device found at address 0x%02X\n", address);
-      nDevices++;
-    } else if (error == 4) {
-      Serial.printf("[i2c] Unknown error at address 0x%02X\n", address);
-    }
-  }
-  if (nDevices == 0) {
-    Serial.println("[i2c] No I2C devices found");
-  } else {
-    Serial.println("[i2c] Scan complete");
-  }
 #endif
 #if USE_SHT30
   Serial.printf("[sht30] expecting I2C addr 0x%02X\n", SHT30_ADDR);
@@ -1029,8 +982,9 @@ void setup() {
   Serial.printf("[dht] sensor on GPIO%d\n", DHT_PIN);
 #endif
 #if USE_PIR
-  pinMode(PIR_PIN, INPUT);
-  Serial.printf("[pir] presence on GPIO%d\n", PIR_PIN);
+  pinMode(PIR1_PIN, INPUT);
+  pinMode(PIR2_PIN, INPUT);
+  Serial.printf("[pir] dual PIR sensors initialized on GPIO%d and GPIO%d\n", PIR1_PIN, PIR2_PIN);
 #endif
 #if USE_MMWAVE
   pinMode(MMWAVE_PIN, INPUT);
@@ -1054,11 +1008,6 @@ void setup() {
   analogReadResolution(12);
   Serial.printf("[plug] SCT-013 on GPIO%d (cal %.1f A/V), relay on GPIO%d\n",
                 PLUG_ADC_PIN, (double)gCfg.plugCalAPerV, PLUG_RELAY_PIN);
-#endif
-#if USE_STRIP
-  analogReadResolution(12);
-  Serial.printf("[strip] ACS712 on GPIO%d (cal %.1f A/V) — power strip metering\n",
-                STRIP_ADC_PIN, (double)gCfg.stripCalAPerV);
 #endif
 #if USE_SUPPLY_TEMP
   supplyProbe.begin();
@@ -1106,65 +1055,95 @@ void setup() {
   snprintf(CONFIG_STATE_TOPIC, sizeof(CONFIG_STATE_TOPIC), "econ/config/%s/state", ZONE_TOPIC);
   snprintf(CLIENT_ID,          sizeof(CLIENT_ID),          "econ-esp32-%s",       ZONE_TOPIC);
 
-    setupWifi();
+  setupWifi();
   client.setServer(MQTT_HOST, MQTT_PORT);
   client.setCallback(onMessage);
+
+#if USE_CAMERA
+  cameraDetector.setZoneAndSensorId(ZONE_TOPIC, CLIENT_ID);
+  if (cameraDetector.init()) {
+    Serial.printf("[camera] OV7670 & TFLite Micro person detector initialized (state: %s)\n",
+                  cameraDetector.getState() == DetectorState::READY ? "READY" : "SIMULATION");
+  } else {
+    Serial.println("[camera] WARNING: Camera detector initialization failed");
+  }
+#endif
+
+  CommConfig commCfg;
+  commCfg.wifi_ssid = WIFI_SSID;
+  commCfg.wifi_pass = WIFI_PASS;
+  commCfg.mqtt_host = MQTT_HOST;
+  commCfg.mqtt_port = MQTT_PORT;
+  commCfg.mqtt_topic = TELEMETRY_TOPIC;
+  commCfg.zone_topic = ZONE_TOPIC;
+  commCfg.zone_label = ZONE_LABEL;
+  commCfg.sensor_id  = CLIENT_ID;
+  commCfg.udp_port   = 4210;
+  commCfg.udp_broadcast_port = 4210;
+  commCfg.broadcast_ip = IPAddress(255, 255, 255, 255);
+  commCfg.enable_udp_broadcast = true;
+  commCfg.enable_serial_fallback = true;
+  dualComm.begin(commCfg);
+  dualComm.setMqttClient(&client, TELEMETRY_TOPIC);
 }
 
 void loop() {
-    while (Serial.available()) {
-    String line = Serial.readStringUntil('\n');
-    line.trim();
-    if (line.startsWith("[wifi] connect ")) {
-      int space = line.indexOf(' ', 15);
-      if (space > 15) {
-        current_ssid = line.substring(15, space);
-        current_pass = line.substring(space + 1);
-        Serial.printf("[wifi] received new credentials: %s\n", current_ssid.c_str());
-        WiFi.disconnect();
-        setupWifi();
-      }
-    } else if (line.startsWith("[mqtt] sub ")) {
-      int arrowIdx = line.indexOf(" -> ");
-      if (arrowIdx > 0) {
-        String topicStr = line.substring(11, arrowIdx);
-        String payloadStr = line.substring(arrowIdx + 4);
-        onMessage((char*)topicStr.c_str(), (byte*)payloadStr.c_str(), payloadStr.length());
-      }
+  // Non-blocking dual-mode communications state machine tick (<0.2ms)
+  dualComm.tick();
+
+  // Non-blocking dual PIR motion sensor polling & immediate transition dispatch
+  static unsigned long lastPirPollTime = 0;
+  static bool lastPirDetectedState = false;
+  unsigned long nowPir = millis();
+  if (nowPir - lastPirPollTime >= 50) {
+    lastPirPollTime = nowPir;
+#if USE_PIR
+    bool pir1 = (digitalRead(PIR1_PIN) == HIGH);
+    bool pir2 = (digitalRead(PIR2_PIN) == HIGH);
+    bool currentDetected = (pir1 || pir2);
+#else
+    bool currentDetected = false;
+#endif
+#if USE_MMWAVE
+    if (digitalRead(MMWAVE_PIN) == HIGH) currentDetected = true;
+#endif
+
+    // Immediate telemetry burst on occupancy transition (<200ms latency)
+    if (currentDetected != lastPirDetectedState) {
+      lastPirDetectedState = currentDetected;
+      broadcastTrackingTelemetry(currentDetected);
     }
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    if (!client.connected()) {
-      digitalWrite(STATUS_LED, LOW);
-      unsigned long now = millis();
-      if (now - lastReconnectAttempt > 5000) {
-        lastReconnectAttempt = now;
-        mqttConnect_custom();
-      }
-    } else {
-      client.loop();
+  // Non-blocking reconnect (every 5s) keeps sensing/actuation responsive.
+  if (!client.connected()) {
+    digitalWrite(STATUS_LED, LOW);
+    unsigned long now = millis();
+    if (now - lastReconnectAttempt > 5000) {
+      lastReconnectAttempt = now;
+      mqttConnect();
     }
-  }
-  unsigned long now = millis();
-  
-#if !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
-  static unsigned long lastTouchPoll = 0;
-  static bool lastTouched = false;
-  if (now - lastTouchPoll > 150) {
-    lastTouchPoll = now;
-    bool touched = touchOccupied();
-    if (touched != lastTouched) {
-      lastTouched = touched;
+  } else {
+    client.loop();
+    unsigned long now = millis();
+#if !USE_CAMERA && !USE_PIR && !USE_MMWAVE && USE_TOUCH_PRESENCE
+    // Publish instantly when presence flips so the dashboard reacts in <0.2 s
+    // instead of waiting out the periodic interval.
+    static unsigned long lastTouchPoll = 0;
+    static bool lastTouched = false;
+    if (now - lastTouchPoll > 150) {
+      lastTouchPoll = now;
+      bool touched = touchOccupied();
+      if (touched != lastTouched) {
+        lastTouched = touched;
+        lastPublish = now;
+        readAndPublish();
+      }
+    }
+#endif
+    if (now - lastPublish > gCfg.publishIntervalMs) {
       lastPublish = now;
       readAndPublish();
     }
   }
-#endif
-
-  if (now - lastPublish > gCfg.publishIntervalMs) {
-    lastPublish = now;
-    readAndPublish();
-  }
-
 }

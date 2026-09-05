@@ -667,7 +667,7 @@ func getDesignAreaPerOccupant(zoneType string) (float64, bool) {
 	}
 
 	// Programme library inspection
-	lib := simulation.Library()
+	lib := simulation.Library("")
 	if prog, ok := lib.Programmes[norm]; ok {
 		if prog.AreaPerOccupantM2 != nil && *prog.AreaPerOccupantM2 > 0 {
 			return *prog.AreaPerOccupantM2, true

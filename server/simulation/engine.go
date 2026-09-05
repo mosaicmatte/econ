@@ -130,6 +130,10 @@ type ZoneSim struct {
 	// this is what lets the twin distinguish a saving it caused from one it only imagined.
 	HwAcReal     bool
 	HwAcRealSeen bool // a node has positively reported either way
+	// Multi-zone spatial coupling: IDs of adjacent zones sharing internal partition walls
+	AdjacentZones []string
+	// Dynamic mass balance CO2 concentration (ppm) when NDIR sensor is omitted
+	Co2Sim float64
 }
 
 type VavSim struct {
@@ -178,6 +182,8 @@ type Engine struct {
 	Bess       Battery
 	lastLoadMw float64   // latest computed building electrical load (MW), fed to BESS dispatch
 	lastBessAt time.Time // wall-clock of the last BESS integration step
+	// lastOccupancyAt paces the modelled occupancy redraw (applyOccupancySchedule).
+	lastOccupancyAt time.Time
 	// Automated Plug Load Control (plugs.go): sweep policy, cumulative avoided energy,
 	// and the wall-clock anchor its integration runs on (sim time accelerates; savings
 	// must not).
@@ -282,6 +288,7 @@ func NewEngine() *Engine {
 		Scenario:   "peak",
 		lastCmd:    make(map[string]string),
 		demoAssign: make(map[string]string),
+		lastLoadMw: 0.001,
 		Bess:       NewBattery(),
 		lastBessAt: time.Now(),
 		Plug:       defaultPlugConfig(),
@@ -365,11 +372,15 @@ func (e *Engine) buildFromJSON(data []byte) error {
 				areaM2 = plugDefaultAreaM2
 			}
 			e.Zones[z.ZoneId] = &ZoneSim{
-				Temp:          temp,
-				WallTemp:      temp,
-				Type:          z.ZoneType,
-				BimAssetId:    z.BimAssetId,
-				Occupancy:     rand.Intn(10),
+				Temp:       temp,
+				WallTemp:   temp,
+				Type:       z.ZoneType,
+				BimAssetId: z.BimAssetId,
+				// Occupancy comes from the zone's own area and its programme's design
+				// density, scaled by the hour (see applyOccupancySchedule). It was
+				// rand.Intn(10) — a uniform 0..9 people drawn once and never changed,
+				// which put seven people in a 4 m2 bathroom and made vacancy impossible.
+				Occupancy:     scheduledOccupancy(z.ZoneType, areaM2, time.Now()),
 				BaseHeatGain:  z.ThermalProperties.BaseHeatLoad,
 				SolarGainMult: z.ThermalProperties.SolarGainMultiplier,
 				// Floor CAir: some digitized zones (e.g. tiny "server rooms") carry an
@@ -389,7 +400,7 @@ func (e *Engine) buildFromJSON(data []byte) error {
 				Setpoint:            z.ThermalProperties.Setpoint,
 				BaseSetpoint:        baseSp,
 				Deadband:            z.ThermalProperties.Deadband,
-				LastBroadcastTemp:   24.0,
+				LastBroadcastTemp:   -999.0, // force immediate broadcast on first frame for new/reloaded zones
 				LightsOn:            true,
 				LastBroadcastLights: true,
 				AreaM2:              areaM2,
@@ -402,7 +413,11 @@ func (e *Engine) buildFromJSON(data []byte) error {
 	// zone set is known. (Per-zone keys never collide the way GLOBAL does, so these are
 	// inert — but they are counted, and a five-room house reporting 53,878 established
 	// signals is a true statement about the file and a false impression of the building.)
-	e.pruneStaleZoneState()
+	keep := make(map[string]bool, len(e.Zones))
+	for id := range e.Zones {
+		keep[id] = true
+	}
+	e.pruneStaleZoneStateFor(keep)
 
 	// Order matters: the fan curve has to be scaled to this building's network BEFORE the
 	// network is solved, or the nominal flows below are captured against the previous
@@ -943,9 +958,26 @@ func (z *ZoneSim) hwFresh() bool {
 	return !z.HwTempAt.IsZero() && time.Since(z.HwTempAt) < hwStaleAfter
 }
 
-// outdoorFallbackC is the Ho Chi Minh City climatological mean the envelope ran on before
-// live weather was wired in. It is the value of last resort: used until the first fetch
-// succeeds and again whenever the feed goes stale.
+// OutdoorFallbackAt calculates the climatological diurnal outdoor temperature (°C) and
+// relative humidity (%) for Ho Chi Minh City at time t. Replaces static flat fallbacks with
+// a realistic diurnal temperature swing (25.0°C to 34.0°C) and relative humidity curve (55% to 95%).
+func OutdoorFallbackAt(t time.Time) (tempC, humPct float64) {
+	// Evaluate hour in local building timezone (UTC+7 for Ho Chi Minh City)
+	locTime := t.In(time.FixedZone("ICT", 7*3600))
+	hour := float64(locTime.Hour()) + float64(locTime.Minute())/60.0 + float64(locTime.Second())/3600.0
+
+	// Diurnal temperature curve: T_mean = 29.5°C, Delta_T = 4.5°C
+	// Minimum 25.0°C at 03:00, Maximum 34.0°C at 15:00
+	phaseRad := 2.0 * math.Pi * (hour - 15.0) / 24.0
+	tempC = 29.5 + 4.5*math.Cos(phaseRad)
+
+	// Diurnal relative humidity curve: RH_mean = 75%, Delta_RH = 20%
+	// Minimum 55% at 15:00 (peak heat), Maximum 95% at 03:00 (dawn cool)
+	humPct = 75.0 - 20.0*math.Cos(phaseRad)
+	return tempC, humPct
+}
+
+// outdoorFallbackC is the baseline climatological temperature for Ho Chi Minh City.
 const outdoorFallbackC = 30.0
 
 // outdoorStaleAfter bounds how long one weather reading may keep driving the envelope.
@@ -974,16 +1006,26 @@ func (e *Engine) OutdoorForForecast() (tempC, humPct float64, live bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	t, ok := e.outdoorNow()
-	return t, e.outdoorHum, ok && e.outdoorHum > 0
+	if ok && e.outdoorHum > 0 {
+		return t, e.outdoorHum, true
+	}
+	_, humFallback := OutdoorFallbackAt(time.Now())
+	return t, humFallback, false
 }
 
 // outdoorNow returns the temperature the envelope should integrate against and whether it
 // is live weather. Callers must hold e.mu.
 func (e *Engine) outdoorNow() (float64, bool) {
-	if !e.outdoorAt.IsZero() && time.Since(e.outdoorAt) < outdoorStaleAfter {
+	return e.outdoorNowAt(time.Now())
+}
+
+// outdoorNowAt returns outdoor temperature evaluated at timestamp now.
+func (e *Engine) outdoorNowAt(now time.Time) (float64, bool) {
+	if !e.outdoorAt.IsZero() && now.Sub(e.outdoorAt) < outdoorStaleAfter {
 		return e.outdoorTemp, true
 	}
-	return outdoorFallbackC, false
+	tFallback, _ := OutdoorFallbackAt(now)
+	return tFallback, false
 }
 
 // OutdoorStatus is the /api/weather snapshot: what the physics is using right now.
@@ -1037,30 +1079,94 @@ func (z *ZoneSim) stripFresh() bool {
 // implausible rather than allowed to produce a division by ~0 — a sensor that has come
 // loose and is reading room air must not be able to blow up the physics.
 func (z *ZoneSim) supplyC(setpoint float64) float64 {
-	design := Phys().SupplyAirDesignC
+	return z.supplyCWithDefault(setpoint, Phys().SupplyAirDesignC)
+}
+
+// supplyCWithDefault evaluates discharge temperature against a measured DS18B20 probe if fresh,
+// or falls back to the dynamic derived supply temperature.
+func (z *ZoneSim) supplyCWithDefault(setpoint, defaultSupply float64) float64 {
 	if z.supplyFresh() && z.HwSupplyC > 0 && z.HwSupplyC < setpoint-minSupplyLiftC {
 		return z.HwSupplyC
 	}
-	return math.Min(design, setpoint-minSupplyLiftC)
+	return math.Min(defaultSupply, setpoint-minSupplyLiftC)
 }
 
-// solarGainW is the zone's solar heat gain. The reference figure is a library coefficient
-// scaled by the zone's own digitized aperture multiplier (0 for the 690 of 735 zones with
-// no facade). A fresh BH1750 then scales that by how much daylight is ACTUALLY arriving,
-// relative to the library's reference level.
-//
-// Gated on the lights being off, which is not fussiness: a BH1750 indoors reads total
-// illuminance, so with the luminaires on it is measuring the electric lighting too — and
-// that heat is already counted in BaseHeatGain. Using a contaminated reading here would
-// double-count it, which is the same class of error as fabricating a measurement.
+// calculateDynamicSupplyAir calculates supply air temperature from mixed-air temperature
+// and cooling coil heat exchange balance when DS18B20 supply probe is omitted.
+func (e *Engine) calculateDynamicSupplyAir(tOutside float64) float64 {
+	design := Phys().SupplyAirDesignC
+	if len(e.Zones) == 0 {
+		return design
+	}
+
+	// 1. Calculate return air temperature (flow-weighted average of zone temperatures)
+	returnTempSum := 0.0
+	totalWeight := 0.0
+	for _, v := range e.Vavs {
+		if z, ok := e.Zones[v.TargetZone]; ok {
+			w := math.Max(0.01, v.Flow)
+			returnTempSum += z.Temp * w
+			totalWeight += w
+		}
+	}
+	tReturn := 24.0
+	if totalWeight > 0 {
+		tReturn = returnTempSum / totalWeight
+	} else {
+		sum := 0.0
+		for _, z := range e.Zones {
+			sum += z.Temp
+		}
+		if len(e.Zones) > 0 {
+			tReturn = sum / float64(len(e.Zones))
+		}
+	}
+
+	// 2. Fresh air fraction (approx 15% fresh air intake in standard AHU mixing box)
+	const alphaFresh = 0.15
+	tMixed := alphaFresh*tOutside + (1.0-alphaFresh)*tReturn
+
+	// 3. Cooling coil heat exchange (chilled water inlet ~7°C, coil effectiveness ~0.80)
+	const (
+		tChilledWaterIn   = 7.0
+		coilEffectiveness = 0.80
+	)
+	tSupplyDerived := tMixed - coilEffectiveness*(tMixed-tChilledWaterIn)
+
+	// Clamp to physically realistic bounds [8.0°C, 18.0°C]
+	return math.Max(8.0, math.Min(18.0, tSupplyDerived))
+}
+
+// solarGainW is the zone's solar heat gain at the current timestamp.
 func (z *ZoneSim) solarGainW() float64 {
+	return z.solarGainWAt(time.Now())
+}
+
+// solarGainWAt calculates dynamic solar heat gain at a specific timestamp.
+// When a fresh BH1750 ambient light sensor is reporting and electric lights are OFF,
+// it scales the solar gain based on the measured daylight illuminance.
+// When the sensor is omitted, stale, or contaminated by electric lighting, it computes
+// dynamic solar heat gain based on astronomical solar geometry (Spencer/NOAA algorithm)
+// and clear-sky GHI modeling.
+func (z *ZoneSim) solarGainWAt(now time.Time) float64 {
 	ph := Phys()
-	w := z.SolarGainMult * ph.SolarGainReferenceW
+	if z.SolarGainMult <= 0 {
+		return 0.0
+	}
+
+	// 1. Measured path: Fresh, uncontaminated BH1750 lux reading
 	if z.luxFresh() && z.HwLux > 0 && !z.LightsOn && ph.DaylightReferenceLux > 0 {
 		ratio := z.HwLux / ph.DaylightReferenceLux
-		w *= math.Max(0, math.Min(maxDaylightRatio, ratio))
+		scale := math.Max(0, math.Min(maxDaylightRatio, ratio))
+		return z.SolarGainMult * ph.SolarGainReferenceW * scale
 	}
-	return w
+
+	// 2. Dynamic Physics Fallback (Requirement R2):
+	// Compute astronomical clear-sky Global Horizontal Irradiance (GHI) based on sun position.
+	// At solar midnight GHI is strictly 0.0 W/m²; at solar noon it peaks dynamically based on season.
+	ghi := ClearSkyGhi(now)
+	irrRatio := ghi / 1000.0
+	return z.SolarGainMult * ph.SolarGainReferenceW * irrRatio
 }
 
 const (
@@ -1072,17 +1178,46 @@ const (
 	maxDaylightRatio = 4.0
 )
 
+// CalculateThermodynamicCop computes the chiller plant Coefficient of Performance (COP)
+// dynamically from thermodynamic temperature lift (T_condenser - T_evaporator), Carnot limit,
+// Part-Load Ratio (PLR), and thermal strain when AC power current clamp (HwAcW) is omitted.
+func CalculateThermodynamicCop(tOutdoorC, tSupplyC, thermalLoadW, condFloorM2, avgStrain float64) float64 {
+	ph := Phys()
+
+	// Approach temperatures (condenser and evaporator heat exchangers)
+	const (
+		condenserApproachK  = 5.0  // T_condenser = T_outdoor + 5 K
+		evaporatorApproachK = 3.0  // T_evaporator = T_supply - 3 K
+		secondLawEta        = 0.35 // Chiller second-law / exergetic efficiency
+	)
+
+	tCondC := tOutdoorC + condenserApproachK
+	tEvapC := tSupplyC - evaporatorApproachK
+
+	tCondK := tCondC + 273.15
+	tEvapK := tEvapC + 273.15
+
+	liftK := math.Max(2.0, tCondK-tEvapK)
+	copCarnot := tEvapK / liftK
+
+	// Part-load ratio (PLR) based on nominal building cooling design capacity (~120 W/m²)
+	designCapacityW := math.Max(10000.0, condFloorM2*120.0)
+	plr := math.Max(0.1, math.Min(1.2, thermalLoadW/designCapacityW))
+
+	// Gordon-Ng / empirical part-load modifier curve
+	fPlr := 0.15 + 1.25*plr - 0.40*plr*plr
+
+	// Strain degradation factor
+	strainFactor := math.Max(0.70, 1.0-0.05*avgStrain)
+
+	// Thermodynamic COP
+	cop := secondLawEta * copCarnot * fPlr * strainFactor
+	return math.Max(ph.CopMin, math.Min(ph.CopMax, cop))
+}
+
 // avgCo2 is the building CO2 figure, and it prefers reality: the average of whatever
-// fresh NDIR sensors are actually reporting, falling back to a modelled estimate only
-// when nothing is measuring. One function feeds both the TimescaleDB history and the
-// live stream, so a real sensor sitting at 900 ppm can never coexist with a chart
-// serenely plotting a modelled 450.
-//
-// The estimate is the mean of per-zone steady states (400 ppm outdoor + 15 ppm per
-// occupant in the zone, the same model the dashboard uses for a single zone) — NOT
-// 400 + total_occupants*k, which treats every person in the building as if they shared
-// one room and, at 6,000 occupants, "estimated" 5,500 ppm: an occupational exposure
-// limit, not a ventilated building's average. Callers hold e.mu.
+// fresh NDIR sensors are actually reporting, falling back to dynamic simulated mass balance
+// when sensors are missing.
 func (e *Engine) avgCo2(totalOccupants int) float64 {
 	var sum float64
 	var n int
@@ -1095,9 +1230,20 @@ func (e *Engine) avgCo2(totalOccupants int) float64 {
 	if n > 0 {
 		return sum / float64(n)
 	}
-	// Modelled fallback: outdoor ambient plus the steady-state rise per occupant, spread
-	// over the building's zones. Both coefficients come from the programme library — they
-	// describe the building's ventilation, not the physics, so they do not belong here.
+
+	// Physics-based dynamic mass balance fallback across simulated zones:
+	var simSum float64
+	var simCount int
+	for _, z := range e.Zones {
+		if z.Co2Sim > 0 {
+			simSum += z.Co2Sim
+			simCount++
+		}
+	}
+	if simCount > 0 {
+		return simSum / float64(simCount)
+	}
+
 	ph := Phys()
 	if len(e.Zones) == 0 {
 		return ph.OutdoorCo2Ppm
@@ -1231,6 +1377,24 @@ func (e *Engine) LoadForecastThreshold(k float64, lead time.Duration) (threshold
 // (recommendapi.go), exactly like the plug savings counter — a model that forgets
 // everything it learned on every redeploy would be re-learning "normal" forever. Bytes,
 // not the internal map type, so the persistence lives cleanly in package main.
+// OccupancyModelVersion stamps every file of learned state with the occupancy model that
+// produced it.
+//
+// Learned state can be stale for a second reason besides describing a different building:
+// it can describe THIS building under a different model. Occupancy is an input to almost
+// everything the engine learns — the zone temperatures the baselines score, the whole-
+// building load they trigger pre-cool from, the recorded megawatt series both forecasters
+// read, and the occupant-gain term of every identified room. When that input changes, state
+// fit against the old one is not merely imprecise, it is a confident statement about a
+// building that no longer exists: the house learned its normal load with twenty-eight
+// phantom occupants in it, and the pre-cool trigger, the plausibility check that decides
+// whether a forecast is refused, and the battery's own nameplate are all read off it.
+//
+// Bump this whenever a change alters what the engine will learn. A mismatch discards the
+// affected state and relearns, which costs hours of warm-up and buys not acting on a model
+// of a building that was never there.
+const OccupancyModelVersion = 2
+
 // baselineDoc wraps the learned buckets with the building they were learned from.
 //
 // Zone buckets are keyed by zoneId, so a different building simply mints different keys.
@@ -1239,8 +1403,15 @@ func (e *Engine) LoadForecastThreshold(k float64, lead time.Duration) (threshold
 // automation actuates on. Restoring a previous building's version of it told a 72 m2 house
 // that it normally draws 0.6 MW, and the automation duly opened real pre-cool windows.
 type baselineDoc struct {
-	BuildingId string                           `json:"buildingId"`
-	Stats      map[string]map[int]*baselineStat `json:"stats"`
+	BuildingId string `json:"buildingId"`
+	ModelVer   int    `json:"occupancyModelVersion"`
+	// Site is the network this state was learned on (see site.go). The building id says
+	// which building the model DESCRIBES; it cannot say whether the engine is currently at
+	// it. The fixture travels with the machine, so a laptop running the house's fixture
+	// somewhere else passes every other check and folds that somewhere-else into the
+	// house's learned normal.
+	Site  string                           `json:"site,omitempty"`
+	Stats map[string]map[int]*baselineStat `json:"stats"`
 }
 
 func (e *Engine) MarshalBaselines() ([]byte, error) {
@@ -1250,7 +1421,10 @@ func (e *Engine) MarshalBaselines() ([]byte, error) {
 	e.mu.Lock()
 	id := e.buildingId
 	e.mu.Unlock()
-	return json.Marshal(baselineDoc{BuildingId: id, Stats: e.baselines.Snapshot()})
+	return json.Marshal(baselineDoc{
+		BuildingId: id, ModelVer: OccupancyModelVersion, Site: SiteFingerprint(),
+		Stats: e.baselines.Snapshot(),
+	})
 }
 
 func (e *Engine) LoadBaselines(data []byte) error {
@@ -1260,19 +1434,37 @@ func (e *Engine) LoadBaselines(data []byte) error {
 	var doc baselineDoc
 	if err := json.Unmarshal(data, &doc); err != nil || doc.Stats == nil {
 		// Legacy form: the bare bucket map, from before the model recorded which building
-		// it learned from. Restore it, then drop the whole-building buckets, because they
-		// are the ones that cannot be shown to describe this building.
+		// it learned from. It also predates the occupancy model version, so it cannot show
+		// that it was learned under the occupancy this engine now drives — and a baseline
+		// is a statement about what is normal, which is exactly what changed. Verify it
+		// parses so a corrupt file is still reported, then discard it and relearn.
 		if err2 := e.baselines.LoadState(data); err2 != nil {
 			if err != nil {
 				return err
 			}
 			return err2
 		}
-		if n := e.baselines.DropGlobal(); n > 0 {
-			log.Printf("[baselines] restored a model with no building recorded — dropped %d "+
-				"whole-building buckets rather than assume they describe this building", n)
-		}
-		e.pruneStaleZoneState()
+		e.baselines.Restore(map[string]map[int]*baselineStat{})
+		log.Printf("[baselines] restored model records neither a building nor an occupancy " +
+			"model version — discarding it and relearning rather than treating another " +
+			"building's normal, or this one's under a different occupancy, as this one's")
+		return nil
+	}
+	// State learned under a previous occupancy model describes a building that was never
+	// there. Per-zone buckets are as affected as the GLOBAL ones here — the occupancy the
+	// rooms were scored against, and the temperatures that followed from it, both changed —
+	// so the whole model is dropped rather than partially trusted.
+	if doc.ModelVer != OccupancyModelVersion {
+		log.Printf("[baselines] learned under occupancy model v%d, this engine is v%d — "+
+			"discarding the model and relearning; what a zone's normal looks like changed "+
+			"with the occupancy that drives it", doc.ModelVer, OccupancyModelVersion)
+		return nil
+	}
+	if !sameSite(doc.Site) {
+		log.Printf("[baselines] learned on network %s but this engine is on %s — discarding "+
+			"and relearning. This is what a machine carrying its fixture to another site "+
+			"looks like; if instead the router here was replaced, the state was still this "+
+			"building's and it will simply relearn.", doc.Site, SiteFingerprint())
 		return nil
 	}
 	e.baselines.Restore(doc.Stats)
@@ -1305,6 +1497,10 @@ func (e *Engine) pruneStaleZoneState() {
 		keep[id] = true
 	}
 	e.mu.Unlock()
+	e.pruneStaleZoneStateFor(keep)
+}
+
+func (e *Engine) pruneStaleZoneStateFor(keep map[string]bool) {
 	if len(keep) == 0 {
 		return // no building loaded yet: nothing to judge against
 	}
@@ -1417,6 +1613,8 @@ func (e *Engine) DynamicsCoverage() (identified, learning int) {
 // with full confidence is worse than no conclusion.
 type dynamicsDoc struct {
 	BuildingId string                     `json:"buildingId"`
+	ModelVer   int                        `json:"occupancyModelVersion"`
+	Site       string                     `json:"site,omitempty"`
 	Rooms      map[string]json.RawMessage `json:"rooms"`
 }
 
@@ -1435,7 +1633,9 @@ func (e *Engine) MarshalDynamics() ([]byte, error) {
 	e.mu.Lock()
 	id := e.buildingId
 	e.mu.Unlock()
-	return json.Marshal(dynamicsDoc{BuildingId: id, Rooms: rooms})
+	return json.Marshal(dynamicsDoc{
+		BuildingId: id, ModelVer: OccupancyModelVersion, Site: SiteFingerprint(), Rooms: rooms,
+	})
 }
 
 func (e *Engine) LoadDynamics(data []byte) error {
@@ -1464,6 +1664,23 @@ func (e *Engine) LoadDynamics(data []byte) error {
 		log.Printf("[dynamics] room models were identified in %q but the loaded building is %q — "+
 			"discarding %d rooms; zone ids collide across buildings, so restoring them would "+
 			"apply one room's physics to another", doc.BuildingId, id, len(doc.Rooms))
+		return nil
+	}
+	// Occupancy is a regressor in the thermal fit. A fit identified when it was a constant
+	// carries an occupant-gain coefficient that the data never constrained, held at its
+	// prior by the ridge term; keeping it would present a number as identified that was
+	// only ever assumed.
+	if doc.ModelVer != OccupancyModelVersion {
+		log.Printf("[dynamics] room models were identified under occupancy model v%d, this "+
+			"engine is v%d — discarding %d rooms and re-identifying; occupancy is a regressor "+
+			"in the thermal fit", doc.ModelVer, OccupancyModelVersion, len(doc.Rooms))
+		return nil
+	}
+	if !sameSite(doc.Site) {
+		log.Printf("[dynamics] room models were identified on network %s but this engine is "+
+			"on %s — discarding %d rooms. An identified time constant and cooling authority "+
+			"belong to a physical room in a physical place, not to a fixture id.",
+			doc.Site, SiteFingerprint(), len(doc.Rooms))
 		return nil
 	}
 	inner, err := json.Marshal(doc.Rooms)
@@ -1611,6 +1828,79 @@ func (e *Engine) RemoveClient(conn *websocket.Conn) {
 	e.mu.Unlock()
 }
 
+// --- occupancy -------------------------------------------------------------
+//
+// Who is in each room. This is the term the whole optimizer turns on: a zone is set back
+// when it is empty, its sockets are swept when it has been empty long enough, its fresh-air
+// load is its headcount times the library's litres per second per person, and its
+// identified thermal model carries an occupant-gain coefficient that only means anything if
+// the count actually moves.
+//
+// It used to be rand.Intn(10), drawn once per zone at boot. See OccupancySchedule in
+// library.go for what that cost. What replaces it is the ordinary engineering model: the
+// zone's own digitized floor area over its programme's design occupant density, scaled by a
+// diurnal profile, with a small draw-to-draw variation so a learned baseline has a real
+// spread to measure against.
+//
+// Nothing here is a measurement and nothing here pretends to be. A zone bound to a PIR or a
+// CV tracker is skipped entirely — z.Live is set the moment real occupancy arrives, and the
+// model never writes over it.
+
+// scheduledOccupancy is the modelled headcount for a zone of this programme and area at
+// this moment, including the library's draw-to-draw variation.
+func scheduledOccupancy(zoneType string, areaM2 float64, at time.Time) int {
+	design := DesignOccupancy(zoneType, areaM2)
+	if design <= 0 {
+		return 0
+	}
+	frac := OccupancyFractionAt(zoneType, at.In(vnLoc).Hour())
+	if frac <= 0 {
+		return 0
+	}
+	mean := float64(design) * frac
+	// Vary the draw around the scheduled mean. Without this every day is identical and
+	// the learned baseline's standard deviation collapses toward zero, which turns the
+	// first genuine change into an anomaly of unbounded sigma.
+	if j := Occupancy().JitterFraction; j > 0 {
+		mean += getNoise(mean * j)
+	}
+	n := int(math.Round(mean))
+	if n < 0 {
+		n = 0
+	}
+	// The schedule says a fraction of the design count is present; it cannot conjure more
+	// people than the room is designed to hold.
+	if n > design {
+		n = design
+	}
+	return n
+}
+
+// applyOccupancySchedule refreshes every modelled zone's headcount. Lock held.
+//
+// The count is redrawn on the library's cadence rather than every tick: at 30 fps a fresh
+// draw each frame would be pure noise, and both the vacancy delay before a setback and the
+// identification's excitation gate need the count to hold still long enough to mean
+// something.
+func (e *Engine) applyOccupancySchedule(now time.Time) {
+	every := Occupancy().ResampleMinutes
+	if every <= 0 {
+		every = 20
+	}
+	if !e.lastOccupancyAt.IsZero() && now.Sub(e.lastOccupancyAt) < time.Duration(every*float64(time.Minute)) {
+		return
+	}
+	e.lastOccupancyAt = now
+	for _, z := range e.Zones {
+		// A real sensor owns this zone's occupancy; the model must never overwrite a
+		// measurement (rule 1).
+		if z.Live {
+			continue
+		}
+		z.Occupancy = scheduledOccupancy(z.Type, z.AreaM2, now)
+	}
+}
+
 func getNoise(std float64) float64 {
 	u, v := 0.0, 0.0
 	for u == 0 {
@@ -1670,6 +1960,11 @@ func (e *Engine) Start() {
 		e.actuate()
 		e.applyHardware()
 
+		// Who is in each room, on the library's diurnal schedule. Runs before the plug
+		// sweep and the optimizer read it, so a room that has just emptied is seen as
+		// empty on the same tick rather than one behind.
+		e.applyOccupancySchedule(time.Now())
+
 		// After-hours plug sweep (APLC): shed/restore switchable sockets on verified
 		// vacancy, accumulate avoided energy on wall-clock time.
 		e.plugTick(time.Now())
@@ -1680,7 +1975,14 @@ func (e *Engine) Start() {
 
 		// BESS dispatch: TOU-driven charge/discharge against the last computed building load,
 		// integrated on real wall-clock time so the state of charge trends realistically.
+		//
+		// An undeclared pack is sized to this building first, from the peak it has actually
+		// been observed at — the same rule the fan follows. A site that declared its own
+		// nameplate is untouched by this.
 		now := time.Now()
+		if _, peakMw, n := e.observedLoadRange(); n > 0 {
+			e.Bess.SizeToBuilding(peakMw)
+		}
 		e.Bess.Dispatch(now.Sub(e.lastBessAt).Seconds(), e.lastLoadMw, touBand(now))
 		e.lastBessAt = now
 		e.mu.Unlock()
@@ -1692,15 +1994,32 @@ func (e *Engine) Start() {
 // tick integrates one thermal step. Called only from Start's loop with e.mu held.
 func (e *Engine) tick(dt float64) {
 	// One ambient for the whole building per step: live weather when the poller has a
-	// fresh reading, the HCMC climatological constant otherwise. Hoisted out of the
+	// fresh reading, the HCMC climatological diurnal curve otherwise. Hoisted out of the
 	// VAV loop — 891 zones share one sky.
 	tOutside, _ := e.outdoorNow()
+	tDerivedSupply := e.calculateDynamicSupplyAir(tOutside)
 
-	// Thermodynamics
+	// Build map from TargetZone to *VavSim
+	zoneToVav := make(map[string]*VavSim, len(e.Vavs))
 	for _, v := range e.Vavs {
-		z, ok := e.Zones[v.TargetZone]
-		if !ok {
-			continue
+		if v.TargetZone != "" {
+			zoneToVav[v.TargetZone] = v
+		}
+	}
+
+	// Thermodynamics & Mass Balance across ALL zones
+	for id, z := range e.Zones {
+		// Match VAV: targetZone mapping -> exact id -> "vav-" prefix -> trim "zone-" prefix
+		v := zoneToVav[id]
+		if v == nil {
+			v = e.Vavs[id]
+		}
+		if v == nil {
+			v = e.Vavs["vav-"+id]
+		}
+		if v == nil {
+			trimmed := strings.TrimPrefix(id, "zone-")
+			v = e.Vavs["vav-"+trimmed]
 		}
 
 		// Nominal (non-fault) internal load: base equipment + people + solar. Solar comes
@@ -1710,7 +2029,7 @@ func (e *Engine) tick(dt float64) {
 		qInternalNominal := z.BaseHeatGain + (float64(z.Occupancy) * 100.0) + qSolar
 
 		qInternal := qInternalNominal
-		if e.Scenario == "fault" && v.TargetZone == e.FaultTarget {
+		if e.Scenario == "fault" && (id == e.FaultTarget || (v != nil && v.TargetZone == e.FaultTarget)) {
 			qInternal *= 5.0 // Thermal runaway strictly on selected fault target
 		}
 
@@ -1719,35 +2038,73 @@ func (e *Engine) tick(dt float64) {
 			sp = 24.0
 		}
 
+		if z.WallTemp <= 0 {
+			z.WallTemp = z.Temp
+		}
+		rIn := z.RIn
+		if rIn <= 0 {
+			rIn = 0.001
+		}
+		rOut := z.ROut
+		if rOut <= 0 {
+			rOut = 0.0011
+		}
+		cAir := z.CAir
+		if cAir <= 0 {
+			cAir = 5e5
+		}
+		cAir = math.Max(cAir, Phys().MinZoneCapacitanceJPerK)
+		cWall := z.CWall
+		if cWall <= 0 {
+			cWall = 4e6
+		}
+
 		// Size cooling so that at the VAV's NOMINAL flow the room holds setpoint:
 		// qCooling(Temp=sp, flow=nominal) must offset the full nominal internal
 		// load plus steady-state wall conduction. Normalizing by the VAV's own
 		// nominal flow (not a hard-coded 5.4 m3/s) keeps this correct no matter
 		// how many VAVs share the AHU.
-		qSteadyStateWall := (tOutside - sp) / (z.RIn + z.ROut)
+		qSteadyStateWall := (tOutside - sp) / (rIn + rOut)
 		qNominalTotal := qInternalNominal + qSteadyStateWall
 
-		nominalFlow := v.NominalFlow
-		if nominalFlow < 1e-6 {
-			nominalFlow = v.Flow
+		var flowRatio float64
+		var ventRate float64
+		if v != nil {
+			nominalFlow := v.NominalFlow
+			if nominalFlow < 1e-6 {
+				nominalFlow = v.Flow
+			}
+			if nominalFlow < 1e-6 {
+				nominalFlow = 1.0
+			}
+			flowRatio = v.Flow / nominalFlow
+			ventRate = math.Max(0.001, v.Flow)
+		} else {
+			flowRatio = 0.0
+			ventRate = math.Max(0.001, z.AreaM2*0.001)
 		}
-		if nominalFlow < 1e-6 {
-			nominalFlow = 1.0
-		}
-		flowRatio := v.Flow / nominalFlow
 
 		// Discharge temperature: a DS18B20 in the louvre when one is reporting, the
-		// library's design value otherwise. This is the difference between sizing the
-		// cooling law against what the AC is actually delivering and against a nameplate.
-		tSupply := z.supplyC(sp)
+		// dynamic coil heat-exchange derived value otherwise.
+		tSupply := z.supplyCWithDefault(sp, tDerivedSupply)
 
 		qCooling := flowRatio * qNominalTotal * ((z.Temp - tSupply) / (sp - tSupply))
 		if qCooling < 0 {
 			qCooling = 0
 		} // Cannot heat with cold air
 
-		dTAirDt := ((z.WallTemp-z.Temp)/(z.RIn*z.CAir) + (qInternal-qCooling)/z.CAir)
-		dTWallDt := ((tOutside-z.WallTemp)/(z.ROut*z.CWall) - (z.WallTemp-z.Temp)/(z.RIn*z.CWall))
+		// Inter-zone partition conductive heat transfer
+		qInterzone := 0.0
+		for _, adjId := range z.AdjacentZones {
+			if adjZ, ok := e.Zones[adjId]; ok {
+				adjRIn := math.Max(adjZ.RIn, 0.0001)
+				rPart := math.Max(0.001, (rIn+adjRIn)*2.0)
+				qInterzone += (adjZ.Temp - z.Temp) / rPart
+			}
+		}
+
+		dTAirDt := ((z.WallTemp-z.Temp)/(rIn*cAir) + (qInternal+qInterzone-qCooling)/cAir)
+		dTWallDt := ((tOutside-z.WallTemp)/(rOut*cWall) - (z.WallTemp-z.Temp)/(rIn*cWall))
 
 		z.Temp += dTAirDt * dt
 		z.WallTemp += dTWallDt * dt
@@ -1759,6 +2116,17 @@ func (e *Engine) tick(dt float64) {
 		z.Temp = math.Max(5.0, math.Min(50.0, z.Temp))
 		z.WallTemp = math.Max(5.0, math.Min(50.0, z.WallTemp))
 
+		// Dynamic CO2 mass balance estimation (when NDIR sensor is omitted)
+		if z.Co2Sim == 0 {
+			z.Co2Sim = Phys().OutdoorCo2Ppm
+		}
+		roomVol := math.Max(10.0, z.AreaM2*3.0)
+		// Mass balance: dC/dt = (ventRate/V) * (C_out - C) + (G_occ * N_occ) / V
+		// G_occ = 5.0 ppm*m3/s per occupant (18 L/h/person)
+		dCo2Dt := (ventRate/roomVol)*(Phys().OutdoorCo2Ppm-z.Co2Sim) + (5.0*float64(z.Occupancy))/roomVol
+		z.Co2Sim += dCo2Dt * dt
+		z.Co2Sim = math.Max(350.0, math.Min(5000.0, z.Co2Sim))
+
 		// Physics-grounded AFDD: integrate the sensor-free shadow twin with the
 		// same 2R1C dynamics and cooling law, but never pulled toward the hardware
 		// measurement (applyHardware skips it). Divergence between the measured
@@ -1768,7 +2136,7 @@ func (e *Engine) tick(dt float64) {
 			if qCoolShadow < 0 {
 				qCoolShadow = 0
 			}
-			dShadowDt := ((z.WallTemp-z.ShadowTemp)/(z.RIn*z.CAir) + (qInternal-qCoolShadow)/z.CAir)
+			dShadowDt := ((z.WallTemp-z.ShadowTemp)/(rIn*cAir) + (qInternal+qInterzone-qCoolShadow)/cAir)
 			z.ShadowTemp += dShadowDt * dt
 			z.ShadowTemp = math.Max(5.0, math.Min(50.0, z.ShadowTemp))
 		}
@@ -1839,13 +2207,18 @@ func (e *Engine) sampleHistory(now time.Time) {
 // was handed two buildings spliced into one series with no discontinuity marked.
 type loadHistoryDoc struct {
 	BuildingId string    `json:"buildingId"`
+	ModelVer   int       `json:"occupancyModelVersion"`
+	Site       string    `json:"site,omitempty"`
 	Samples    []float64 `json:"samples"`
 }
 
 func (e *Engine) MarshalLoadHistory() ([]byte, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return json.Marshal(loadHistoryDoc{BuildingId: e.buildingId, Samples: e.loadHist})
+	return json.Marshal(loadHistoryDoc{
+		BuildingId: e.buildingId, ModelVer: OccupancyModelVersion, Site: SiteFingerprint(),
+		Samples: e.loadHist,
+	})
 }
 
 // BuildingId reports the fixture currently loaded (empty when it declared none).
@@ -1881,6 +2254,27 @@ func (e *Engine) LoadLoadHistory(data []byte) error {
 		e.loadHist = e.loadHist[:0]
 		return nil
 	}
+	// The recorded megawatts are only this building's if the model that produced them still
+	// is. This series is not merely plotted: it is the range the plausibility check refuses
+	// a forecast against, the history the zero-shot forecaster reads, and the peak the
+	// battery's nameplate is sized from. A load recorded with a population the building
+	// never had would keep all three anchored to it.
+	if doc.ModelVer != OccupancyModelVersion {
+		log.Printf("[forecast] recorded load history was produced under occupancy model v%d, "+
+			"this engine is v%d — discarding %d samples; the load this building draws changed "+
+			"with the occupancy driving it", doc.ModelVer, OccupancyModelVersion, len(hist))
+		e.loadHist = e.loadHist[:0]
+		return nil
+	}
+	if !sameSite(doc.Site) {
+		log.Printf("[forecast] recorded load history was measured on network %s but this "+
+			"engine is on %s — discarding %d samples. These megawatts are the range the "+
+			"plausibility check refuses a forecast against and the peak the battery is sized "+
+			"from; both must describe the place the engine is actually running.",
+			doc.Site, SiteFingerprint(), len(hist))
+		e.loadHist = e.loadHist[:0]
+		return nil
+	}
 	// Only finite, positive samples: a corrupt file must not be able to teach the
 	// forecaster that the building drew NaN megawatts.
 	e.loadHist = e.loadHist[:0]
@@ -1906,6 +2300,11 @@ func (e *Engine) LoadLoadHistory(data []byte) error {
 func (e *Engine) ObservedLoadRange() (min, max float64, n int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.observedLoadRange()
+}
+
+// observedLoadRange is the same answer for callers that already hold the lock.
+func (e *Engine) observedLoadRange() (min, max float64, n int) {
 	// Prefer the running range: it is sampled at the baseline cadence, so it becomes
 	// usable evidence within minutes of boot rather than after two hours of 5-minute
 	// forecast samples. Fall back to the forecast history for a process that has just
@@ -1928,6 +2327,13 @@ func (e *Engine) LoadHistory() []float64 {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return append([]float64(nil), e.loadHist...)
+}
+
+// LastLoadMw returns the latest computed building electrical load in MW.
+func (e *Engine) LastLoadMw() float64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.lastLoadMw
 }
 
 // ForecastWindow returns the [room_temp(°C), airflow_fraction(0..1)] sequence the
@@ -1965,6 +2371,7 @@ func (e *Engine) broadcast() {
 	// Metrics + serialization read (and update LastBroadcast*) zone state, so they
 	// run under the lock; the websocket writes below happen outside it.
 	e.mu.Lock()
+	ph := Phys()
 	// ---- Live global metrics (all derived from current zone state) ----
 	totalHeatW := 0.0 // total thermal load the plant must remove (W)
 	totalOccupants := 0
@@ -2061,13 +2468,13 @@ func (e *Engine) broadcast() {
 	}
 
 	// Plant coefficient of performance degrades as the building is strained (chillers
-	// run harder at higher lift), so efficiency, cooling, and load are all coupled.
+	// run harder at higher lift), calculated dynamically from thermodynamic Carnot lift,
+	// part-load ratio, and thermal strain.
 	avgStrain := 0.0
 	if len(e.Zones) > 0 {
 		avgStrain = strainSum / float64(len(e.Zones))
 	}
-	ph := Phys()
-	plantCop := math.Max(ph.CopMin, math.Min(ph.CopMax, ph.DesignCop-ph.CopStrainSlope*avgStrain))
+	plantCop := CalculateThermodynamicCop(tOutside, Phys().SupplyAirDesignC, totalHeatW, condFloorM2, avgStrain)
 
 	// Fresh air. In Ho Chi Minh City, dehumidifying outdoor air to a supply condition is
 	// the LARGEST single cooling term in an office and it is mostly latent — omitting it
@@ -2111,6 +2518,9 @@ func (e *Engine) broadcast() {
 	// that happens.)
 	baseElectricalMW := (condFloorM2*ph.NonHvacBaseWPerM2 + plugTotalW) / 1e6
 	buildingLoadMW := coolingElectricalMW + baseElectricalMW
+	if buildingLoadMW <= 0 || math.IsNaN(buildingLoadMW) {
+		buildingLoadMW = 0.001
+	}
 	energySavedMW := (savedLightingW + savedThermalW/plantCop) / 1e6
 	// Feed the load to the BESS dispatcher (read next tick) and snapshot battery state.
 	e.lastLoadMw = buildingLoadMW
@@ -2485,4 +2895,15 @@ func normalizeOverride(action string, z *ZoneSim) string {
 	}
 }
 
+// Broadcast triggers an immediate telemetry broadcast of the active building state to all connected clients.
+func (e *Engine) Broadcast() {
+	e.broadcast()
+}
+
+// BroadcastOnce is an alias for Broadcast for testing.
+func (e *Engine) BroadcastOnce() {
+	e.broadcast()
+}
+
 // [GEMINI IMPLEMENTATION END]
+

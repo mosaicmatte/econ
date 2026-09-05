@@ -6,6 +6,7 @@ import { usePlugs } from './usePlugs';
 import { useLibrary } from './useLibrary';
 import ZoneProfileRows from './ZoneProfileRows';
 import useSteadyRows from './useSteadyRows';
+import { powerMw, powerKw } from './units';
 
 // Where the profiler stops naming rooms and starts describing a population. Two dozen rows
 // is about as many as fit before scanning them costs more than reading a scatter.
@@ -311,7 +312,7 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
 
         {perf.overcooled.length > 0 && perf.wasteKw != null && perf.wasteKw > 0.5 && (
           <div style={{ marginTop: '8px', fontSize: '10px', color: 'var(--accent-blue)', lineHeight: 1.4 }}>
-            {perf.overcooled.length} zones are cooled past their deadband — ≈ {perf.wasteKw.toFixed(0)} kW of avoidable
+            {perf.overcooled.length} zones are cooled past their deadband — ≈ {powerKw(perf.wasteKw)} of avoidable
             plant draw, about {money(energyCostPerDay(perf.wasteKw))}/day at {rateLabel}. Raising those setpoints is free money.
           </div>
         )}
@@ -346,7 +347,7 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
                 </div>
                 <div style={{ fontSize: fontBig, color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.4 }}>
                   {autoPilot ? (
-                    <>Occupancy-driven optimizer is holding <b style={{ color: 'var(--text-primary)' }}>{zonesInSetback}</b> zone{zonesInSetback === 1 ? '' : 's'} in energy-saving setback right now — <b style={{ color: 'var(--accent-green)' }}>{autoSavedKw.toFixed(0)} kW</b> avoided ({money(energyCostPerDay(autoSavedKw))}/day at the current {rateLabel} rate). These figures are streamed from the engine, not estimated.</>
+                    <>Occupancy-driven optimizer is holding <b style={{ color: 'var(--text-primary)' }}>{zonesInSetback}</b> zone{zonesInSetback === 1 ? '' : 's'} in energy-saving setback right now — <b style={{ color: 'var(--accent-green)' }}>{powerKw(autoSavedKw)}</b> avoided ({money(energyCostPerDay(autoSavedKw))}/day at the current {rateLabel} rate). These figures are streamed from the engine, not estimated.</>
                   ) : (
                     <>The autonomous optimizer is <b style={{ color: 'orange' }}>OFF</b> — it has released its setbacks to the occupied baseline and you are in manual control (manual vetoes are kept). Re-engaging lets it set back vacant zones automatically.</>
                   )}
@@ -430,13 +431,13 @@ export default function TelemetryPanel({ simData, loadHistory, activeScenario, f
                     {autoPilot ? 'AUTONOMOUS LOAD SHEDDING' : (tou === 'peak' ? 'PEAK TARIFF RUNNING' : `PEAK IN ${toPeak} MIN`)}
                   </div>
                   <div style={{ fontSize: fontBig, color: 'var(--text-primary)', marginTop: '4px', lineHeight: 1.4 }}>
-                    Building load {(simData.buildingLoadMw || 0).toFixed(2)} MW — the 17:30–22:30 peak band ({rateStr('peak')}/kWh) is the costly window.
+                    Building load {powerMw(simData.buildingLoadMw || 0)} — the 17:30–22:30 peak band ({rateStr('peak')}/kWh) is the costly window.
                     <div style={{ marginTop: '4px', color: autoPilot ? 'var(--accent-green)' : 'var(--text-secondary)' }}>
                       {shedKw == null
                         ? 'The size of the shift is not shown: it depends on the plant coefficient in the engine’s programme library, which this dashboard could not read.'
                         : autoPilot
-                          ? `Pre-cooling shifts an estimated ${shedKw.toFixed(0)} kW of cooling out of peak into normal-rate hours — about ${money(peakShiftSavingPerDay(shedKw))}/day (${money(peakShiftSavingPerMonth(shedKw))}/month) at the rate gap. The ${(perDegC * 100).toFixed(0)}%-per-°C figure is the library's planning estimate, not a measured coast.`
-                          : `Widen deadbands 1°C / pre-cool before 17:30 → shift an estimated ${shedKw.toFixed(0)} kW off peak, about ${money(peakShiftSavingPerDay(shedKw))}/day (${money(peakShiftSavingPerMonth(shedKw))}/month) at the rate gap.`}
+                          ? `Pre-cooling shifts an estimated ${powerKw(shedKw)} of cooling out of peak into normal-rate hours — about ${money(peakShiftSavingPerDay(shedKw))}/day (${money(peakShiftSavingPerMonth(shedKw))}/month) at the rate gap. The ${(perDegC * 100).toFixed(0)}%-per-°C figure is the library's planning estimate, not a measured coast.`
+                          : `Widen deadbands 1°C / pre-cool before 17:30 → shift an estimated ${powerKw(shedKw)} off peak, about ${money(peakShiftSavingPerDay(shedKw))}/day (${money(peakShiftSavingPerMonth(shedKw))}/month) at the rate gap.`}
                     </div>
                   </div>
                 </div>

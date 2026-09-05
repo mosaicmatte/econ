@@ -41,9 +41,33 @@ import (
 // and the gitignore all refer to the same three strings.
 const (
 	BuildingDataFile     = "building-data.json"
+	BuildingDataHomeFile = "building-data-home.json"
 	OntologyFile         = "brick-ontology.json"
+	OntologyHomeFile     = "brick-ontology.home.json"
 	ProgrammeLibraryFile = "programme-library.json"
 )
+
+// ModelFileFor maps a model name/alias ("domestic-home", "home", "house", "multi-level", "office", "tower")
+// to its corresponding building JSON file name. Returns empty string if unrecognized.
+func ModelFileFor(model string) string {
+	switch strings.ToLower(strings.TrimSpace(model)) {
+	case "home", "domestic-home", "domestic_home", "house", "residential", "bldg-econ-house-hcmc":
+		return BuildingDataHomeFile
+	case "office", "multi-level", "multilevel", "multi_level", "tower", "commercial", "bldg-econ-digitized":
+		return BuildingDataFile
+	default:
+		return ""
+	}
+}
+
+// BuildingDataPathFor returns the resolved DataPath for the requested model name.
+// If model is empty or unrecognized, it falls back to the active BuildingDataFile.
+func BuildingDataPathFor(model string) string {
+	if f := ModelFileFor(model); f != "" {
+		return DataPath(f)
+	}
+	return DataPath(BuildingDataFile)
+}
 
 // DataDir is where the engine keeps its data files. Overridable so a second engine can be
 // run against an isolated copy instead of sharing one directory with a live one — two
@@ -51,6 +75,12 @@ const (
 func DataDir() string {
 	if d := os.Getenv("ECON_DATA_DIR"); d != "" {
 		return d
+	}
+	if st, err := os.Stat("./data"); err == nil && st.IsDir() {
+		return "./data"
+	}
+	if st, err := os.Stat("../data"); err == nil && st.IsDir() {
+		return "../data"
 	}
 	return "./data"
 }

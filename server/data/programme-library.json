@@ -148,6 +148,243 @@
     "facadeToleranceM": 1.0,
     "facadeToleranceNote": "A polygon edge whose midpoint lies within this distance of the building's exterior outline is counted as external wall."
   },
+  "occupancy": {
+    "$comment": "How many people the engine puts in a room. Design occupancy is the zone's own digitized floor area over its programme's areaPerOccupantM2; the diurnal profile below says what fraction of that is present each hour. Both are building coefficients, so both live here.",
+    "profiles": {
+      "office": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0.1,
+        0.2,
+        0.95,
+        1.0,
+        1.0,
+        1.0,
+        0.5,
+        0.95,
+        0.95,
+        0.95,
+        0.95,
+        0.3,
+        0.1,
+        0.05,
+        0,
+        0,
+        0,
+        0
+      ],
+      "meeting": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0.05,
+        0.3,
+        0.6,
+        0.6,
+        0.4,
+        0.2,
+        0.5,
+        0.6,
+        0.6,
+        0.4,
+        0.1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "lobby": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0.1,
+        0.4,
+        0.7,
+        0.6,
+        0.5,
+        0.5,
+        0.6,
+        0.5,
+        0.5,
+        0.5,
+        0.6,
+        0.7,
+        0.3,
+        0.1,
+        0.05,
+        0,
+        0,
+        0
+      ],
+      "residentialLiving": [
+        0.1,
+        0.1,
+        0.1,
+        0.1,
+        0.1,
+        0.15,
+        0.5,
+        0.6,
+        0.2,
+        0.15,
+        0.15,
+        0.15,
+        0.2,
+        0.15,
+        0.15,
+        0.15,
+        0.2,
+        0.5,
+        1.0,
+        1.0,
+        1.0,
+        0.9,
+        0.6,
+        0.3
+      ],
+      "residentialKitchen": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0.1,
+        0.6,
+        0.5,
+        0.2,
+        0.1,
+        0.1,
+        0.5,
+        0.6,
+        0.2,
+        0.1,
+        0.1,
+        0.3,
+        0.7,
+        1.0,
+        0.8,
+        0.3,
+        0.2,
+        0.05,
+        0
+      ],
+      "homeOffice": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0.2,
+        0.5,
+        0.7,
+        0.7,
+        0.7,
+        0.3,
+        0.7,
+        0.7,
+        0.7,
+        0.7,
+        0.4,
+        0.2,
+        0.6,
+        0.6,
+        0.6,
+        0.3,
+        0.1
+      ],
+      "bedroom": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.7,
+        0.3,
+        0.1,
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.1,
+        0.1,
+        0.2,
+        0.3,
+        0.6,
+        0.9,
+        1.0
+      ],
+      "transient": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "profileNotes": {
+      "$comment": "Fraction of a zone's DESIGN occupancy (floor area / areaPerOccupantM2) present in each hour, index 0..23 local time. The engine multiplies the two to get a zone's occupancy; a zone bound to a real occupancy sensor ignores these entirely and uses the measurement.",
+      "officeSource": "ASHRAE 90.1-2019 Appendix G, Table G-D, weekday occupancy fraction for office occupancies.",
+      "meetingNote": "A meeting room is at its design density only while a meeting is running; the daily mean is far below it.",
+      "lobbyNote": "Peaks at the two commute shoulders rather than mid-morning.",
+      "residentialLivingNote": "HCMC tube house: the household leaves for work and school through the morning and the living space fills again after 17:00. Estimated for this dwelling type from the site survey, not measured - a prior for the identification to supersede.",
+      "residentialKitchenNote": "Meal-time peaks; near-empty between them.",
+      "homeOfficeNote": "A study in a house: worked during the day and again after dinner.",
+      "bedroomNote": "Inverse of every other profile - occupied overnight.",
+      "transientNote": "Programmes with no areaPerOccupantM2: a bathroom, passage, corridor, store, plant room or comms room has no standing population. People pass through, but a design occupancy for them does not exist and inventing one puts a ventilation load on the plant that nobody is there to need. A PIR or CV node bound to such a zone overrides this."
+    },
+    "jitterFraction": 0.15,
+    "jitterNote": "Household and desk counts are not identical from one day to the next. A deterministic schedule makes every learned baseline's spread collapse to zero, so the first real variation scores as an unbounded anomaly. This is the standard deviation of the hour-to-hour draw, as a fraction of the scheduled count.",
+    "resampleMinutes": 20,
+    "resampleNote": "How often the scheduled count is redrawn. Long enough that a room is not flickering between counts, short enough that the identification sees occupancy move within an hour."
+  },
+  "storage": {
+    "$comment": "Battery energy storage, when the site has not declared a real one. A BESS is an ASSET, not a physical coefficient: a deployment that owns a pack sets BESS_POWER_MW and BESS_CAPACITY_MWH to its nameplate and none of this is read. These figures only size the modelled pack that the twin shows when nobody has said what is installed, and they are expressed relative to the building so the same defaults are sane at both ends of the range this engine runs at.",
+    "powerFractionOfObservedPeak": 0.3,
+    "powerNote": "Inverter rating as a fraction of the building's own observed peak load. Commercial peak-shaving packs are sized to shave the top of the curve, not to carry the whole building. The previous default was a flat 2 MW / 4 MWh — sized for a ~17 MW campus and left unchanged when the engine was pointed at a 72 m2 house, where it was 80x the entire building load and covered 100% of it, so grid draw read zero all through the evening peak.",
+    "hoursAtRatedPower": 2.0,
+    "hoursNote": "Usable energy as hours at the inverter rating. Two hours is the standard commercial duration and covers EVN's 5-hour evening peak window at partial depth.",
+    "minPowerMw": 0.001,
+    "minPowerNote": "Below this the modelled pack is not worth showing and the BESS is reported as absent, rather than drawn as a battery that shaves single watts."
+  },
   "programmes": {
     "open-office": {
       "lightingWPerM2": 9.0,
@@ -157,7 +394,8 @@
       "areaPerOccupantM2": 10.0,
       "facadeExposed": true,
       "critical": false,
-      "lightingSource": "QCVN 09:2017/BXD and ASHRAE 90.1 LED office LPD"
+      "lightingSource": "QCVN 09:2017/BXD and ASHRAE 90.1 LED office LPD",
+      "occupancyProfile": "office"
     },
     "meeting-room": {
       "lightingWPerM2": 9.0,
@@ -166,7 +404,8 @@
       "deadbandC": 2.0,
       "areaPerOccupantM2": 2.5,
       "facadeExposed": true,
-      "critical": false
+      "critical": false,
+      "occupancyProfile": "meeting"
     },
     "cellular-office": {
       "lightingWPerM2": 9.0,
@@ -175,7 +414,8 @@
       "deadbandC": 2.0,
       "areaPerOccupantM2": 10.0,
       "facadeExposed": true,
-      "critical": false
+      "critical": false,
+      "occupancyProfile": "office"
     },
     "lobby": {
       "lightingWPerM2": 12.0,
@@ -184,7 +424,8 @@
       "deadbandC": 2.5,
       "areaPerOccupantM2": 20.0,
       "facadeExposed": true,
-      "critical": false
+      "critical": false,
+      "occupancyProfile": "lobby"
     },
     "corridor": {
       "lightingWPerM2": 5.0,
@@ -193,7 +434,8 @@
       "deadbandC": 3.0,
       "areaPerOccupantM2": null,
       "facadeExposed": false,
-      "critical": false
+      "critical": false,
+      "occupancyProfile": "transient"
     },
     "wet-core": {
       "lightingWPerM2": 6.0,
@@ -202,7 +444,8 @@
       "deadbandC": 3.0,
       "areaPerOccupantM2": null,
       "facadeExposed": false,
-      "critical": false
+      "critical": false,
+      "occupancyProfile": "transient"
     },
     "store": {
       "lightingWPerM2": 4.0,
@@ -211,7 +454,8 @@
       "deadbandC": 4.0,
       "areaPerOccupantM2": null,
       "facadeExposed": false,
-      "critical": false
+      "critical": false,
+      "occupancyProfile": "transient"
     },
     "comms-room": {
       "lightingWPerM2": 6.0,
@@ -222,7 +466,8 @@
       "facadeExposed": false,
       "critical": true,
       "note": "One per floor. A floor comms room is a rack or two on a small split unit. Critical: never swept, never set back.",
-      "perFloor": 1
+      "perFloor": 1,
+      "occupancyProfile": "transient"
     },
     "plant-room": {
       "lightingWPerM2": 5.0,
@@ -233,7 +478,8 @@
       "facadeExposed": false,
       "critical": true,
       "note": "AHU / riser plant. Ventilated, not comfort-conditioned. Critical: never swept, never set back.",
-      "perFloor": 1
+      "perFloor": 1,
+      "occupancyProfile": "transient"
     },
     "kitchen": {
       "lightingWPerM2": 6.0,
@@ -244,7 +490,8 @@
       "facadeExposed": true,
       "critical": false,
       "lightingSource": "Residential LED tube/strip as observed on site — roughly half the 9 W/m2 office LPD",
-      "note": "Vietnamese tube-house rear service space. fixedEquipmentW is the always-on residential base (fridge duty-cycle average + RO purifier standby). Cooking is bottled gas here and adds NO electrical load."
+      "note": "Vietnamese tube-house rear service space. fixedEquipmentW is the always-on residential base (fridge duty-cycle average + RO purifier standby). Cooking is bottled gas here and adds NO electrical load.",
+      "occupancyProfile": "residentialKitchen"
     },
     "living": {
       "lightingWPerM2": 5.0,
@@ -254,7 +501,8 @@
       "areaPerOccupantM2": 8.0,
       "facadeExposed": true,
       "critical": false,
-      "note": "Setpoint deliberately above the 24 C office figure: HCMC residential comfort expectations sit higher and the AC runs intermittently rather than being held all day."
+      "note": "Setpoint deliberately above the 24 C office figure: HCMC residential comfort expectations sit higher and the AC runs intermittently rather than being held all day.",
+      "occupancyProfile": "residentialLiving"
     },
     "bedroom": {
       "lightingWPerM2": 4.0,
@@ -264,7 +512,8 @@
       "areaPerOccupantM2": 10.0,
       "facadeExposed": true,
       "critical": false,
-      "note": "Not in the current ground-floor scan; defined now so an upper-floor scan needs no library change."
+      "note": "Not in the current ground-floor scan; defined now so an upper-floor scan needs no library change.",
+      "occupancyProfile": "bedroom"
     },
     "home-office": {
       "lightingWPerM2": 7.0,
@@ -274,7 +523,8 @@
       "areaPerOccupantM2": 12.0,
       "facadeExposed": true,
       "critical": false,
-      "note": "A study in a house, not a commercial office: fewer occupants, lower LPD, higher setpoint. fixedEquipmentW covers the VNPT router and a desk machine idling."
+      "note": "A study in a house, not a commercial office: fewer occupants, lower LPD, higher setpoint. fixedEquipmentW covers the VNPT router and a desk machine idling.",
+      "occupancyProfile": "homeOffice"
     },
     "bathroom": {
       "lightingWPerM2": 5.0,
@@ -284,7 +534,8 @@
       "areaPerOccupantM2": null,
       "facadeExposed": false,
       "critical": false,
-      "note": "Unconditioned wet room. High setpoint + wide deadband keep the optimizer from ever trying to cool it."
+      "note": "Unconditioned wet room. High setpoint + wide deadband keep the optimizer from ever trying to cool it.",
+      "occupancyProfile": "transient"
     },
     "circulation": {
       "lightingWPerM2": 4.0,
@@ -294,7 +545,8 @@
       "areaPerOccupantM2": null,
       "facadeExposed": false,
       "critical": false,
-      "note": "Passage / stair core — residential equivalent of `corridor`, unconditioned."
+      "note": "Passage / stair core — residential equivalent of `corridor`, unconditioned.",
+      "occupancyProfile": "transient"
     }
   },
   "$residentialNote": [

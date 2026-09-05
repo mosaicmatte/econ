@@ -16,7 +16,7 @@ func TestForecastPlausibility(t *testing.T) {
 		lo, hi          float64
 		n               int
 		wantImplausible bool
-		wantSilent      bool // no judgement offered at all
+		wantUnjudged    bool // there was not enough evidence to reach a judgement
 	}{
 		{
 			name: "office-trained model pointed at a house",
@@ -48,17 +48,17 @@ func TestForecastPlausibility(t *testing.T) {
 		{
 			name: "too little history to judge",
 			peak: mw(2.39), lo: 0.0099, hi: 0.0252, n: 4,
-			wantSilent: true,
+			wantUnjudged: true,
 		},
 		{
 			name: "no forecast to judge",
 			peak: nil, lo: 0.0099, hi: 0.0252, n: 512,
-			wantSilent: true,
+			wantUnjudged: true,
 		},
 		{
 			name: "no observed range yet",
 			peak: mw(2.39), lo: 0, hi: 0, n: 512,
-			wantSilent: true,
+			wantUnjudged: true,
 		},
 	}
 
@@ -66,11 +66,24 @@ func TestForecastPlausibility(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			res := engineResult{PeakMw: c.peak}
 			checkPlausible(&res, c.lo, c.hi, c.n)
-			if c.wantSilent {
-				if res.Implausible || res.Plausibility != "" {
-					t.Fatalf("expected no judgement, got implausible=%v %q", res.Implausible, res.Plausibility)
+			if c.wantUnjudged {
+				if res.Implausible {
+					t.Fatalf("nothing was judged, so nothing may be flagged: %q", res.Plausibility)
+				}
+				if res.Judged {
+					t.Fatal("reported a judgement it did not have the evidence to make")
+				}
+				// A result that was never checked must SAY it was never checked. Silence
+				// here is what let a 2.41 MW forecast be drawn against a 5.2 kW house as a
+				// peak-shaving target: Implausible was false, so it read as "checked, fine".
+				if c.peak != nil && res.Plausibility == "" {
+					t.Error("declined to judge without saying so; a consumer cannot tell this " +
+						"apart from a forecast that was checked and passed")
 				}
 				return
+			}
+			if !res.Judged {
+				t.Error("reached a verdict but did not mark it as judged")
 			}
 			if res.Implausible != c.wantImplausible {
 				t.Errorf("implausible = %v, want %v (%q)", res.Implausible, c.wantImplausible, res.Plausibility)
@@ -79,5 +92,58 @@ func TestForecastPlausibility(t *testing.T) {
 				t.Error("a judgement was reached but nothing explains it to the operator")
 			}
 		})
+	}
+}
+
+// A forecast the engine has already flagged as belonging to a different building is not
+// one half of a model comparison. The compare endpoint used to publish "the two engines
+// differ by 2.37 MW (99%)" for a house whose highest observed load is 0.025 MW, and the AI
+// panel rendered that percentage as a headline directly beneath its own "not this building"
+// badge. The difference there measures the gap between two buildings, not two models.
+func TestAgreementExcludesAnOutOfDistributionForecast(t *testing.T) {
+	mw := func(v float64) *float64 { return &v }
+
+	lstm := engineResult{Available: true, PeakMw: mw(2.40)}
+	tfm := engineResult{Available: true, PeakMw: mw(0.025)}
+	// The same range check the endpoint applies: a house, 894 samples, 12-25 kW.
+	checkPlausible(&lstm, 0.0123, 0.0252, 894)
+	checkPlausible(&tfm, 0.0123, 0.0252, 894)
+
+	if !lstm.Implausible {
+		t.Fatal("2.40 MW against a 0.025 MW building should have been flagged")
+	}
+	if tfm.Implausible {
+		t.Fatal("0.025 MW against a 0.025 MW building should not have been flagged")
+	}
+
+	a := forecastAgreement(lstm, tfm)
+	if a["comparable"] != false {
+		t.Error("an out-of-distribution forecast must not be reported as comparable")
+	}
+	if _, ok := a["relativeDiff"]; ok {
+		t.Error("no disagreement statistic should be published from a flagged forecast")
+	}
+	excluded, _ := a["excluded"].([]string)
+	if len(excluded) != 1 || excluded[0] != "lstm" {
+		t.Errorf("the payload should name which engine was excluded, got %v", a["excluded"])
+	}
+}
+
+// Two forecasts that both sit inside the building's own observed range are exactly what
+// the comparison is for, and it must still describe them.
+func TestAgreementStillComparesTwoPlausibleForecasts(t *testing.T) {
+	mw := func(v float64) *float64 { return &v }
+
+	lstm := engineResult{Available: true, PeakMw: mw(0.030)}
+	tfm := engineResult{Available: true, PeakMw: mw(0.025)}
+	checkPlausible(&lstm, 0.0123, 0.0252, 894)
+	checkPlausible(&tfm, 0.0123, 0.0252, 894)
+
+	a := forecastAgreement(lstm, tfm)
+	if a["comparable"] != true {
+		t.Fatalf("two in-range forecasts should be comparable, got %v", a)
+	}
+	if a["higher"] != "lstm" {
+		t.Errorf("the higher engine should be named, got %v", a["higher"])
 	}
 }

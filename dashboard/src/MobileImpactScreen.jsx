@@ -1,8 +1,10 @@
 import React, { useMemo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { money, energyCostPerDay } from './tariff';
-import { powerMw } from './units';
+import { powerMw, splitPowerMw } from './units';
 import useMeanLoad from './useMeanLoad';
+import StreamStatus from './StreamStatus';
+import { useLibrary } from './useLibrary';
 import {
   FLOOR_AREA_M2, EUI_BENCHMARK, IS_IT_DOMINATED, ZONE_MIX,
   euiRunRateFromLoadMw, euiFromMeanLoadMw, EUI_MIN_WINDOW_H,
@@ -12,10 +14,13 @@ import {
 // Mobile "Impact" screen — the phone-sized face of the twin. Served automatically on
 // small viewports instead of the WebGL-heavy desktop stack, and fed entirely by the
 // same live stream: engine savings, LSTM forecast, per-level occupancy, edge nodes.
-export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareNodes = {} }) {
+export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareNodes = {}, streamOpen = true, streamAgeMs = null }) {
+  // Which building, under which occupancy model — so an accumulated window cannot outlive
+  // the series it was recorded from. See useMeanLoad.
+  const { seriesId } = useLibrary();
   // Same basis as the desktop panel: annual intensity comes from the mean load observed,
   // never from the instantaneous one. See useMeanLoad.
-  const { meanMw, hours: observedH } = useMeanLoad(simData?.buildingLoadMw);
+  const { meanMw, hours: observedH } = useMeanLoad(simData?.buildingLoadMw, seriesId);
   const settled = observedH >= EUI_MIN_WINDOW_H;
   const loadMw = simData.buildingLoadMw || 0;
   const savedMw = simData.energySavedMw || 0;
@@ -53,7 +58,13 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
   // a number from a model trained on a different building produces a confident 0% that
   // means nothing, which is worse than showing no bar.
   const peakOod = aiForecast?.implausible === true;
-  const peak = peakOod ? null : aiForecast?.predicted_peak_load;
+  // "Not flagged" is not the same as "checked and fine". Right after a restart — or after
+  // the engine has discarded a load series recorded under a superseded model — there is not
+  // enough observed history to judge a forecast at all, and the engine now says so instead
+  // of staying silent. Drawing a bar in that state put a 2.41 MW figure against a 5.2 kW
+  // house and reported it as 0% shaved.
+  const peakUnjudged = aiForecast != null && aiForecast.plausibility_judged === false;
+  const peak = peakOod || peakUnjudged ? null : aiForecast?.predicted_peak_load;
   const peakPct = peak > 0 ? Math.max(0, Math.min(100, (loadMw / peak) * 100)) : 0;
 
   const hwList = Object.values(hardwareNodes || {});
@@ -71,9 +82,13 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
         <h2 style={{ margin: 0, fontSize: '24px', fontWeight: '600' }}>ECON · Live</h2>
       </div>
 
+      {/* Same rule as desktop: silent while the stream is healthy, explicit when the
+          numbers below have stopped being current. */}
+      <StreamStatus streamOpen={streamOpen} streamAgeMs={streamAgeMs} style={{ marginBottom: '16px' }} />
+
       {/* Live headline stats */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-        <Stat label="Load" value={loadMw.toFixed(2)} unit="MW" color="#F5C242" />
+        <Stat label="Load" value={splitPowerMw(loadMw).value} unit={splitPowerMw(loadMw).unit} color="#F5C242" />
         <Stat label="Occupants" value={occupants} unit="Pax" color="#4FC3F7" />
         <Stat label="Health" value={health.toFixed(0)} unit="%" color={health < 80 ? '#FF3B30' : '#3DDC84'} />
       </div>
@@ -112,7 +127,7 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
             {hasLoad && (
             <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <span style={{ fontSize: '32px', fontWeight: 'bold' }}>{savingsPct.toFixed(1)}%</span>
-              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>{(savedMw * 1000).toFixed(0)} kW saved</span>
+              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>{powerMw(savedMw)} saved</span>
               <span style={{ fontSize: '11px', color: '#3DDC84', marginTop: '4px', maxWidth: '118px', textAlign: 'center', lineHeight: 1.2 }}>≈ {money(energyCostPerDay((simData.energySavedMw||0)*1000))}/day</span>
             </div>
             )}
@@ -169,14 +184,16 @@ export default function MobileImpactScreen({ simData = {}, aiForecast, hardwareN
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
                 <span>Now: {powerMw(loadMw)}</span>
-                <span>Predicted peak: {peak.toFixed(2)} MW</span>
+                <span>Predicted peak: {powerMw(peak)}</span>
               </div>
             </>
           ) : (
             <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
               {peakOod
-                ? `The forecaster answered ${aiForecast.predicted_peak_load.toFixed(2)} MW, which the engine flagged as out of distribution for this building — ${aiForecast.plausibility} No bar is drawn against it.`
-                : "Forecaster offline — start the stack's forecasting service to see the predicted peak."}
+                ? `The forecaster answered ${powerMw(aiForecast.predicted_peak_load)}, which the engine flagged as out of distribution for this building — ${aiForecast.plausibility} No bar is drawn against it.`
+                : peakUnjudged
+                  ? `The forecaster answered ${powerMw(aiForecast.predicted_peak_load)}, but ${aiForecast.plausibility} No bar is drawn until it can be.`
+                  : "Forecaster offline — start the stack's forecasting service to see the predicted peak."}
             </div>
           )}
         </div>

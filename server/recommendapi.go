@@ -122,8 +122,11 @@ func recommendationsHandler(engine *simulation.Engine) http.HandlerFunc {
 		if corsPreflight(w, r) {
 			return
 		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(engine.Recommendations(8))
+		report := engine.Recommendations(8)
+		report.Forecast = BuildForecastGraph(engine, 12)
+		json.NewEncoder(w).Encode(report)
 	}
 }
 

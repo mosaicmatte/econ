@@ -14,20 +14,22 @@ import MobileImpactScreen from './MobileImpactScreen';
 import MobileAIScreen from './MobileAIScreen';
 import BlueprintImportPanel from './BlueprintImportPanel';
 import LiveWeatherBackground from './LiveWeatherBackground';
-import { getBuilding } from './buildingStore';
-const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
+import { getBuilding, subscribeBuildingChange } from './buildingStore';
+const initialBuilding = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
 import { DEFAULT_FAULT_TARGET } from './useDigitalTwin';
+import { streamIsStale, streamAgeLabel } from './StreamStatus';
 
 // The floor to open on: the one holding the default critical asset, read from the loaded
 // building rather than pinned to a level number, so a regenerated building-data.json (or a
 // different tower entirely) still opens somewhere that exists. Mirrors the desktop's
 // ATTENTION_FLOOR.
 const ATTENTION_FLOOR = (() => {
-  const f = (buildingData.floors || []).find(fl => (fl.zones || []).some(z => z.zoneId === DEFAULT_FAULT_TARGET));
-  return f ? f.level : (buildingData.floors?.[Math.floor((buildingData.floors?.length || 1) / 2)]?.level ?? 1);
+  const f = (initialBuilding.floors || []).find(fl => (fl.zones || []).some(z => z.zoneId === DEFAULT_FAULT_TARGET));
+  return f ? f.level : (initialBuilding.floors?.[Math.floor((initialBuilding.floors?.length || 1) / 2)]?.level ?? 1);
 })();
 
 export default function MobileApp() {
+  const [currentBuilding, setCurrentBuilding] = useState(() => getBuilding());
   const [activeFloor, setActiveFloor] = useState(ATTENTION_FLOOR);
   const [selectedZone, setSelectedZone] = useState(null);
   const [activeModal, setActiveModal] = useState(null); // 'analytics', 'logs', 'controls'
@@ -47,8 +49,13 @@ export default function MobileApp() {
     globalMetrics,
     loadScenario,
     aiForecast,
-    sendManualOverride
+    sendManualOverride,
+    streamOpen,
+    streamAgeMs,
   } = useDigitalTwin(onSimUpdate);
+
+  // True when the numbers on this screen have stopped being current. See StreamStatus.
+  const stale = streamIsStale(streamOpen, streamAgeMs);
 
   const [hardwareNodes, setHardwareNodes] = useState({});
 
@@ -96,9 +103,22 @@ export default function MobileApp() {
   const health = Math.round(simData?.systemHealth ?? 100);
   const healthColor = health >= 95 ? '#34C759' : health >= 80 ? '#FFD60A' : '#FF3B30';
 
+  useEffect(() => {
+    const unsub = subscribeBuildingChange((b) => {
+      setCurrentBuilding(b);
+      setActiveFloor((prev) => {
+        const floorExists = (b?.floors || []).some(fl => fl.level === prev);
+        if (floorExists) return prev;
+        const f = (b?.floors || []).find(fl => (fl.zones || []).some(z => z.zoneId === DEFAULT_FAULT_TARGET));
+        return f ? f.level : (b?.floors?.[0]?.level ?? 1);
+      });
+    });
+    return unsub;
+  }, []);
+
   // Floor navigation bounds + stepper (manual browsing without a precise 3D tap).
-  const levels = useMemo(() => buildingData.floors.map(f => f.level).sort((a, b) => a - b), []);
-  const minLevel = levels[0], maxLevel = levels[levels.length - 1];
+  const levels = useMemo(() => (currentBuilding?.floors || []).map(f => f.level).sort((a, b) => a - b), [currentBuilding]);
+  const minLevel = levels[0] ?? 1, maxLevel = levels[levels.length - 1] ?? 1;
   const stepFloor = (d) => {
     setSelectedZone(null);
     setActiveFloor(f => Math.max(minLevel, Math.min(maxLevel, f + d)));
@@ -117,10 +137,18 @@ export default function MobileApp() {
           style={{ cursor: failingZone ? 'pointer' : 'default', pointerEvents: failingZone ? 'auto' : 'none' }}
         >
           <div style={{ fontSize: '24px', fontWeight: '600' }}>ECON Center</div>
-          <div style={{ fontSize: '14px', color: failingZone ? '#FF3B30' : '#34C759', fontWeight: '500', marginTop: '2px' }}>
-            {failingZone
-              ? `⚠ ${failingZone.label} · ${Number(failingZone.temp).toFixed(1)}°C`
-              : 'Nominal Operation'}
+          {/* "Nominal Operation" is the most misleading thing this screen can say during an
+              engine outage: it is a verdict on a building nobody is currently hearing from.
+              A stale stream reports itself instead. */}
+          <div style={{
+            fontSize: '14px', fontWeight: '500', marginTop: '2px',
+            color: stale ? '#FF9F0A' : failingZone ? '#FF3B30' : '#34C759',
+          }}>
+            {stale
+              ? `⚠ Telemetry stale · ${streamAgeLabel(streamAgeMs)}`
+              : failingZone
+                ? `⚠ ${failingZone.label} · ${Number(failingZone.temp).toFixed(1)}°C`
+                : 'Nominal Operation'}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -161,6 +189,7 @@ export default function MobileApp() {
           setSelectedZone={setSelectedZone}
           viewMode="hybrid"
           isMobile={true}
+          building={currentBuilding}
         />
         </CanvasErrorBoundary>
         
@@ -208,13 +237,13 @@ export default function MobileApp() {
         
         {/* FLOOR STEPPER — browse levels without a precise 3D tap */}
         {!selectedZone && (
-          <div style={{ position: 'absolute', right: '16px', bottom: '24px', zIndex: 11, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', background: 'rgba(20,20,22,0.72)', backdropFilter: 'blur(12px)', borderRadius: '18px', padding: '6px', border: '1px solid rgba(255,255,255,0.08)', pointerEvents: 'auto' }}>
-            <button onClick={() => stepFloor(1)} disabled={activeFloor >= maxLevel}
+          <div data-testid="mobile-level-stepper" style={{ position: 'absolute', right: '16px', bottom: '24px', zIndex: 11, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', background: 'rgba(20,20,22,0.72)', backdropFilter: 'blur(12px)', borderRadius: '18px', padding: '6px', border: '1px solid rgba(255,255,255,0.08)', pointerEvents: 'auto' }}>
+            <button data-testid="mobile-level-up" onClick={() => stepFloor(1)} disabled={activeFloor >= maxLevel}
               style={{ background: 'transparent', border: 'none', color: activeFloor >= maxLevel ? 'rgba(255,255,255,0.25)' : '#fff', padding: '6px', display: 'flex', cursor: 'pointer' }}>
               <ChevronUp size={22} />
             </button>
-            <div style={{ fontSize: '13px', fontWeight: '700', minWidth: '30px', textAlign: 'center', letterSpacing: '0.02em' }}>L{activeFloor}</div>
-            <button onClick={() => stepFloor(-1)} disabled={activeFloor <= minLevel}
+            <div data-testid="mobile-level-display" style={{ fontSize: '13px', fontWeight: '700', minWidth: '30px', textAlign: 'center', letterSpacing: '0.02em' }}>L{activeFloor}</div>
+            <button data-testid="mobile-level-down" onClick={() => stepFloor(-1)} disabled={activeFloor <= minLevel}
               style={{ background: 'transparent', border: 'none', color: activeFloor <= minLevel ? 'rgba(255,255,255,0.25)' : '#fff', padding: '6px', display: 'flex', cursor: 'pointer' }}>
               <ChevronDown size={22} />
             </button>
@@ -231,6 +260,7 @@ export default function MobileApp() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '10px' }}>
           
           <MenuItem
+            dataTestId="mobile-menu-ai"
             icon={<Brain size={20} color="#4A90E2" />}
             title="AI & Automation"
             onClick={() => setActiveModal('ai')}
@@ -324,7 +354,7 @@ export default function MobileApp() {
              <BlueprintImportPanel mobile onClose={() => setActiveModal(null)} />
           )}
           {activeModal === 'impact' && (
-             <MobileImpactScreen simData={simData} aiForecast={aiForecast} hardwareNodes={hardwareNodes} />
+             <MobileImpactScreen simData={simData} aiForecast={aiForecast} hardwareNodes={hardwareNodes} streamOpen={streamOpen} streamAgeMs={streamAgeMs} />
           )}
           {activeModal === 'analytics' && (
              <TelemetryPanel
@@ -407,9 +437,10 @@ export default function MobileApp() {
   );
 }
 
-function MenuItem({ icon, title, onClick, highlight, bottomText, hideChevron }) {
+function MenuItem({ icon, title, onClick, highlight, bottomText, hideChevron, dataTestId }) {
   return (
     <div 
+      data-testid={dataTestId}
       onClick={onClick}
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -445,7 +476,7 @@ function rcaFor(zone) {
 function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
   const [sent, setSent] = useState(null);
   // Ventilation coefficients for the modelled-CO2 readout, from the engine's library.
-  const { modelledCo2 } = useLibrary();
+  const { modelledCo2, modelledVentilationLPerS } = useLibrary();
   if (!zone) return null;
   // Manual override: latches a human veto over the optimizer for 15 min (engine side).
   const override = (action, label) => {
@@ -457,7 +488,17 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
   // ventilation estimate, and the card label says so — same measured/modeled honesty as CO₂.
   const vav = simData ? Object.values(simData.vavs || {}).find(v => v.targetZone === zone.id) : null;
   const cfmMeasured = (vav?.flow || 0) > 0;
-  const cfm = cfmMeasured ? Math.round(vav.flow * 35.3147) : Math.round(zone.occupancy * 17 + 120);
+  // The modelled fallback is the fresh air this zone's occupancy requires, at the library's
+  // own litres-per-second-per-person — the same coefficient the engine's ventilation load is
+  // computed with. It used to be `occupancy * 17 + 120`: a per-person rate that matched no
+  // standard and a 120 CFM floor from nowhere at all, so a room the VAV reported no flow for
+  // flipped from "1 CFM" to a confident "239 CFM" between frames. Null when the library has
+  // not answered — the card then says there is no figure, exactly as it does for CO2.
+  const ventLPerS = cfmMeasured ? null : modelledVentilationLPerS(zone.occupancy);
+  const cfm = cfmMeasured
+    ? Math.round(vav.flow * 35.3147)
+    : ventLPerS != null ? Math.round(ventLPerS * 2.1189) // L/s -> CFM
+    : null;
   // A bound NDIR sensor wins, exactly as on desktop; the occupancy estimate is only a
   // fallback for the zones nothing is measuring. The engine streams 0 when no sensor is
   // reporting, so 0 means "modelled" rather than "a room with no CO2 in it". Labelling
@@ -517,7 +558,10 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
       {/* 2x2 Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
          <StatCard label="SETPOINT" value={`${zone.setpoint.toFixed(1)}°C`} />
-         <StatCard label={cfmMeasured ? 'AIRFLOW (VAV)' : 'AIRFLOW (MODELED)'} value={`${cfm} CFM`} />
+         <StatCard
+           label={cfmMeasured ? 'AIRFLOW (VAV)' : 'AIRFLOW (MODELED)'}
+           value={cfm != null ? `${cfm} CFM` : '—'}
+         />
          <StatCard
            label={co2Measured ? 'CO₂ (MEASURED)' : co2 != null ? 'CO₂ (MODELED)' : 'CO₂'}
            value={co2 != null ? `${co2} ppm` : '— no sensor'}
@@ -534,6 +578,7 @@ function RoomDetailDrawer({ zone, simData, sendManualOverride, onClose }) {
         <div style={{ display: 'flex', gap: '10px' }}>
           <OverrideButton label="FORCE OFF" color="#4A90E2" onClick={() => override('LIGHTS_OFF;SETPOINT=26.0', 'Force-off')} />
           <OverrideButton label="MAX COOL" color="#FF3B30" onClick={() => override('LIGHTS_ON;SETPOINT=20.0', 'Max-cool')} />
+          <OverrideButton label="IR FAN" color="#34C759" onClick={() => override('IR_SEND:NEC:0xFF00FF:32', 'IR-Fan')} />
           <OverrideButton label="RESET" color="rgba(255,255,255,0.5)" onClick={() => override('reset', 'Reset')} />
         </div>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '10px', lineHeight: 1.4 }}>

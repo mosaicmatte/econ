@@ -21,11 +21,20 @@ Run:  python3 esp32_emulator.py [--zone-topic zone_9] [--broker 127.0.0.1]
 
 import argparse
 import json
+import logging
+import os
 import random
 import threading
 import time
 
 import paho.mqtt.client as mqtt
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.DEBUG),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s"
+)
+logger = logging.getLogger("ESP32-Emulator")
 
 parser = argparse.ArgumentParser(description="ECON ESP32 node emulator")
 parser.add_argument("--zone-topic", default="zone_1", help="MQTT topic suffix (one per node)")
@@ -44,6 +53,7 @@ state_lock = threading.Lock()
 
 
 def handle_command(payload: str):
+    logger.debug("Parsing command: %s", payload)
     # Same parser semantics as the firmware: ;-separated tokens, unknown ones ignored.
     for tok in payload.split(";"):
         tok = tok.strip()
@@ -51,22 +61,27 @@ def handle_command(payload: str):
             with state_lock:
                 state["lights"] = True
             print("   [HARDWARE] -> RELAY CLICK: Lights ON")
+            logger.debug("Relay state updated: Lights ON")
         elif tok == "LIGHTS_OFF":
             with state_lock:
                 state["lights"] = False
             print("   [HARDWARE] -> RELAY CLICK: Lights OFF")
+            logger.debug("Relay state updated: Lights OFF")
         elif tok.startswith("SETPOINT=") or tok.startswith("HVAC_SET:"):
             try:
                 sp = float(tok.split("=" if "=" in tok else ":", 1)[1])
             except ValueError:
+                logger.debug("Malformed setpoint token: %s", tok)
                 continue
             with state_lock:
                 state["setpoint"] = sp
             print(f"   [HARDWARE] -> HVAC IR BLAST: setpoint {sp:.1f} C")
+            logger.debug("Setpoint updated: %f", sp)
 
 
 def on_connect(client, *rest):
     print(f"[ESP32 EMULATOR] Connected to {args.broker}:{args.port} as '{args.zone_topic}'")
+    logger.info("Connected to broker at %s:%d as %r", args.broker, args.port, args.zone_topic)
     client.publish(STATUS_TOPIC, "online", retain=True)
     client.subscribe(COMMAND_TOPIC)
     print(f"[ESP32 EMULATOR] Subscribed to {COMMAND_TOPIC}")
@@ -76,6 +91,7 @@ def on_connect(client, *rest):
 def on_message(client, userdata, msg):
     payload = msg.payload.decode(errors="ignore")
     print(f"\n[ESP32 EMULATOR] Received on {msg.topic}: {payload}")
+    logger.debug("Received command on %s: %s", msg.topic, payload)
     handle_command(payload)
 
 
@@ -84,7 +100,7 @@ def telemetry() -> str:
         occ = 3 if state["occupied"] else 0
         lights = "ON" if state["lights"] else "OFF"
         sp = state["setpoint"]
-    return json.dumps({
+    data = {
         "zone": args.zone_label,
         "occupancy": occ,
         "temperature": round(22.0 + random.random() * 4.0, 1),
@@ -97,7 +113,10 @@ def telemetry() -> str:
         "acReal": False,
         "lights": lights,
         "setpoint": sp,
-    })
+    }
+    payload = json.dumps(data)
+    logger.debug("Generated telemetry payload: %s", payload)
+    return payload
 
 
 def presence_loop(client):

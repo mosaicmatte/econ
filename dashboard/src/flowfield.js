@@ -16,7 +16,7 @@
 // so everything lines up with BuildingModel/AirflowWindow without a second mapping.
 // ============================================================================
 
-import { exteriorPolygon, toWorld, ORIGIN } from './floorGeometry';
+import { exteriorPolygon, toWorld, ORIGIN } from './floorGeometry.js';
 
 export const CELL = {
   SOLID: 0,   // outside the envelope, or unassigned interior -> no flow

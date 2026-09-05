@@ -30,9 +30,13 @@ const plugStatePath = "./data/plug-state.json"
 type plugState struct {
 	// BuildingId the SavedKwh below was earned by. Empty means a file written before this
 	// field existed, which cannot prove it describes the current building.
-	BuildingId string                `json:"buildingId"`
-	Config     simulation.PlugConfig `json:"config"`
-	SavedKwh   float64               `json:"savedKwh"`
+	BuildingId string `json:"buildingId"`
+	// Site is the network the energy was avoided ON (see simulation/site.go). The building
+	// id alone cannot catch a machine that carried its fixture elsewhere: the id matches,
+	// so the counter keeps accumulating against sockets that are not in this building.
+	Site     string                `json:"site,omitempty"`
+	Config   simulation.PlugConfig `json:"config"`
+	SavedKwh float64               `json:"savedKwh"`
 }
 
 // loadPlugState restores policy + savings at boot; absent file means defaults.
@@ -70,12 +74,20 @@ func loadPlugState(engine *simulation.Engine) {
 	// 128.7 kWh earned by a 39,776 m² tower. The policy above still restores, because a
 	// sweep schedule is a decision the operator made and it survives a re-digitization.
 	id := engine.BuildingId()
-	if s.BuildingId != id {
+	site := simulation.SiteFingerprint()
+	if s.BuildingId != id || !simulation.SameSite(s.Site) {
 		if s.SavedKwh > 0 {
-			log.Printf("[plugs] %.2f kWh of avoided energy was earned by %q but the loaded "+
-				"building is %q — discarding it rather than crediting this building with "+
-				"another one's savings. The sweep policy is kept.",
-				s.SavedKwh, s.BuildingId, id)
+			if s.BuildingId != id {
+				log.Printf("[plugs] %.2f kWh of avoided energy was earned by %q but the loaded "+
+					"building is %q — discarding it rather than crediting this building with "+
+					"another one's savings. The sweep policy is kept.",
+					s.SavedKwh, s.BuildingId, id)
+			} else {
+				log.Printf("[plugs] %.2f kWh of avoided energy was earned on network %s but "+
+					"this engine is on %s — discarding it rather than reporting another "+
+					"site's avoided energy as this one's. The sweep policy is kept.",
+					s.SavedKwh, s.Site, site)
+			}
 		}
 		savePlugState(engine) // re-tag the file to this building
 		log.Printf("[plugs] restored policy: enabled=%v work=%02d-%02d grace=%dm critical=%v",
@@ -92,6 +104,7 @@ func loadPlugState(engine *simulation.Engine) {
 func savePlugState(engine *simulation.Engine) {
 	s := plugState{
 		BuildingId: engine.BuildingId(),
+		Site:       simulation.SiteFingerprint(),
 		Config:     engine.PlugSnapshot(0).Config,
 		SavedKwh:   engine.PlugSavedKwh(),
 	}

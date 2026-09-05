@@ -10,8 +10,9 @@ import { useForecastCompare } from './useForecastCompare';
 import { useLibrary } from './useLibrary';
 import { useRoomModels } from './useRoomModels';
 import RecommendationEvidence from './RecommendationEvidence';
+import ForecastChart from './ForecastChart';
 import { API_BASE } from './api';
-import { powerMw } from './units';
+import { powerMw, powerKw } from './units';
 
 // fmtEta renders a predicted time-to-breach the way an operator reads it.
 function fmtEta(sec) {
@@ -34,7 +35,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
   // Learned anomaly recommendations from the engine's online baseline model
   // (server/simulation/baselines.go): each scored in σ against this building's own normal
   // for the hour. These replace the old hardcoded threshold cards below.
-  const { recommendations, model: recModel } = useRecommendations();
+  const { recommendations, model: recModel, forecast: recForecast } = useRecommendations();
   // Building coefficients and the critical-zone list, from the engine's programme library
   // rather than from constants typed into this file. See useLibrary.
   const { isCritical, precoolShift, calibrated: libCalibrated } = useLibrary();
@@ -54,26 +55,60 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
   const loadMw = simData.buildingLoadMw || 0;
   const savingsPct = savedMw + loadMw > 0 ? (100 * savedMw) / (savedMw + loadMw) : 0;
 
-  // The forecast card plots the series that EXISTS, and nothing else.
-  //
-  // The supervised LSTM returns one scalar — its predicted peak. It has no trajectory to
-  // give. This card used to synthesize one anyway: thirteen points eased between the live
-  // load and that peak with a smoothstep, captioned "PROJECTED RAMP", with nothing on the
-  // chart to say the shape was a rendering artifact rather than a forecast. The zero-shot
-  // forecaster does return a full horizon, so when it has answered that real series is
-  // drawn; when it has not, the card shows the two numbers it actually has.
-  const { timesfm, lstm: lstmCompare, series: tfmSeries, stepMinutes, agreement,
-          upperBand, upperQuantile, peakUpperMw } = useForecastCompare();
-  // Central path plus the zero-shot model's own upper decile, so the chart shows how wide
-  // the forecast is rather than implying a single confident line.
-  const forecastSeries = useMemo(() => {
-    if (!tfmSeries) return [];
-    return tfmSeries.map((mw, i) => ({
-      t: `+${(i + 1) * stepMinutes}m`,
-      mw: +Number(mw).toFixed(4),
-      hi: upperBand && upperBand[i] != null ? +Number(upperBand[i]).toFixed(4) : undefined,
-    }));
-  }, [tfmSeries, upperBand, stepMinutes]);
+  // Both load forecasters: live comparison endpoint (/api/forecast/compare) and embedded
+  // recommendation forecast (/api/recommendations) with robust fallbacks.
+  const { timesfm, lstm: lstmCompare, series: tfmSeries, stepMinutes: compareStepMinutes, agreement,
+          upperBand: compareUpperBand, upperQuantile: compareUpperQuantile, peakUpperMw: comparePeakUpperMw } = useForecastCompare();
+
+  // Unified active forecast combining live zero-shot horizon, decile bands, and LSTM peak reference.
+  const activeForecast = useMemo(() => {
+    const rawSeries = (Array.isArray(tfmSeries) && tfmSeries.length > 0)
+      ? tfmSeries
+      : (Array.isArray(recForecast?.series) && recForecast.series.length > 0)
+        ? recForecast.series
+        : null;
+
+    const stepMin = compareStepMinutes || recForecast?.stepMinutes || 5;
+    const upper = (Array.isArray(compareUpperBand) && compareUpperBand.length > 0)
+      ? compareUpperBand
+      : (Array.isArray(recForecast?.upperBand) && recForecast.upperBand.length > 0)
+        ? recForecast.upperBand
+        : null;
+
+    const uq = compareUpperQuantile || recForecast?.upperQuantile || 'q9';
+    const peakUp = comparePeakUpperMw ?? recForecast?.peakUpperMw ?? null;
+    const lstmPeak = lstmCompare?.peakMw ?? recForecast?.lstmPeakMw ?? aiForecast?.predicted_peak_load ?? null;
+    const engineName = (timesfm?.available && tfmSeries?.length > 0)
+      ? 'timesfm'
+      : (recForecast?.engine || (aiForecast ? 'lstm' : 'fallback'));
+
+    const seriesData = rawSeries && rawSeries.length > 0
+      ? rawSeries.map((mw, i) => ({
+          t: `+${(i + 1) * stepMin}m`,
+          mw: +Number(mw).toFixed(4),
+          hi: upper && upper[i] != null ? +Number(upper[i]).toFixed(4) : undefined,
+        }))
+      : [];
+
+    const isPlausible = recForecast?.plausible ?? (aiForecast ? !aiForecast.implausible : true);
+    const plausibilityText = recForecast?.plausibility ?? aiForecast?.plausibility ?? '';
+
+    return {
+      seriesData,
+      rawSeries,
+      stepMinutes: stepMin,
+      upperBand: upper,
+      upperQuantile: uq,
+      peakUpperMw: peakUp,
+      lstmPeakMw: lstmPeak,
+      engine: engineName,
+      plausible: isPlausible,
+      plausibility: plausibilityText,
+      available: seriesData.length > 0 || lstmPeak != null,
+    };
+  }, [tfmSeries, compareStepMinutes, compareUpperBand, compareUpperQuantile, comparePeakUpperMw, lstmCompare, timesfm, recForecast, aiForecast]);
+
+  const forecastSeries = activeForecast.seriesData;
 
   // Insights are generated from what the building is actually doing: the telemetry
   // stream, the edge-node registry, the TOU clock, and the engine's own control loops
@@ -197,7 +232,13 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
         // an advisory-only card gets the toggle alone.
         evidence: true,
         once: !!label,
-        onAction: label ? () => sendManualOverride && sendManualOverride(rec.action, rec.zone) : undefined,
+        onAction: label ? () => {
+          if (rec.action === 'precool') {
+            sendManualOverride && sendManualOverride('precool', 'GLOBAL');
+          } else {
+            sendManualOverride && sendManualOverride(rec.action, rec.zone);
+          }
+        } : undefined,
       });
     });
 
@@ -225,7 +266,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
           windowOpen
             ? `A pre-cool window is OPEN until ${untilLabel(precool.until)} — thermal mass is charging so chillers can coast.`
             : shedKw != null
-              ? `Pre-cooling now charges the thermal mass at the cheaper rate — shifting an estimated ${shedKw.toFixed(0)} kW off peak, worth roughly ${money(peakShiftSavingPerMonth(shedKw))}/month at the rate gap. The shift fraction is the library's ${(precoolShift * 100).toFixed(0)}% planning estimate, not a measured coast.`
+              ? `Pre-cooling now charges the thermal mass at the cheaper rate — shifting an estimated ${powerKw(shedKw)} off peak, worth roughly ${money(peakShiftSavingPerMonth(shedKw))}/month at the rate gap. The shift fraction is the library's ${(precoolShift * 100).toFixed(0)}% planning estimate, not a measured coast.`
               : 'Pre-cooling now charges the thermal mass at the cheaper rate. The size of the shift is not shown: it depends on the plant coefficient in the engine\'s programme library, which this dashboard has not been able to read.'
         }`,
         action: windowOpen ? 'PRE-COOLING' : 'ACTIVATE PRE-COOLING',
@@ -236,35 +277,39 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       });
     }
 
-    if (aiForecast && aiForecast.predicted_peak_load) {
-      const weatherNote = aiForecast.weather_source === 'engine'
+    const hasForecastSignal = (aiForecast && aiForecast.predicted_peak_load) || activeForecast.available;
+    if (hasForecastSignal) {
+      const predPeak = aiForecast?.predicted_peak_load ?? activeForecast.lstmPeakMw ?? (activeForecast.rawSeries ? Math.max(...activeForecast.rawSeries) : null);
+      const weatherNote = aiForecast?.weather_source === 'engine'
         ? 'Weather from the engine’s live Open-Meteo feed — same numbers the envelope physics uses.'
-        : aiForecast.weather_source === 'fallback' ? '(Using fallback weather.)' : '(Live weather data incorporated.)';
-      const realN = aiForecast.window_real_samples;
-      const winLen = aiForecast.window_len || 12;
+        : aiForecast?.weather_source === 'fallback' ? '(Using fallback weather.)' : '(Live engine telemetry incorporated.)';
+      const realN = aiForecast?.window_real_samples ?? recForecast?.samples;
+      const winLen = aiForecast?.window_len || 12;
       const warmup = realN != null && realN < winLen
         ? ` Input window warming up: ${realN}/${winLen} real 5-min samples since boot.`
         : '';
-      // A forecast the engine has judged out of distribution is not reported as this
-      // building's coming peak. The LSTM is supervised, so its weights encode whichever
-      // building train.py last saw; pointed at a different one it answers with that
-      // building's numbers and nothing in the arithmetic objects. The engine checks each
-      // answer against this building's own observed load range and says so, and the card
-      // leads with the finding rather than burying it under a confident MW figure.
-      const ood = aiForecast.implausible === true;
+      const ood = aiForecast?.implausible === true || activeForecast.plausible === false;
+      const unjudged = !ood && aiForecast != null && aiForecast.plausibility_judged === false;
+      const flagged = ood || unjudged;
       generated.push({
         id: 'forecast',
-        type: ood ? 'warning' : 'info',
+        type: flagged ? 'warning' : 'info',
         expandable: true,
-        icon: <Activity size={18} color={ood ? 'var(--accent-yellow)' : 'var(--accent-blue)'} />,
-        title: ood ? 'LSTM Forecast Out Of Distribution' : 'LSTM Load Forecast',
-        badge: ood ? 'NOT THIS BUILDING' : undefined,
-        badgeColor: ood ? 'var(--accent-yellow)' : undefined,
-        badgeTitle: ood ? "Checked against this building's own recorded load range" : undefined,
+        icon: <Activity size={18} color={flagged ? 'var(--accent-yellow)' : 'var(--accent-blue)'} />,
+        title: ood ? 'Load Forecast Out Of Distribution'
+          : unjudged ? 'Load Forecast Not Yet Checked'
+          : `${activeForecast.engine === 'timesfm' ? 'TimesFM Zero-Shot' : 'LSTM'} Forecast Diagnostics`,
+        badge: ood ? 'NOT THIS BUILDING' : unjudged ? 'UNVERIFIED' : (activeForecast.engine === 'timesfm' ? 'TIMESFM' : 'LSTM'),
+        badgeColor: flagged ? 'var(--accent-yellow)' : 'var(--accent-blue)',
+        badgeTitle: ood ? "Checked against this building's own recorded load range"
+          : unjudged ? 'Not enough observed load yet to check it against this building'
+          : 'Predictive load trajectory and model diagnostics',
         message: ood
-          ? `The supervised model returns ${aiForecast.predicted_peak_load.toFixed(2)} MW, which the engine has flagged: ${aiForecast.plausibility} Retrain it on this building (backend/forecasting/train.py) or read the zero-shot forecaster instead — it needs no training and forecasts this building's own recorded series.`
-          : `Deep Learning model predicts an upcoming peak load of ${aiForecast.predicted_peak_load.toFixed(2)} MW over the sampled last hour. ${weatherNote}${warmup}`,
-        action: 'VIEW PREDICTIONS'
+          ? `The model returns ${predPeak ? powerMw(predPeak) : '—'}, which the engine has flagged: ${aiForecast?.plausibility || activeForecast.plausibility || 'out of distribution'}. Retrain it on this building (backend/forecasting/train.py) or read the zero-shot forecaster instead.`
+          : unjudged
+            ? `The supervised model returns ${predPeak ? powerMw(predPeak) : '—'}, but ${aiForecast?.plausibility || 'not yet checked'}. Until it can be, treat it as the model's answer rather than this building's forecast.`
+            : `AI predictive engine projects upcoming load horizon (${activeForecast.stepMinutes * (activeForecast.seriesData.length || 12)} min) with peak load of ${predPeak ? powerMw(predPeak) : (activeForecast.peakUpperMw ? powerMw(activeForecast.peakUpperMw) : '—')}. ${weatherNote}${warmup}`,
+        action: 'VIEW MODEL DIAGNOSTICS',
       });
     }
 
@@ -349,7 +394,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       icon: <Brain size={18} color={apOn ? 'var(--accent-green)' : 'var(--accent-yellow)'} />,
       title: apOn ? 'Autonomous Operations Active' : 'Auto-Pilot Suspended',
       message: apOn
-        ? `Occupancy-driven optimizer is holding ${inSetback} zone${inSetback === 1 ? '' : 's'} in setback — ${savingsPct.toFixed(1)}% of plant load (${(savedMw * 1000).toFixed(0)} kW ≈ ${money(energyCostPerDay(savedMw * 1000))}/day). Streamed from the engine.`
+        ? `Occupancy-driven optimizer is holding ${inSetback} zone${inSetback === 1 ? '' : 's'} in setback — ${savingsPct.toFixed(1)}% of plant load (${powerMw(savedMw)} ≈ ${money(energyCostPerDay(savedMw * 1000))}/day). Streamed from the engine.`
         : 'The optimizer is off — it released its setbacks to the occupied baseline and the operator is in manual control. Re-engage to resume autonomous setback.',
       action: 'VIEW MODEL METRICS'
     });
@@ -360,98 +405,67 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
   // ---- Inline detail sections for the expandable cards ----
   const renderDetail = (id) => {
     if (id === 'forecast') {
-      // An out-of-distribution LSTM peak is not drawn as a reference line on the chart or
-      // subtracted from the live load as "headroom": both would state that this building
-      // is heading for a number the engine has already said belongs to a different one.
-      const lstmOod = aiForecast?.implausible === true;
-      const peak = lstmOod ? null : aiForecast?.predicted_peak_load;
-      // No horizon to draw. Show what the LSTM actually produced — two numbers — rather
-      // than a curve interpolated between them.
-      if (!forecastSeries.length) {
-        const delta = peak != null ? peak - loadMw : null;
-        return (
-          <div style={{ marginTop: '6px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: '4px', columnGap: '10px' }}>
-              <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Live load</span>
-              <span style={{ fontSize: '10px', fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--text-primary)', textAlign: 'right' }}>{powerMw(loadMw)}</span>
-              <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>LSTM predicted peak</span>
-              <span style={{ fontSize: '10px', fontFamily: 'monospace', fontWeight: 'bold', color: lstmOod ? 'var(--accent-yellow)' : 'var(--accent-blue)', textAlign: 'right' }}>
-                {peak != null ? `${peak.toFixed(2)} MW`
-                  : lstmOod ? `${aiForecast.predicted_peak_load.toFixed(2)} MW · out of distribution`
-                  : '—'}
-              </span>
-              {delta != null && (
-                <>
-                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Headroom to peak</span>
-                  <span style={{ fontSize: '10px', fontFamily: 'monospace', fontWeight: 'bold', color: delta > 0 ? 'var(--accent-yellow)' : 'var(--accent-green)', textAlign: 'right' }}>{delta >= 0 ? '+' : ''}{delta.toFixed(2)} MW</span>
-                </>
-              )}
-              <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Zero-shot horizon</span>
-              <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-muted)', textAlign: 'right' }}>
-                {timesfm ? (timesfm.available ? 'loading…' : 'unavailable') : '—'}
-              </span>
-            </div>
-            <p style={{ margin: '6px 0 0 0', fontSize: '9px', color: 'var(--text-muted)', lineHeight: 1.45 }}>
-              The supervised LSTM emits a predicted peak, not a trajectory, so there is no curve to plot.
-              {timesfm && !timesfm.available && timesfm.error ? ` The zero-shot forecaster, which does return a full horizon, is unavailable: ${timesfm.error}` : ' Start the zero-shot forecaster to see the shape of the coming hour.'}
-            </p>
-          </div>
-        );
-      }
-      const peakOfSeries = forecastSeries.reduce((m, d) => Math.max(m, d.mw), 0);
+      const lstmOod = !activeForecast.plausible;
+      const lstmUnjudged = aiForecast != null && aiForecast.plausibility_judged === false;
+      const peak = lstmOod || lstmUnjudged ? null : activeForecast.lstmPeakMw;
+      const realN = aiForecast?.window_real_samples ?? recForecast?.samples;
+      const winLen = aiForecast?.window_len || 12;
+
       return (
-        <div style={{ marginTop: '6px' }}>
-          <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginBottom: '4px', letterSpacing: '0.04em' }}>
-            TIMESFM HORIZON · {forecastSeries.length} × {stepMinutes} MIN · PEAK {peakOfSeries.toFixed(3)} MW
-            {peakUpperMw != null && ` · ${upperQuantile?.toUpperCase()} ${Number(peakUpperMw).toFixed(3)} MW`}
+        <div style={{ marginTop: '8px', padding: '10px 12px', background: 'rgba(0, 163, 224, 0.05)', borderRadius: '8px', border: '1px solid rgba(0, 163, 224, 0.2)' }}>
+          <div style={{ fontSize: '10px', fontWeight: 'bold', color: 'var(--accent-blue)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+            Forecaster Architecture & Multi-Model Intelligence
           </div>
-          <div style={{ width: '100%', height: 120 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={forecastSeries} margin={{ top: 6, right: 8, bottom: 0, left: -22 }}>
-                <XAxis dataKey="t" tick={{ fontSize: 8, fill: 'var(--text-muted)' }} tickLine={false} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} interval={3} />
-                <YAxis tick={{ fontSize: 8, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
-                <Tooltip contentStyle={{ background: 'rgba(10,10,10,0.95)', border: '1px solid var(--border-glass)', borderRadius: 6, fontSize: 10 }} labelStyle={{ color: 'var(--text-secondary)' }} formatter={(v) => [`${v} MW`, 'load']} />
-                {peak != null && <ReferenceLine y={peak} stroke="var(--accent-red)" strokeDasharray="4 4" label={{ value: 'LSTM PEAK', fontSize: 8, fill: 'var(--accent-red)', position: 'insideTopRight' }} />}
-                {upperBand && (
-                  <Line type="monotone" dataKey="hi" stroke="var(--accent-blue)" strokeWidth={1} strokeDasharray="3 3" strokeOpacity={0.6} dot={false} isAnimationActive={false} />
-                )}
-                <Line type="monotone" dataKey="mw" stroke="var(--accent-blue)" strokeWidth={2} dot={false} isAnimationActive={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          {/* Both forecasters, side by side. Their disagreement is the useful signal: two
-              models built on entirely different evidence converging is worth more than
-              either one alone, and their diverging is worth knowing before acting. */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: '3px', columnGap: '10px', marginTop: '6px' }}>
-            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Blue line — TimesFM (zero-shot)</span>
-            <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--accent-blue)', textAlign: 'right' }}>{timesfm?.peakMw != null ? `${timesfm.peakMw.toFixed(3)} MW peak` : '—'}</span>
-            {peakUpperMw != null && (
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', rowGap: '5px', columnGap: '12px', fontSize: '11px' }}>
+            <span style={{ color: 'var(--text-secondary)' }}>Active Forecaster</span>
+            <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--text-primary)' }}>
+              {activeForecast.engine === 'timesfm' ? 'Google TimesFM 200M (Zero-Shot)' : 'Supervised 2-Layer LSTM'}
+            </span>
+
+            <span style={{ color: 'var(--text-secondary)' }}>Forecast Horizon</span>
+            <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+              {(activeForecast.seriesData.length || 12) * (activeForecast.stepMinutes || 5)} min ({(activeForecast.seriesData.length || 12)} steps @ {activeForecast.stepMinutes || 5}m)
+            </span>
+
+            <span style={{ color: 'var(--text-secondary)' }}>Projected Peak Load</span>
+            <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--accent-blue)' }}>
+              {activeForecast.peakUpperMw ? powerMw(activeForecast.peakUpperMw) : (peak ? powerMw(peak) : '—')}
+            </span>
+
+            {activeForecast.upperQuantile && (
               <>
-                <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }} title="The zero-shot model's own upper decile — how firm the peak is, not just where it sits">
-                  Dashed — its {upperQuantile} band
-                </span>
-                <span style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-muted)', textAlign: 'right' }}>
-                  {Number(peakUpperMw).toFixed(3)} MW
+                <span style={{ color: 'var(--text-secondary)' }}>Upper Decile Band ({activeForecast.upperQuantile.toUpperCase()})</span>
+                <span style={{ fontFamily: 'monospace', color: 'var(--accent-blue)' }}>
+                  {activeForecast.peakUpperMw ? powerMw(activeForecast.peakUpperMw) : '—'}
                 </span>
               </>
             )}
-            <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{lstmOod ? 'LSTM (supervised)' : 'Red line — LSTM (supervised)'}</span>
-            <span style={{ fontSize: '10px', fontFamily: 'monospace', color: lstmOod ? 'var(--accent-yellow)' : 'var(--accent-red)', textAlign: 'right' }}>
-              {lstmOod ? `${aiForecast.predicted_peak_load.toFixed(2)} MW · not this building`
-                : lstmCompare?.peakMw != null ? `${lstmCompare.peakMw.toFixed(2)} MW peak`
-                : peak != null ? `${peak.toFixed(2)} MW peak` : '—'}
-            </span>
+
             {agreement?.comparable && (
               <>
-                <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>They differ by</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Multi-Model Agreement Delta</span>
                 <span style={{
-                  fontSize: '10px', fontFamily: 'monospace', textAlign: 'right',
+                  fontFamily: 'monospace',
                   color: agreement.relativeDiff > 0.25 ? 'var(--accent-yellow)' : 'var(--text-primary)',
                 }}>
-                  {Math.abs(agreement.deltaMw).toFixed(2)} MW ({(agreement.relativeDiff * 100).toFixed(0)}%) · {agreement.higher.toUpperCase()} higher
+                  {powerMw(Math.abs(agreement.deltaMw))} ({(agreement.relativeDiff * 100).toFixed(0)}%) · {agreement.higher.toUpperCase()} higher
                 </span>
               </>
             )}
+
+            <span style={{ color: 'var(--text-secondary)' }}>Plausibility & Safety Filter</span>
+            <span style={{
+              fontFamily: 'monospace',
+              color: lstmOod ? 'var(--accent-red)' : lstmUnjudged ? 'var(--accent-yellow)' : 'var(--accent-green, #22c55e)',
+            }}>
+              {lstmOod ? 'OUT OF DISTRIBUTION' : lstmUnjudged ? 'UNVERIFIED' : 'PASSED PHYSICAL ENVELOPE CHECKS'}
+            </span>
+
+            <span style={{ color: 'var(--text-secondary)' }}>Telemetry Warmup</span>
+            <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+              {realN != null ? `${realN}/${winLen} 5-min steps` : 'Steady-state stream'}
+            </span>
           </div>
         </div>
       );
@@ -460,7 +474,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
       const rows = [
         ['Auto-Pilot', simData.autoPilot !== false ? 'engaged' : 'suspended (manual)'],
         ['Zones in setback', `${simData.zonesInSetback || 0}`],
-        ['Live savings', `${(savedMw * 1000).toFixed(0)} kW (${savingsPct.toFixed(1)}%)`],
+        ['Live savings', `${powerMw(savedMw)} (${savingsPct.toFixed(1)}%)`],
         ['Utility saving', `${money(energyCostPerDay(savedMw * 1000))}/day`],
         ['Plant COP', (simData.plantCop || 0).toFixed(2)],
         ['Cooling delivered', `${powerMw(simData.coolingOutputMw || 0)} thermal`],
@@ -556,6 +570,59 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
         </p>
       </div>
 
+      {/* Visual Forecast & Predictive Load Trajectory Graph */}
+      <div
+        style={{
+          background: 'rgba(0, 163, 224, 0.04)',
+          border: '1px solid rgba(0, 163, 224, 0.25)',
+          borderRadius: '10px',
+          padding: '12px 14px',
+          position: 'relative',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '4px', background: 'var(--accent-blue)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+          <div style={{ padding: '5px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', display: 'flex' }}>
+            <Activity size={16} color="var(--accent-blue)" />
+          </div>
+          <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--accent-blue)' }}>
+            AI Load Forecast Trajectory & Peak Reference
+          </span>
+          <span
+            style={{
+              marginLeft: 'auto',
+              fontSize: '8px',
+              fontWeight: 'bold',
+              letterSpacing: '0.05em',
+              padding: '1px 5px',
+              borderRadius: '3px',
+              color: 'var(--accent-blue)',
+              border: '1px solid var(--accent-blue)',
+            }}
+          >
+            {activeForecast.engine.toUpperCase()}
+          </span>
+        </div>
+        <p style={{ margin: '0 0 6px 0', fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+          Predictive sequence trajectory and upper uncertainty band ({activeForecast.upperQuantile?.toUpperCase() || 'Q9'}) plotted against live building load ({powerMw(loadMw)}).
+        </p>
+        <ForecastChart
+          series={activeForecast.seriesData}
+          upperBand={activeForecast.upperBand}
+          upperQuantile={activeForecast.upperQuantile}
+          peakUpperMw={activeForecast.peakUpperMw}
+          lstmPeakMw={activeForecast.lstmPeakMw}
+          stepMinutes={activeForecast.stepMinutes}
+          engine={activeForecast.engine}
+          liveLoadMw={loadMw}
+          plausible={activeForecast.plausible}
+          plausibility={activeForecast.plausibility}
+          height={125}
+          showLegend={true}
+        />
+      </div>
+
       {/* Insight Cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {insights.map((insight, idx) => {
@@ -646,6 +713,7 @@ export default function AiInsightsPanel({ simData, activeScenario, faultTarget, 
                   model={roomModels[insight.rec.zone]}
                   matureAfter={recModel?.matureAfter}
                   horizonMin={recModel?.horizonMin ?? 30}
+                  forecast={activeForecast}
                   limit={insight.rec.metric === 'temp'
                     ? (simData.zones?.[insight.rec.zone]?.setpoint ?? 0) + 1
                     : insight.rec.metric === 'co2' ? 1000 : undefined}

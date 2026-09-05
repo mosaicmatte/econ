@@ -89,7 +89,17 @@ func (c PlugConfig) armed(now time.Time) bool {
 	return h >= c.WorkEndHour && h < c.WorkStartHour // overnight work window
 }
 
+// isZoneCritical reports whether a zone type represents a critical space that must never
+// be shed or set back. It combines programme library authority (IsCritical) with the
+// safety floor heuristic (neverAutoBind).
+func isZoneCritical(zoneType string) bool {
+	return IsCritical(zoneType) || neverAutoBind(zoneType)
+}
+
 func (c PlugConfig) critical(zoneType string) bool {
+	if isZoneCritical(zoneType) {
+		return true
+	}
 	for _, t := range c.CriticalTypes {
 		if t == zoneType {
 			return true
@@ -143,6 +153,7 @@ func (e *Engine) plugTick(now time.Time) {
 		}
 
 		shouldShed := armed &&
+			!isZoneCritical(z.Type) &&
 			!e.Plug.critical(z.Type) &&
 			!z.PlugVacantSince.IsZero() &&
 			now.Sub(z.PlugVacantSince) >= grace
@@ -215,7 +226,7 @@ func (e *Engine) PlugSnapshot(topN int) PlugStatus {
 		}
 		rows = append(rows, PlugZone{
 			ZoneId: id, Type: z.Type, StandbyW: z.PlugStandbyW,
-			Shed: z.PlugShed, Critical: e.Plug.critical(z.Type), Measured: measured,
+			Shed: z.PlugShed, Critical: e.Plug.critical(z.Type) || isZoneCritical(z.Type), Measured: measured,
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool {

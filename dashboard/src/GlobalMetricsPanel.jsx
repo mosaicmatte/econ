@@ -4,12 +4,14 @@ import { ResponsiveContainer, AreaChart, Area } from 'recharts';
 import useMeanLoad from './useMeanLoad';
 import { API_BASE } from './api';
 import { useLibrary } from './useLibrary';
+import { getBuilding } from './buildingStore';
 import { money, energyCostPerDay, touPeriod, touPeriodLabel } from './tariff';
 import { powerMw, splitPowerMw } from './units';
 import {
   FLOOR_AREA_M2, EUI_BENCHMARK, IS_IT_DOMINATED, ZONE_MIX,
   euiRunRateFromLoadMw, euiFromMeanLoadMw, EUI_MIN_WINDOW_H,
   carbonTonnesPerYear, carbonAvoidedTonnesPerYear, tonnesStr,
+  getFloorAreaM2, getZoneMix, getIsItDominated,
 } from './sustainability';
 
 // (Plant utilization is measured against the peak load this building has actually been
@@ -98,15 +100,15 @@ function DeltaCard({ title, icon: Icon, value, unit, delta, isGood, historyData,
   );
 }
 
-export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory, activeFloor, selectedNode, width = 320, setWidth, sendManualOverride, hardwareNodes = {} }) {
+export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory, activeFloor, setActiveFloor, selectedNode, width = 320, setWidth, sendManualOverride, hardwareNodes = {}, building }) {
   const [zoneHistory, setZoneHistory] = React.useState([]);
   // Programme coefficients from the engine (see useLibrary): used here for the zone's
   // design occupant density, so the occupancy bar is scaled by the building's own
   // calibration rather than a fixed 80-person axis.
-  const { areaPerOccupant } = useLibrary();
+  const { areaPerOccupant, seriesId } = useLibrary();
   // Annual intensity has to be built on the load actually observed over time, not on
   // whatever the load happens to be this second. See useMeanLoad.
-  const { meanMw, hours: observedH, peakMw } = useMeanLoad(simData?.buildingLoadMw);
+  const { meanMw, hours: observedH, peakMw } = useMeanLoad(simData?.buildingLoadMw, seriesId);
 
   React.useEffect(() => {
     if (selectedNode?.type === 'zone') {
@@ -176,6 +178,59 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
     if (!(areaM2 > 0) || !(perOcc > 0)) return 0;
     return Math.max(1, Math.round(areaM2 / perOcc));
   }, [selectedNode?.id, selectedNode?.data?.areaM2, selectedNode?.data?.type, areaPerOccupant]);
+
+  const currentBld = building || getBuilding();
+  const dynamicFloorArea = React.useMemo(() => getFloorAreaM2(currentBld), [currentBld]);
+  const dynamicZoneMix = React.useMemo(() => getZoneMix(currentBld), [currentBld]);
+  const dynamicIsItDominated = React.useMemo(() => getIsItDominated(currentBld), [currentBld]);
+
+  // Dynamic per-level telemetry aggregated from live zone states
+  const levelZones = React.useMemo(() => {
+    const floorObj = (currentBld?.floors || []).find(f => f.level === activeFloor);
+    const floorZoneIds = new Set((floorObj?.zones || []).map(z => z.zoneId));
+    return Object.values(simData?.zones || {})
+      .filter(z => floorZoneIds.size > 0 ? floorZoneIds.has(z.id) : z.level === activeFloor);
+  }, [simData?.zones, activeFloor, currentBld]);
+
+  const levelMetrics = React.useMemo(() => {
+    if (!levelZones.length) {
+      return {
+        count: 0,
+        loadKw: '0.0',
+        occupancy: 0,
+        avgTemp: '0.0',
+        alarms: 0,
+        setbacks: 0,
+      };
+    }
+    let totalLoadW = 0;
+    let totalPax = 0;
+    let totalTemp = 0;
+    let alarms = 0;
+    let setbacks = 0;
+    levelZones.forEach(z => {
+      const loadVal = typeof z.load === 'number' ? z.load : (parseFloat(z.load) || 0);
+      const paxVal = typeof z.occupancy === 'number' ? z.occupancy : (parseInt(z.occupancy, 10) || 0);
+      const tempVal = typeof z.temp === 'number' ? z.temp : parseFloat(z.temp);
+      totalLoadW += (isNaN(loadVal) ? 0 : loadVal);
+      totalPax += (isNaN(paxVal) ? 0 : paxVal);
+      totalTemp += (isNaN(tempVal) ? 24.0 : tempVal);
+      if (z.alert === true || z.alert === 'REMEDIATING') alarms++;
+      if (z.lightsOn === false) setbacks++;
+    });
+    return {
+      count: levelZones.length,
+      loadKw: (totalLoadW / 1000).toFixed(1),
+      occupancy: totalPax,
+      avgTemp: (totalTemp / levelZones.length).toFixed(1),
+      alarms,
+      setbacks,
+    };
+  }, [levelZones]);
+
+  const availableFloors = React.useMemo(() => {
+    return (currentBld?.floors || []).map(f => f.level).sort((a, b) => a - b);
+  }, [currentBld]);
   
   return (
     <aside className="hud-dock-right" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width, padding: '1rem', position: 'absolute' }}>
@@ -247,11 +302,13 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
               entirely until a representative window has been seen, and when the load is
               dominated by a non-office programme. */}
           {(() => {
-            const runRate = euiRunRateFromLoadMw(simData.buildingLoadMw || 0);
-            const eui = euiFromMeanLoadMw(meanMw);
+            const runRate = euiRunRateFromLoadMw(simData.buildingLoadMw || 0, currentBld);
+            const eui = euiFromMeanLoadMw(meanMw, currentBld);
             const ratio = eui / EUI_BENCHMARK.hcmc;
             const settled = observedH >= EUI_MIN_WINDOW_H;
-            const comparable = !IS_IT_DOMINATED && settled;
+            const isItDom = dynamicIsItDominated;
+            const dominant = dynamicZoneMix.dominant;
+            const comparable = !isItDom && settled;
             return (
               <div style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -265,13 +322,13 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
                     <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' }}>
                       {settled
                         ? `annualised from ${observedH.toFixed(0)} h observed`
-                        : 'run-rate at this instant'} · {FLOOR_AREA_M2.toLocaleString('en-US', { maximumFractionDigits: 0 })} m²
+                        : 'run-rate at this instant'} · {dynamicFloorArea.toLocaleString('en-US', { maximumFractionDigits: 0 })} m²
                     </div>
                   </div>
                 </div>
                 <div style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '6px', lineHeight: 1.4 }}>
-                  {IS_IT_DOMINATED
-                    ? `Not comparable to the ${EUI_BENCHMARK.hcmc} kWh/m²·yr office cohort — ${(ZONE_MIX.dominant.loadShare * 100).toFixed(0)}% of connected load is ${ZONE_MIX.dominant.type}.`
+                  {isItDom
+                    ? `Not comparable to the ${EUI_BENCHMARK.hcmc} kWh/m²·yr office cohort — ${(dominant.loadShare * 100).toFixed(0)}% of connected load is ${dominant.type}.`
                     : comparable
                       ? `${ratio.toFixed(2)}× the HCMC office cohort (${EUI_BENCHMARK.hcmc} kWh/m²·yr, 57-building survey).`
                       : `Benchmark held back until a full day is observed (${observedH.toFixed(1)} of ${EUI_MIN_WINDOW_H} h). A run-rate taken at one moment is not an annual intensity and would not be a fair comparison.`}
@@ -405,10 +462,75 @@ export default function GlobalMetricsPanel({ simData, globalMetrics, loadHistory
             </div>
           )}
 
-          {/* Static Info */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', padding: '8px 12px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>
-             <span style={{ color: 'var(--text-secondary)' }}>Selected Level:</span>
-             <span style={{ color: 'var(--accent-blue)', fontWeight: 'bold' }}>L{activeFloor}</span>
+          {/* LEVEL SELECTION & LIVE TELEMETRY */}
+          <div data-testid="level-toggle-container" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', fontWeight: 'bold', letterSpacing: '0.05em' }}>
+                🏢 LEVEL TELEMETRY
+              </div>
+              <span data-testid="selected-level-display" style={{ color: 'var(--accent-blue)', fontWeight: 'bold', fontSize: '12px', fontFamily: 'monospace' }}>
+                L{activeFloor}
+              </span>
+            </div>
+
+            {/* Interactive Level Buttons Bar */}
+            <div data-testid="level-toggle" style={{ display: 'flex', gap: '4px', overflowX: 'auto', paddingBottom: '4px', scrollbarWidth: 'none' }}>
+              {availableFloors.map(lvl => {
+                const isActive = lvl === activeFloor;
+                return (
+                  <button
+                    key={lvl}
+                    data-testid={`level-btn-${lvl}`}
+                    onClick={() => setActiveFloor && setActiveFloor(lvl)}
+                    style={{
+                      flex: '1 0 auto',
+                      minWidth: '32px',
+                      padding: '4px 6px',
+                      fontSize: '10px',
+                      fontFamily: 'monospace',
+                      fontWeight: 'bold',
+                      borderRadius: '4px',
+                      border: isActive ? '1px solid var(--accent-blue)' : '1px solid var(--border-glass)',
+                      background: isActive ? 'var(--accent-blue)' : 'rgba(0,0,0,0.3)',
+                      color: isActive ? '#ffffff' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      textAlign: 'center'
+                    }}
+                  >
+                    L{lvl}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Live Per-Level Metrics Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '4px' }}>
+              <div style={{ background: 'rgba(0,0,0,0.25)', padding: '6px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>LEVEL LOAD</div>
+                <div data-testid="level-metric-load" style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--accent-yellow)', fontFamily: 'monospace' }}>
+                  {levelMetrics.loadKw} <span style={{ fontSize: '9px', color: 'var(--text-secondary)' }}>kW</span>
+                </div>
+              </div>
+              <div style={{ background: 'rgba(0,0,0,0.25)', padding: '6px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>OCCUPANCY</div>
+                <div data-testid="level-metric-occupancy" style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--accent-blue)', fontFamily: 'monospace' }}>
+                  {levelMetrics.occupancy} <span style={{ fontSize: '9px', color: 'var(--text-secondary)' }}>Pax</span>
+                </div>
+              </div>
+              <div style={{ background: 'rgba(0,0,0,0.25)', padding: '6px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>AVG TEMP</div>
+                <div data-testid="level-metric-temp" style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                  {levelMetrics.avgTemp} <span style={{ fontSize: '9px', color: 'var(--text-secondary)' }}>°C</span>
+                </div>
+              </div>
+              <div style={{ background: 'rgba(0,0,0,0.25)', padding: '6px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>ZONES / ALARMS</div>
+                <div data-testid="level-metric-zones" style={{ fontSize: '13px', fontWeight: 'bold', color: levelMetrics.alarms > 0 ? 'var(--accent-red)' : 'var(--accent-green)', fontFamily: 'monospace' }}>
+                  {levelMetrics.count}Z <span style={{ fontSize: '9px', color: levelMetrics.alarms > 0 ? 'var(--accent-red)' : 'var(--text-muted)' }}>({levelMetrics.alarms} alert)</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       ) : selectedNode?.type === 'zone' ? (

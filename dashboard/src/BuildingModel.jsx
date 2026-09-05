@@ -3,11 +3,11 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html, Edges } from '@react-three/drei';
 import * as THREE from 'three';
 import { Evaluator, Brush, SUBTRACTION } from 'three-bvh-csg';
-import { getBuilding } from './buildingStore';
-const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
+import { getBuilding, subscribeBuildingChange } from './buildingStore';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import FloorInfrastructure from './FloorInfrastructure';
-import { exteriorPolygon, corePolygon, wallThickness, toWorld, ORIGIN, FOOTPRINT } from './floorGeometry';
+import { exteriorPolygon, corePolygon, wallThickness, toWorld, ORIGIN, FOOTPRINT, getFootprint } from './floorGeometry';
+
 
 // ========== CSG Helper (three-bvh-csg Evaluator/Brush API) ==========
 // three-bvh-csg has no static `CSG` helper; it exposes an Evaluator that
@@ -82,7 +82,7 @@ function WallWithWindows({ position: [x, y, z], width, height, depth, rotation, 
   }, [width, height, depth, windows]);
   
   const isLogical = viewMode === 'logical';
-  const opacity = isLogical ? 0.05 : (isActive ? 0.2 : 0.05);
+  const opacity = isLogical ? 0.05 : (isActive ? 0.35 : 0.15);
 
   return (
     <mesh
@@ -93,9 +93,9 @@ function WallWithWindows({ position: [x, y, z], width, height, depth, rotation, 
       dispose={null}
     >
       <meshStandardMaterial 
-        color={isActive ? "#888888" : "#222222"}
-        roughness={0.8}
-        metalness={0.2}
+        color={isActive ? "#a0aec0" : "#4a5568"}
+        roughness={0.7}
+        metalness={0.1}
         transparent={true}
         opacity={opacity}
         wireframe={isLogical && isActive}
@@ -187,7 +187,7 @@ function FloorPlate({ floor, isActive, onClick, simState, viewMode = 'hybrid' })
     if (!ext) return null; // no envelope for this floor — draw nothing rather than throw
     const core = corePolygon(floor);
     const thick = wallThickness(floor);
-    const signature = `plate_native|${JSON.stringify(ext)}|${JSON.stringify(core)}|${thick}`;
+    const signature = `plate_native|${JSON.stringify(ext)}|${JSON.stringify(core)}|${thick}|${ORIGIN.x}|${ORIGIN.y}`;
     return getCachedGeometry(signature, () => {
       const exteriorShape = new THREE.Shape();
       ext.forEach((p, idx) => {
@@ -223,8 +223,8 @@ function FloorPlate({ floor, isActive, onClick, simState, viewMode = 'hybrid' })
   }, [floor]);
   
   const isLogical = viewMode === 'logical';
-  const baseOpacity = isLogical ? 0.05 : (isActive ? 0.4 : 0.3);
-  const opacity = hasAlert ? 0.6 : (hovered ? 0.6 : baseOpacity);
+  const baseOpacity = isLogical ? 0.05 : (isActive ? 0.55 : 0.42);
+  const opacity = hasAlert ? 0.75 : (hovered ? 0.75 : baseOpacity);
 
   // No envelope for this floor: the slab is what this component draws, so there is
   // nothing to draw. Zones render from their own polygons in a sibling component and are
@@ -241,8 +241,8 @@ function FloorPlate({ floor, isActive, onClick, simState, viewMode = 'hybrid' })
         onPointerOut={() => { setHovered(false); document.body.style.cursor = 'auto'; }}
       >
         <meshStandardMaterial 
-          color={hasAlert ? "#aa0000" : (isActive ? "#dddddd" : hovered ? "#555555" : "#333333")}
-          roughness={0.9}
+          color={hasAlert ? "#cc2222" : (isActive ? "#e2e8f0" : hovered ? "#718096" : "#4a5568")}
+          roughness={0.7}
           transparent={true}
           opacity={opacity}
           polygonOffset={true}
@@ -346,7 +346,7 @@ function ZoneRenderer({ zone, isActive, simState, isHovered, onHover, isSelected
 
     geom.rotateX(-Math.PI / 2);
     geom.computeVertexNormals();
-    return geom.toNonIndexed();
+    return geom.index ? geom.toNonIndexed() : geom;
   }, [zone, thickness]);
 
   const isPhysical = viewMode === 'physical';
@@ -535,8 +535,10 @@ const VIEW_DIR = new THREE.Vector3(
 // the 3D view, and framing the building to the full canvas centres it behind them. It is
 // {left, right, top, bottom} in pixels, plus the viewport size. Absent (mobile, or any
 // caller with no overlays), framing falls back to the whole canvas exactly as before.
-export function towerFraming(activeFloor, aspect = 1.6, safeArea = null) {
-  const floors = buildingData.floors;
+export function towerFraming(activeFloor, aspect = 1.6, safeArea = null, customBuilding = null) {
+  const building = customBuilding || getBuilding();
+  const floors = building.floors || [];
+  const footprint = getFootprint(building);
   const dispElev = (f) => f.elevation + (f.level > activeFloor ? 30 : (f.level === activeFloor ? 5 : 0));
   let topY = -Infinity, botY = Infinity, activeY = 0;
   floors.forEach((f) => {
@@ -546,26 +548,19 @@ export function towerFraming(activeFloor, aspect = 1.6, safeArea = null) {
     if (f.level === activeFloor) activeY = e + (f.height || 4) / 2;
   });
   // The building is drawn about the world origin (see floorGeometry.ORIGIN), so that is
-  // what the camera aims at. This used to read `{x: -20, z: -20}` with a comment noting
-  // that "the 60×40 plate therefore centres on x=-20, z=-20" — correct for the office
-  // fixture it was written against, and for no other building. A 13.6 × 5.5 m house was
-  // framed twenty metres off-axis inside a sphere sized for a tower, which on screen is
-  // indistinguishable from the model failing to render.
+  // what the camera aims at.
   const center = { x: 0, z: 0 };
 
   // span is the building's TRUE vertical extent, floored only so the arithmetic stays
-  // well-conditioned for a single low floor. It is deliberately NOT used to place the aim
-  // point: doing that (`botY + span * 0.46` against a span floored at 8) pointed the camera
-  // at 8.68 m on a house whose roof is at 7.8 m — above the building, at nothing.
+  // well-conditioned for a single low floor.
   const span = Math.max(topY - botY, 0.5);
 
   // Bounding sphere of the exploded tower, from the building's REAL footprint and real
-  // height rather than the 60×40×span half-extents assumed here before.
-  const R = Math.hypot(FOOTPRINT.width / 2, span / 2, FOOTPRINT.depth / 2);
+  // height.
+  const R = Math.hypot(footprint.width / 2, span / 2, footprint.depth / 2);
   const vFov = (45 * Math.PI) / 180;
   // Fit to the FREE band, not the whole canvas. On the desktop console the visible strip
-  // between the AI panel and the metrics dock is barely half the canvas width, so a
-  // building fitted to the canvas is half-hidden the moment it is framed "correctly".
+  // between the AI panel and the metrics dock is barely half the canvas width.
   const vw = safeArea?.viewportW || 0;
   const vh = safeArea?.viewportH || 0;
   const freeW = safeArea ? Math.max(200, vw - safeArea.left - safeArea.right) : 0;
@@ -574,52 +569,24 @@ export function towerFraming(activeFloor, aspect = 1.6, safeArea = null) {
 
   const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(0.3, fitAspect));
   const fitFov = Math.min(vFov, hFov);
-  // Portrait phones stack the exploded tower tall; at the desktop framing its top covers the
-  // sky graphic (sun/moon) and the header. On portrait, pull the camera back a little for
-  // margin and raise the aim point so the whole building sits in the lower ~75% of the frame,
-  // leaving the top strip clear. Landscape/desktop keep the original tight framing.
   const portrait = aspect < 1;
-  // Margin. Fitting the bounding sphere exactly to the canvas puts the building edge-to-
-  // edge, and on the desktop console the canvas is not what the operator can see: the AI
-  // panel and the metrics dock permanently overlay roughly a quarter of the width each,
-  // so an edge-to-edge building is half hidden behind them. Pulling back leaves it inside
-  // the unobscured centre band. Zoom stays enabled for a closer look.
-  // With a real safe area the fit already accounts for the overlays, so only a small
-  // breathing margin is wanted. Without one, keep the generous fallback.
-  // The sphere fit guarantees a SPHERE of radius R inside the narrower fov; the building
-  // is a box, whose projected corners reach further than that sphere in the wider
-  // dimension. 1.15 covers the worst case measured across panel arrangements (the box
-  // overran the free band by 12 px at 1.08 with the lower windows closed) and still leaves
-  // the building filling most of the visible strip.
   const margin = portrait ? 1.2 : (safeArea ? 1.15 : 1.45);
-  // A floor under the DISTANCE, not under the extents: it keeps a small building out of
-  // the near plane and stops a single zone filling the frame, without moving the aim.
   const dist = Math.max((R / Math.sin(fitFov / 2)) * margin, 14);
-  const aimBias = portrait ? span * 0.16 : 0; // raise look-at -> building drops in frame
+  const aimBias = portrait ? span * 0.16 : 0;
 
   // Aim at the vertical middle of what is actually there.
   const target = new THREE.Vector3(center.x, (topY + botY) / 2 + aimBias, center.z);
   const position = target.clone().add(VIEW_DIR.clone().multiplyScalar(dist));
 
-  // Slide the whole camera so the building lands in the middle of the FREE band rather
-  // than the middle of the canvas. Panning camera and target together preserves the fixed
-  // hero angle — only the framing moves. The shift is computed in world units from the
-  // frustum size at this distance, so it stays correct at any viewport or panel width.
   if (safeArea && vw > 0 && vh > 0) {
     const halfH = dist * Math.tan(vFov / 2);
     const worldPerPxY = (2 * halfH) / vh;
     const worldPerPxX = (2 * halfH * aspect) / vw;
-    // Centre of the free band minus centre of the canvas, in pixels.
     const dxPx = (safeArea.left + (vw - safeArea.right)) / 2 - vw / 2;
     const dyPx = (safeArea.top + (vh - safeArea.bottom)) / 2 - vh / 2;
-    // VIEW_DIR points from the target TO the camera, so the camera's forward is its
-    // negation. Building the right-vector from VIEW_DIR directly yields the camera's LEFT,
-    // which slid the framing the wrong way.
     const forward = VIEW_DIR.clone().negate().normalize();
     const camRight = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
     const camUp = new THREE.Vector3().crossVectors(camRight, forward).normalize();
-    // The image moves opposite to the camera: to place the building left of the canvas
-    // centre (dxPx < 0), the camera moves right.
     const shift = camRight.multiplyScalar(-dxPx * worldPerPxX).add(camUp.multiplyScalar(dyPx * worldPerPxY));
     target.add(shift);
     position.add(shift);
@@ -628,32 +595,35 @@ export function towerFraming(activeFloor, aspect = 1.6, safeArea = null) {
   return { position, target, span, topY, botY, activeY };
 }
 
-function DynamicControls({ targetX, targetY, targetZ, isZoomed, activeFloor, safeArea }) {
+function DynamicControls({ targetX, targetY, targetZ, isZoomed, activeFloor, safeArea, building }) {
   const controlsRef = useRef();
   const { camera, size } = useThree();
   const aspect = size.width / Math.max(1, size.height);
 
-  // The fixed hero overview, recomputed when the attention floor OR the viewport shape
-  // changes (so it stays correctly framed across desktop/mobile and on rotate/resize).
+  // The fixed hero overview, recomputed when the attention floor, building model, OR viewport shape
+  // changes (so it stays correctly framed across desktop/mobile, multi-level/domestic, and on rotate/resize).
   const overview = useMemo(
-    () => towerFraming(activeFloor, aspect, safeArea),
-    [activeFloor, aspect, safeArea?.left, safeArea?.right, safeArea?.top, safeArea?.bottom, safeArea?.viewportW, safeArea?.viewportH],
-  ); // eslint-disable-line
+    () => towerFraming(activeFloor, aspect, safeArea, building),
+    [activeFloor, aspect, building, safeArea?.left, safeArea?.right, safeArea?.top, safeArea?.bottom, safeArea?.viewportW, safeArea?.viewportH],
+  );
 
   const [animating, setAnimating] = useState(false);
   const [targetCameraPos, setTargetCameraPos] = useState(overview.position);
   const [targetLookAt, setTargetLookAt] = useState(overview.target);
+  const initializedRef = useRef(false);
+
+  useEffect(() => {
+    if (!initializedRef.current && controlsRef.current) {
+      controlsRef.current.target.copy(overview.target);
+      camera.position.copy(overview.position);
+      initializedRef.current = true;
+    }
+  }, [overview, camera]);
 
   useEffect(() => {
     if (isZoomed) {
-      // Drill-down: rise above and look down at the selected zone on the active floor.
-      //
-      // The offsets scale with the building. They were the literals (15, 28, 15) — a
-      // sensible vantage over a 60×40 m office plate and roughly four storeys above a
-      // 13.6×5.5 m house, which put the selected room in the far distance and looked
-      // exactly like the model failing to frame. Derived from the footprint, the same
-      // gesture reads the same way at either scale.
-      const reach = Math.max(FOOTPRINT.width, FOOTPRINT.depth) * 0.35;
+      const footprint = getFootprint(building);
+      const reach = Math.max(footprint.width, footprint.depth) * 0.35;
       const lateral = Math.max(reach, 4);
       const rise = Math.max(reach * 1.9, 8);
       setTargetCameraPos(new THREE.Vector3(targetX + lateral, targetY + rise, targetZ + lateral));
@@ -664,27 +634,25 @@ function DynamicControls({ targetX, targetY, targetZ, isZoomed, activeFloor, saf
       setTargetLookAt(overview.target);
       setAnimating(true);
     }
-  }, [isZoomed, targetX, targetY, targetZ, overview]);
+  }, [isZoomed, targetX, targetY, targetZ, overview, building]);
 
   useFrame(() => {
     if (controlsRef.current && animating) {
       controlsRef.current.target.lerp(targetLookAt, 0.08);
       camera.position.lerp(targetCameraPos, 0.08);
 
-      if (camera.position.distanceTo(targetCameraPos) < 1.5) {
+      if (camera.position.distanceTo(targetCameraPos) < 0.02 && controlsRef.current.target.distanceTo(targetLookAt) < 0.02) {
+        camera.position.copy(targetCameraPos);
+        controlsRef.current.target.copy(targetLookAt);
         setAnimating(false);
       }
       controlsRef.current.update();
     }
   });
 
-  // Rotation is LOCKED so the building stays at the fixed hero angle (per request); zoom
-  // stays enabled for inspection, pan disabled to keep it centred. Drill-down still works
-  // because we drive the camera position/target directly.
   return (
     <OrbitControls
       ref={controlsRef}
-      target={[overview.target.x, overview.target.y, overview.target.z]}
       makeDefault
       enableRotate={false}
       enablePan={false}
@@ -719,9 +687,22 @@ export function SingleFloorLayout({ floor, isActive, simState, activeScenario, f
 }
 
 // ========== STEP 5: Complete Production Building Component ==========
-export default function BuildingModel({ simState, activeFloor, onFloorClick, showAirflow, selectedZone, setSelectedZone, viewMode = 'hybrid', safeArea = null }) {
+export default function BuildingModel({ simState, activeFloor, onFloorClick, showAirflow, selectedZone, setSelectedZone, viewMode = 'hybrid', safeArea = null, building: propBuilding = null }) {
   const [hoveredZone, setHoveredZone] = useState(null);
-  const floors = buildingData.floors;
+  const [activeBuilding, setActiveBuilding] = useState(() => propBuilding || getBuilding());
+
+  useEffect(() => {
+    if (propBuilding) {
+      setActiveBuilding(propBuilding);
+    } else {
+      setActiveBuilding(getBuilding());
+      const unsub = subscribeBuildingChange((b) => setActiveBuilding(b));
+      return unsub;
+    }
+  }, [propBuilding]);
+
+  const currentBld = propBuilding || activeBuilding;
+  const floors = currentBld.floors || [];
 
   const targetCoords = useMemo(() => {
     if (!selectedZone) return { x: 0, y: 0, z: 0 };
@@ -729,9 +710,6 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
       const z = f.zones.find(zone => zone.zoneId === selectedZone);
       if (z) {
         let yOffset = f.level > activeFloor ? 30.0 : (f.level === activeFloor ? 5.0 : 0.0);
-        // Must mirror the render transform exactly — and now it does so by CALLING it,
-        // rather than restating it as (px−50, ·, −py) and drifting the moment either
-        // recentring changed. toWorld is the one definition of that mapping.
         const [wx, wz] = toWorld([z.centroid.x, z.centroid.y]);
         return {
           x: wx,
@@ -743,12 +721,10 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
     return { x: 0, y: 0, z: 0 };
   }, [selectedZone, activeFloor, floors]);
 
-  // Frame the whole tower at the fixed hero angle for the very first paint, using the live
-  // viewport aspect so it's correctly framed on both desktop and mobile from the start.
   const initialOverview = useMemo(() => {
     const aspect = (typeof window !== 'undefined' ? window.innerWidth / Math.max(1, window.innerHeight) : 1.6);
-    return towerFraming(activeFloor, aspect, safeArea);
-  }, []); // eslint-disable-line
+    return towerFraming(activeFloor, aspect, safeArea, currentBld);
+  }, [currentBld]); // eslint-disable-line
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
@@ -758,17 +734,16 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
         dpr={[1, 1.5]}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         onCreated={({ gl, invalidate }) => {
-          // Recover from WebGL context loss instead of leaving the building permanently black.
-          // A heavy scene (14 floors, ~290 meshes + CSG) can trip GPU memory pressure / tab
-          // suspend, which drops the context; without these handlers the canvas never repaints.
           const canvas = gl.domElement;
           canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); }, false);
           canvas.addEventListener('webglcontextrestored', () => { invalidate(); }, false);
         }}
       >
-        {/* Transparent background for weather overlay */}
-        <ambientLight intensity={0.4} />
-        <directionalLight position={[10, 20, 10]} intensity={1.2} />
+        {/* Ambient, Hemisphere, and Multi-directional lighting for vibrant digital twin illumination */}
+        <ambientLight intensity={0.85} />
+        <hemisphereLight skyColor="#ffffff" groundColor="#3a4b5c" intensity={0.65} />
+        <directionalLight position={[25, 45, 25]} intensity={1.4} />
+        <directionalLight position={[-25, 25, -25]} intensity={0.6} />
         
         <DynamicControls
           targetX={targetCoords.x}
@@ -777,14 +752,9 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
           isZoomed={!!selectedZone}
           activeFloor={activeFloor}
           safeArea={safeArea}
+          building={currentBld}
         />
 
-        {/* No recentring here any more. The tower used to be recentred TWICE for the
-            60×40 office plate: once per-point as (px−20, py−20) inside every shape, and
-            again by this group at (−30, 0, −20) — together putting world x at px−50 and
-            world z at −py. Shapes now place themselves about the building's own footprint
-            centre (floorGeometry.ORIGIN), so a second offset would move the model back off
-            the origin the camera aims at, which is exactly what it did. */}
         <group>
           {floors.map((floor) => {
             const isActive = floor.level === activeFloor;
@@ -822,12 +792,6 @@ export default function BuildingModel({ simState, activeFloor, onFloorClick, sho
             );
           })}
         </group>
-
-        {/* No ground grid. It was a 100 x 100 m gridHelper — another extent sized for the
-            office plate — and at the fixed hero camera angle it filled the frame with a
-            diagonal crosshatch behind the building, competing with the model for attention
-            and reading as part of the scene rather than as a reference. The building now
-            sits against the live sky background alone. */}
       </Canvas>
     </div>
   );

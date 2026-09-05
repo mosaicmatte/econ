@@ -25,7 +25,11 @@ from ultralytics import YOLO
 import supervision as sv
 import paho.mqtt.client as mqtt
 
-logging.basicConfig(level=logging.INFO)
+LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.DEBUG),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s"
+)
 logger = logging.getLogger("YOLO-Tracker")
 
 parser = argparse.ArgumentParser(description="ECON CV occupancy node (YOLO + ByteTrack)")
@@ -79,9 +83,12 @@ def make_mqtt_client():
 
 def publish_occupancy(client, count: int):
     payload = json.dumps({"zone": args.zone, "occupancy": count, "source": "cv"})
+    logger.debug("Formatting occupancy payload: %s", payload)
     if client.is_connected():
         client.publish(TELEMETRY_TOPIC, payload)
         logger.info("Published to %s: %s", TELEMETRY_TOPIC, payload)
+    else:
+        logger.debug("MQTT client not connected; skipped publish to %s", TELEMETRY_TOPIC)
 
 
 def run_tracking_pipeline(client):
@@ -132,6 +139,8 @@ def run_tracking_pipeline(client):
 
         # Net occupancy: crossings in minus crossings out, floored at zero.
         current_occupancy = max(0, line_zone.in_count - line_zone.out_count)
+        logger.debug("Frame tracked: %d detections, in=%d, out=%d, current_occupancy=%d",
+                     len(detections), line_zone.in_count, line_zone.out_count, current_occupancy)
 
         # Publish on change, plus a heartbeat so staleness tracking sees a live node.
         now = time.time()

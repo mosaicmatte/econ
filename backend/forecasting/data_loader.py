@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from collections import OrderedDict
@@ -9,6 +10,8 @@ from dotenv import load_dotenv
 from config import SEQ_LEN
 
 load_dotenv()
+
+logger = logging.getLogger("forecasting.data_loader")
 
 API_KEY = os.getenv("OPENWEATHER_API_KEY")
 LAT = os.getenv("WEATHER_LAT", "10.7724")
@@ -26,23 +29,27 @@ def fetch_weather_features():
     'live' | 'cache' | 'fallback' so callers can tell a real reading from a guess."""
     now = time.time()
     if _cache["temp"] is not None and now - _cache["ts"] < _CACHE_TTL_S:
+        logger.debug("Weather cache hit: temp=%s, hum=%s", _cache["temp"], _cache["hum"])
         return _cache["temp"], _cache["hum"], "cache"
 
     if not API_KEY:
         # No key configured: don't crash the service, but be explicit it's a fallback.
+        logger.debug("No OPENWEATHER_API_KEY set; using fallback %s", _FALLBACK)
         return _FALLBACK[0], _FALLBACK[1], "fallback"
 
     url = (f"https://api.openweathermap.org/data/2.5/weather?"
            f"lat={LAT}&lon={LON}&appid={API_KEY}&units=metric")
     try:
+        logger.debug("Fetching live weather features from OpenWeather: %s", url)
         resp = requests.get(url, timeout=5)
         resp.raise_for_status()
         data = resp.json()
         temp, hum = float(data["main"]["temp"]), float(data["main"]["humidity"])
         _cache.update(ts=now, temp=temp, hum=hum, source="live")
+        logger.debug("Fetched live weather: temp=%s, hum=%s", temp, hum)
         return temp, hum, "live"
     except Exception as e:
-        print(f"[weather] fetch failed ({e}); using fallback {_FALLBACK}")
+        logger.warning("[weather] fetch failed (%s); using fallback %s", e, _FALLBACK)
         return _FALLBACK[0], _FALLBACK[1], "fallback"
 
 
@@ -78,15 +85,17 @@ def load_training_sequences(days=14, seq_len=SEQ_LEN, min_windows=200):
     unreachable, or fewer than `min_windows` contiguous windows exist — the signal for
     train.py to fall back to physics-grounded synthetic data.
     """
+    logger.debug("load_training_sequences called: days=%d, seq_len=%d, min_windows=%d",
+                 days, seq_len, min_windows)
     try:
         import psycopg2
     except Exception:
-        print("[data] psycopg2 not installed; skipping real-data path")
+        logger.info("[data] psycopg2 not installed; skipping real-data path")
         return None
     try:
         conn = psycopg2.connect(_db_url())
     except Exception as e:
-        print(f"[data] TimescaleDB unreachable ({e}); skipping real-data path")
+        logger.warning("[data] TimescaleDB unreachable (%s); skipping real-data path", e)
         return None
 
     try:
@@ -102,8 +111,9 @@ def load_training_sequences(days=14, seq_len=SEQ_LEN, min_windows=200):
                 (_TRAIN_METRICS, days),
             )
             rows = cur.fetchall()
+            logger.debug("Fetched %d raw metric rows from sensor_readings_5m", len(rows))
     except Exception as e:
-        print(f"[data] query failed ({e}); skipping real-data path")
+        logger.error("[data] query failed (%s); skipping real-data path", e)
         return None
     finally:
         conn.close()
@@ -113,7 +123,7 @@ def load_training_sequences(days=14, seq_len=SEQ_LEN, min_windows=200):
     for bucket, stype, val in rows:
         table.setdefault(bucket, {})[stype] = val
     if len(table) < seq_len + 1:
-        print(f"[data] only {len(table)} 5-min buckets of history; need >= {seq_len + 1}")
+        logger.info("[data] only %d 5-min buckets of history; need >= %d", len(table), seq_len + 1)
         return None
 
     # Build per-bucket feature rows. Outdoor is persisted only while the weather feed was
@@ -147,8 +157,9 @@ def load_training_sequences(days=14, seq_len=SEQ_LEN, min_windows=200):
         i += 1
 
     if len(X) < min_windows:
-        print(f"[data] only {len(X)} contiguous windows; need >= {min_windows}. Falling back to synthetic.")
+        logger.info("[data] only %d contiguous windows; need >= %d. Falling back to synthetic.",
+                    len(X), min_windows)
         return None
 
-    print(f"[data] built {len(X)} real training windows from TimescaleDB ({days}d history)")
+    logger.info("[data] built %d real training windows from TimescaleDB (%dd history)", len(X), days)
     return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32)

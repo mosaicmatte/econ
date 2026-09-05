@@ -1,15 +1,15 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import * as flatbuffers from 'flatbuffers';
 import { SimState } from './telemetry';
-import { getBuilding } from './buildingStore';
-const buildingData = getBuilding(); // live geometry — fetched before this module evaluates (see main.jsx)
+import { getBuilding, getAllKnownBuildings, subscribeBuildingChange } from './buildingStore';
 import { API_BASE, WS_URL, getAdminToken } from './api';
 
-// Data-driven fault targets: derive the selectable zones from the loaded building so any
-// regenerated building-data.json "just works" (no hard-coded zoneIds to re-wire).
+// Data-driven fault targets: derive the selectable zones from all known buildings so any
+// model switch or regenerated building-data.json "just works" (no hard-coded zoneIds to re-wire).
 export const FAULT_ZONES = (() => {
   const zones = [];
-  buildingData.floors.forEach(f => f.zones.forEach(z => zones.push({ ...z, level: f.level })));
+  const known = getAllKnownBuildings();
+  known.forEach(b => (b?.floors || []).forEach(f => (f?.zones || []).forEach(z => zones.push({ ...z, level: f.level }))));
   // Zone TYPE names are minted by the digitizer and have changed over the project's life
   // (`server-room` became `comms-room`; `mechanical` became `plant-room`). Matching an
   // exact legacy string here meant the fault-target list silently fell back to "every
@@ -23,40 +23,44 @@ export const FAULT_ZONES = (() => {
 })();
 export const DEFAULT_FAULT_TARGET = FAULT_ZONES[0]?.id || '';
 
-export const getInitialSimData = () => {
-  const data = { scenario: 'peak', ahuPressure: 0, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, coolingOutputMw: 0, plantCop: 0, energySavedMw: 0, bessDischargeMw: 0, bessSocPct: 0, zonesInSetback: 0, autoPilot: true, vavs: {}, zones: {}, logs: [] };
-  buildingData.floors.forEach(floor => {
-    floor.zones.forEach(z => {
-      let cx = 20, cy = 20;
-      if (z.centroid) {
-        cx = z.centroid.x;
-        cy = z.centroid.y;
-      }
-      
-      if (z.hvacMapping) {
-        data.vavs[z.hvacMapping.vavId] = { id: z.hvacMapping.vavId, targetZone: z.zoneId, flow: 0 };
-      }
-      data.zones[z.zoneId] = {
-        id: z.zoneId,
-        level: floor.level,
-        label: z.name,
-        type: z.zoneType,
-        bim_asset_id: z.bim_asset_id,
-        temp: z.thermalProperties?.setpoint || 24.0,
-        setpoint: z.thermalProperties?.setpoint || 24.0,
-        deadband: z.thermalProperties?.deadband || 2.0,
-        alert: false,
-        lightsOn: true, // live actuated state arrives from the backend stream
-        occupancy: z.thermalProperties?.occupancy || 0, // real occupancy arrives from the backend stream
-        // Design internal gain from the fixture, in W. The key is baseHeatLoad — this
-        // read `internalHeatLoad`, which no generator has ever emitted, so it silently
-        // resolved to 0 for every zone in every building.
-        baseHeatGain: z.thermalProperties?.baseHeatLoad || 0,
-        areaM2: z.thermalProperties?.areaM2 || 0,
-        centroid: { x: cx, y: cy }
-      };
+export const getInitialSimData = (targetBuilding = getBuilding()) => {
+  const data = { scenario: 'peak', ahuPressure: 0, buildingLoadMw: 0, systemHealth: 100, totalOccupants: 0, coolingOutputMw: 0, plantCop: 3.2, energySavedMw: 0, bessDischargeMw: 0, bessSocPct: 0, zonesInSetback: 0, autoPilot: true, vavs: {}, zones: {}, logs: [] };
+  const b = targetBuilding || getBuilding();
+  (b?.floors || []).forEach(floor => {
+    (floor?.zones || []).forEach(z => {
+        let cx = 20, cy = 20;
+        if (z.centroid) {
+          cx = z.centroid.x;
+          cy = z.centroid.y;
+        }
+        
+        if (z.hvacMapping) {
+          data.vavs[z.hvacMapping.vavId] = { id: z.hvacMapping.vavId, targetZone: z.zoneId, flow: 0 };
+        }
+        data.zones[z.zoneId] = {
+          id: z.zoneId,
+          level: floor.level,
+          label: z.name,
+          type: z.zoneType,
+          bim_asset_id: z.bim_asset_id,
+          temp: z.thermalProperties?.setpoint || 24.0,
+          setpoint: z.thermalProperties?.setpoint || 24.0,
+          deadband: z.thermalProperties?.deadband || 2.0,
+          alert: false,
+          lightsOn: true, // live actuated state arrives from the backend stream
+          occupancy: z.thermalProperties?.occupancy || 0, // real occupancy arrives from the backend stream
+          // Design internal gain from the fixture, in W. The key is baseHeatLoad — this
+          // read `internalHeatLoad`, which no generator has ever emitted, so it silently
+          // resolved to 0 for every zone in every building.
+          baseHeatGain: z.thermalProperties?.baseHeatLoad || 0,
+          areaM2: z.thermalProperties?.areaM2 || 0,
+          centroid: { x: cx, y: cy },
+          load: z.thermalProperties?.baseHeatLoad || 200,
+          co2: 450,
+          humidity: 50,
+        };
+      });
     });
-  });
   return data;
 };
 
@@ -95,12 +99,52 @@ export function useDigitalTwin(onUpdate) {
   const [simData, setSimData] = useState(initialData);
   const simDataRef = useRef(initialData);
   const activeScenarioRef = useRef(activeScenario);
+
+  // Subscribe to building model changes and reset simData zones so that incoming
+  // telemetry packets immediately bind to active building zones without orphaned/stale zones.
+  useEffect(() => {
+    const unsub = subscribeBuildingChange((newBld) => {
+      const freshData = getInitialSimData(newBld);
+      setSimData(prev => {
+        const next = {
+          ...freshData,
+          buildingLoadMw: prev?.buildingLoadMw || 0,
+          systemHealth: prev?.systemHealth || 100,
+          totalOccupants: prev?.totalOccupants || 0,
+          coolingOutputMw: prev?.coolingOutputMw || 0,
+          plantCop: prev?.plantCop || 3.2,
+          energySavedMw: prev?.energySavedMw || 0,
+          bessDischargeMw: prev?.bessDischargeMw || 0,
+          bessSocPct: prev?.bessSocPct || 0,
+          autoPilot: prev?.autoPilot ?? true,
+        };
+        simDataRef.current = next;
+        return next;
+      });
+    });
+    return unsub;
+  }, []);
+
   const lastHistUpdateRef = useRef(0);
   const wsRef = useRef(null);
   // Whether this connection may issue commands. Starts true so a demo engine (no token
   // configured) behaves exactly as before; a real engine flips it false the moment it
   // rejects a token, and the UI can then say so instead of silently dropping commands.
   const [wsAuthorized, setWsAuthorized] = useState(true);
+  // When the last telemetry frame arrived, and whether the socket is currently open.
+  //
+  // The reconnect logic below already notes the failure this closes: "polls keep refreshing
+  // so the page LOOKS alive while every streamed number is stale". Reconnecting fixed half
+  // of it — the socket comes back — but nothing ever told the UI that it had gone. With the
+  // engine down, every temperature, load, saving and fault count on screen is the last frame
+  // before the drop, rendered identically to a live one, for as long as the engine stays
+  // down. A number that cannot say how old it is should not be shown as current.
+  const [streamAt, setStreamAt] = useState(0);
+  const [streamOpen, setStreamOpen] = useState(false);
+  // Frames arrive at 30 fps. Recording the timestamp in a ref and publishing it once a
+  // second keeps the whole tree from re-rendering thirty times a second just to carry a
+  // clock — the age only needs to be accurate to about a second to be useful.
+  const lastFrameRef = useRef(0);
 
   // Every value here is real: streamed straight from the Go physics engine's GlobalData
   // (buildingLoadMw, coolingOutputMw, plantCop, energySavedMw, totalOccupants) or computed
@@ -142,7 +186,8 @@ export function useDigitalTwin(onUpdate) {
     
     if (key.startsWith('fault:') && onFloorJump) {
       const zid = key.slice(6);
-      const floor = buildingData.floors.find(f => f.zones.some(z => z.zoneId === zid));
+      const bldg = getBuilding();
+      const floor = (bldg?.floors || []).find(f => (f?.zones || []).some(z => z.zoneId === zid));
       if (floor) {
         onFloorJump(floor.level, zid);
       }
@@ -157,7 +202,7 @@ export function useDigitalTwin(onUpdate) {
   // Added by Gemini (Antigravity) on June 2026.
   // Exposes a function for the UI to dispatch manual override JSON payloads
   // via the WebSocket, allowing the user to veto the AI and control edge devices.
-  const sendManualOverride = (action, zoneId) => {
+  const sendManualOverride = (action, zoneId = 'GLOBAL') => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ action, zone: zoneId }));
     }
@@ -192,6 +237,7 @@ export function useDigitalTwin(onUpdate) {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        setStreamOpen(true);
         // Authorize for control before anything can be sent. Telemetry streams either
         // way, so a viewer with no token still sees the building — it just cannot
         // change it. An engine in demo mode ignores this entirely.
@@ -202,6 +248,7 @@ export function useDigitalTwin(onUpdate) {
       ws.onclose = () => {
         if (!alive) return;
         wsRef.current = null;
+        setStreamOpen(false);
         retryTimer = setTimeout(connect, 3000);
       };
 
@@ -225,6 +272,7 @@ export function useDigitalTwin(onUpdate) {
       }
       const buf = new flatbuffers.ByteBuffer(new Uint8Array(event.data));
       const state = SimState.getRootAsSimState(buf);
+      lastFrameRef.current = Date.now();
       
       const prevData = simDataRef.current;
       const newSimData = { ...prevData, logs: [] }; // logs handled by TelemetryLogs directly or omitted here if not needed
@@ -358,11 +406,22 @@ export function useDigitalTwin(onUpdate) {
     };
   }, []); // eslint-disable-line
 
+  useEffect(() => {
+    const id = setInterval(() => setStreamAt(lastFrameRef.current), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const [aiForecast, setAiForecast] = useState(null);
 
   // [GEMINI IMPLEMENTATION START]
   // Fetch AI Forecast periodically
   useEffect(() => {
+    // A failed poll must CLEAR the forecast, not leave the last successful one on screen.
+    // Holding it meant that once the forecaster had answered, the card kept showing that
+    // answer for as long as the service stayed down — an hour-old prediction of a peak
+    // that had already come and gone, captioned as the upcoming one, with nothing on the
+    // card able to say how old it was. An absent forecast is a state the panels already
+    // render honestly ("forecaster offline"); a stale one is not.
     const fetchForecast = () => {
       fetch(`${API_BASE}/api/forecast`)
         .then(res => {
@@ -371,10 +430,15 @@ export function useDigitalTwin(onUpdate) {
         })
         .then(data => {
           if (data && data.predicted_peak_load) {
-            setAiForecast(data);
+            setAiForecast({ ...data, receivedAt: Date.now() });
+          } else {
+            setAiForecast(null);
           }
         })
-        .catch(err => console.log('Forecast DB/service unavailable', err));
+        .catch(err => {
+          console.log('Forecast DB/service unavailable', err);
+          setAiForecast(null);
+        });
     };
 
     fetchForecast(); // initial fetch
@@ -396,6 +460,11 @@ export function useDigitalTwin(onUpdate) {
     loadScenario,
     sendManualOverride,
     aiForecast,
-    wsAuthorized
+    wsAuthorized,
+    // Liveness of the telemetry stream. streamAgeMs is how old the newest frame on screen
+    // is; streamOpen says whether the socket is currently up. A panel showing streamed
+    // numbers uses these to say so rather than presenting the last frame as the present.
+    streamOpen,
+    streamAgeMs: streamAt > 0 ? Date.now() - streamAt : null,
   };
 }

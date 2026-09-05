@@ -28,5 +28,6 @@ export function useRecommendations(pollMs = 10000) {
 
   const recommendations = report?.recommendations || [];
   const model = report?.model || null;
-  return { recommendations, model, report, reload: load };
+  const forecast = report?.forecast || null;
+  return { recommendations, model, forecast, report, reload: load };
 }
