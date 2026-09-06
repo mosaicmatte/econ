@@ -1,125 +1,119 @@
-# Project: econ IoT Smart Building — Firmware Refinement, Backend Recommendations & UI Integration
+# Project: econ IoT Smart Building — Occupancy AI, Authentic Forecast & Edge Compute Offload
 
 ## Architecture
 The system integrates an edge-to-cloud IoT smart building platform consisting of:
-1. **Edge Firmware (ESP32 / C++)**:
-   - High-speed ADC1 True-RMS sampling over 100 ms integer AC cycle windows.
-   - Stage 1: Intra-window dynamic DC offset removal, intrinsic ADC noise variance subtraction (`NOISE_VARIANCE = 300.0`), voltage divider ratio scaling (`0.5`), and noise floor cutoff (`0.15A`).
-   - Stage 2: Inter-window Exponential Moving Average (EMA, $\alpha = 0.35$) with jitter deadband (`0.03A`) and instantaneous zero-snapping.
-   - Host verification shims in `edge/esp32/test/arduino_shim.h`.
+1. **Edge Firmware (ESP32 / Pico / C++)**:
+   - ESP32 ADC1 True-RMS current sampling with `CurrentDenoiser` (spike filter, linear detrending, noise variance subtraction $\sigma^2=300$, normalized covariance autocorrelation gating, and EMA with deadband).
+   - Dynamic CPU strain detection (DSP window execution timing $>15\text{ ms}$ or sample starvation $n<400$) and synthetic strain injection (`simulateCpuStrain` in `NodeConfig` or `CPU_STRAIN:HIGH` MQTT command).
+   - Pass-through mode: skips heavy local DSP, toggles `rawFallback: true`, and streams decimated raw ADC sample buffers (`rawStripSamples: 50..100` samples) or statistical moments in expanded 768-byte JSON buffers.
 2. **Go Backend Server (`server/`)**:
-   - `server/simulation/engine.go`: Digital twin simulation engine maintaining zone physics, occupancy, telemetry, and autonomous optimization.
-   - `server/simulation/recommend.go`: Anomaly detection scoring generating ranked recommendations, including vacant room AC shutoff (`turn_off_ac`), thermal surge (`cool`), CO2 purge (`purge`), and load spike (`precool`).
-   - `server/main.go`: REST API and WebSocket hubs. Package-level `commandHandler(engine)` processing manual overrides via `POST /api/command`.
-   - Autonomous vs Manual arbitration: 15-minute latch (`z.OverrideUntil`) on `engine.PublishCommand` giving operator manual overrides priority over autonomous `actuate()`.
+   - `server/simulation/engine.go`: Digital twin simulation engine maintaining zone physics, occupancy, telemetry, and autonomous optimization. Ingests telemetry every cycle.
+   - `server/simulation/baselines.go`: Online statistical baseline learning (Welford/EWMA mean, variance, count, z-score per zone and metric). Registered `"occupancy"` with variance tracking.
+   - `server/simulation/recommend.go`: Occupancy AI anomaly detection using learned baseline distributions ($N \ge 20$, $z \le -1.5$, `Basis: "learned"`) rather than hardcoded zero-checks, with cold-start standard fallback ($N < 20$, `Basis: "standard"`).
+   - `server/simulation/dsp.go`: Native Go port of `CurrentDenoiser` implementing the full 2-stage DSP pipeline with identical hardware parameters ($\text{dividerRatio}=0.5$, $\text{calAPerV}=15.0$, $\sigma^2=300.0$).
+   - `server/mqtt.go`: Telemetry parser detecting `rawFallback: true`, executing server-side DSP to calculate clean Amps and Watts before storing into zone measurements and database.
+   - `server/forecast.go`: Peak load and trajectory forecasting. Eliminates synthetic cubic spline and sine fallbacks, returning empty series when models lack sequence predictions.
 3. **React Dashboard (`dashboard/`)**:
-   - Real-time FlatBuffers binary WebSocket streaming (`/ws`) via `useDigitalTwin.js`.
-   - Periodic recommendation polling via `useRecommendations.js` (`GET /api/recommendations`).
-   - Interactive recommendation cards with manual action buttons in `AiInsightsPanel.jsx` (desktop) and `MobileAIScreen.jsx` (mobile).
-   - Dual-transport manual override dispatch: WebSocket primary with HTTP `POST /api/command` fallback.
-   - Automated Puppeteer verification suite (`verify_ai_actions.js`).
+   - `dashboard/src/ForecastChart.jsx`: Authentic forecast rendering. Removes cubic spline fabrication (`smooth = t * t * (3 - 2 * t)`). Renders honest "insufficient data" state (`data-testid="forecast-insufficient-data"`) inside `data-testid="forecast-chart"` when true sequence data is unavailable.
+   - Real-time FlatBuffers binary WebSocket streaming (`/ws`) and REST APIs.
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| 1 | Edge ADC Denoising Algorithm | Intra-window variance subtraction & inter-window EMA with deadband in `current_denoiser.h` | M1 | ORIGINAL_REQUEST §R1 |
-| 2 | Clean 0W Noise Cutoff & Ghost Suppression | Reliable zero-snapping at <0.15A suppressing ESP32 ADC noise floor & transients | M1 | ORIGINAL_REQUEST §R1 |
-| 3 | Decoupled Firmware Denoising Module | Pure C++ header `edge/esp32/src/current_denoiser.h` shared between firmware & host tests | M1 | ORIGINAL_REQUEST §R1 |
-| 4 | Automated C++ Noisy ADC Test Harness | `test_denoise.cpp` feeding mock noisy ADC waveforms (0A, loaded, steps) verifying output stability | M1 | Acceptance Criteria §Firmware |
-| 5 | Anomalous Telemetry Recommendations | Recommendation engine evaluates telemetry and outputs `turn_off_ac` for vacant rooms with active AC | M2 | ORIGINAL_REQUEST §R3 |
-| 6 | Extracted `/api/command` Handler | Package-level `commandHandler(engine)` supporting `command` and `action` with strict validation | M2 | ORIGINAL_REQUEST §R3 |
-| 7 | Manual Override Latching & Zone Actuation | 15-minute operator override latch (`OverrideUntil`) and internal zone state sync (`HVAC_SET:OFF`) | M2 | ORIGINAL_REQUEST §R3 |
-| 8 | Go Backend Unit Test Suite | Unit tests asserting anomalous telemetry -> `turn_off_ac` and `/api/command` routing and latching | M2 | Acceptance Criteria §Backend |
-| 9 | UI Recommendation Action Button Wiring | Map `turn_off_ac: 'TURN OFF AC'` in `AiInsightsPanel.jsx` and `MobileAIScreen.jsx` to render action button | M3 | ORIGINAL_REQUEST §R2, §R3 |
-| 10 | Dual-Transport Manual Action Override | `sendManualOverride` dispatches via WebSocket with HTTP `POST /api/command` fallback | M3 | ORIGINAL_REQUEST §R2 |
-| 11 | Automated Frontend UI & Action Verification | Extend `verify_ai_actions.js` asserting UI components mount and expose manual recommendation buttons | M3 | Acceptance Criteria §Frontend |
-| 12 | Comprehensive Dual-Track Verification & Forensic Audit | Verification across all tiers, 2 Reviewers, 2 Challengers, and 1 Forensic Auditor | M4 | Project Protocol & Acceptance Criteria |
+| 1 | Learned Occupancy Metric Baseline | Register "occupancy" in `metricSpecs` in `server/simulation/baselines.go` with variance tracking | M1 | ORIGINAL_REQUEST §R1 |
+| 2 | Statistical Occupancy Recommendation Engine | Replace hardcoded zero check in `recommend.go` with learned threshold scoring ($z \le -1.5$, `Basis: "learned"`) | M1 | ORIGINAL_REQUEST §R1 |
+| 3 | Cold-Start Statistical Fallback | Retain standard basis ($N < 20$, `Basis: "standard"`) during model warm-up ensuring zero regression | M1 | Backend Survey |
+| 4 | Backend Occupancy AI Unit Test Suite | Go unit tests injecting varying occupancy over time asserting learned threshold behavior vs zero-check | M1 | Acceptance Criteria §Backend |
+| 5 | Removal of Synthetic Spline in ForecastChart | Eliminate cubic Hermite curve synthesis (`smooth = t*t*(3-2*t)`) in `dashboard/src/ForecastChart.jsx` | M2 | ORIGINAL_REQUEST §R2 |
+| 6 | Honest Insufficient Data State UI | Render `[data-testid="forecast-insufficient-data"]` badge and 0 curve paths when forecast series is empty/down | M2 | ORIGINAL_REQUEST §R2 |
+| 7 | Backend Forecast Graph Reconciliation | Reconcile `server/forecast.go` to avoid emitting synthetic spline/sine sequences | M2 | Frontend Survey |
+| 8 | Automated Frontend Verification Suite | Scriptable Puppeteer/Node test asserting insufficient data rendering and zero fake curves | M2 | Acceptance Criteria §Frontend |
+| 9 | Firmware CPU Strain Detection & Simulation | Timing-based strain detection ($>15\text{ ms}$) and `simulateCpuStrain` in `NodeConfig` (`edge/esp32/`) | M3 | ORIGINAL_REQUEST §R3 |
+| 10 | Firmware Pass-Through Streaming Mode | Microcontroller bypasses DSP, sets `rawFallback: true`, and streams raw ADC counts in 768-byte buffer | M3 | ORIGINAL_REQUEST §R3 |
+| 11 | C++ High-Strain Verification Harness | Off-target C++ test in `edge/esp32/test/` verifying CPU strain detection and pass-through mode toggle | M3 | Acceptance Criteria §Firmware |
+| 12 | Backend Server-Side Go DSP Engine | Native Go implementation of `CurrentDenoiser` in `server/simulation/dsp.go` matching C++ mathematics | M3 | ORIGINAL_REQUEST §R3 |
+| 13 | Backend Raw Fallback Ingestion & Processing | `server/mqtt.go` detects `rawFallback: true`, applies server-side DSP, and stores clean telemetry | M3 | Acceptance Criteria §Backend |
+| 14 | Hardware Compatibility & Constraints Audit | Audit ADC1 pins, ACS712 voltage divider (0.5), calibration scaling, and Pico USB serial bandwidth | M3 | ORIGINAL_REQUEST §R4 |
+| 15 | Comprehensive Dual-Track Verification & Forensic Audit | Full test suite across Tiers 1-4, 2 Reviewers, 2 Challengers, and 1 Forensic Integrity Auditor | M4 | Project Protocol & Acceptance Criteria |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| 1 | Firmware Sensor Denoising & Verification | Features 1–4: `current_denoiser.h`, `main.cpp` integration, config fix, `test_denoise.cpp` | none | PLANNED |
-| 2 | Backend Recommendations & Command Routing | Features 5–8: `commandHandler`, `engine.go` sync, `command_recommendation_test.go` | none | PLANNED |
-| 3 | Frontend Dashboard Wiring & Action Overrides | Features 9–11: `AiInsightsPanel.jsx`, `MobileAIScreen.jsx`, `useDigitalTwin.js`, `verify_ai_actions.js` | M2 | PLANNED |
-| 4 | Dual-Track End-to-End Test Pass & Forensic Integrity Gate | Feature 12: Full test suite execution across firmware, backend, frontend; Reviewers, Challengers, Auditor | M1, M2, M3 | PLANNED |
+| 1 | Genuine Occupancy AI Model (Backend) | Features 1–4: `baselines.go`, `recommend.go`, `recommend_occupancy_test.go` | none | DONE |
+| 2 | Authentic Forecast Chart (Frontend & Backend) | Features 5–8: `ForecastChart.jsx`, `forecast.go`, `verify_forecast_chart.js` | none | IN_PROGRESS |
+| 3 | Edge Compute Offload Fallback (Firmware & Backend) | Features 9–14: `node_config.h`, `main.cpp`, `test_cpu_strain_fallback.cpp`, `dsp.go`, `mqtt.go`, `mqtt_fallback_test.go` | none | DONE |
+| 4 | Dual-Track End-to-End Test Pass & Forensic Integrity Gate | Feature 15: Full test suite execution across firmware, backend, frontend; Reviewers, Challengers, Auditor | M1, M2, M3 | PLANNED |
 
 ## Interface Contracts
 
-### Edge Firmware ↔ Backend MQTT
+### Edge Firmware ↔ Backend MQTT Raw Offload
 - **Telemetry Topic**: `econ/telemetry/<deviceId>`
-- **Payload Schema (JSON)**:
+- **Payload Schema (JSON, max 768 bytes)**:
   ```json
   {
     "zone": "zone-office-a",
-    "stripW": 450.2,
-    "plugW": 120.0,
+    "rawFallback": true,
+    "rawStripSamples": [2048, 2180, 2350, 1920, 1750, 2040],
     "temperature": 23.5,
     "humidity": 55.0,
     "co2": 620.0,
-    "occupancy": 0,
-    "pirState": false,
-    "irState": "COOL_22"
+    "occupancy": 0
   }
   ```
-- **Command Topic**: `econ/commands/<topic>`
-- **Command Payload**: String (e.g., `"HVAC_SET:OFF"`, `"LIGHTS_OFF;SETPOINT=18.0"`)
-
-### Backend `/api/command` REST Endpoint
-- **Method**: `POST`, `OPTIONS`
-- **Request Headers**: `Content-Type: application/json`
-- **Request Body**:
+- **Configuration Topic**: `econ/config/<deviceId>`
+- **Config Payload (JSON)**:
   ```json
   {
+    "simulateCpuStrain": true
+  }
+  ```
+
+### Backend Simulation Engine & Baseline Scoring
+- **Metric**: `"occupancy"`
+- **Distribution Model**: Continuous EWMA ($\alpha = 0.05$), minimum sample count $N \ge 20$ for maturity.
+- **Threshold**: $z \le -1.5$ (statistically significant vacancy relative to zone's historical pattern).
+- **Output Recommendation**:
+  ```json
+  {
+    "id": "vacant_ac:zone-office-a",
     "zone": "zone-office-a",
-    "command": "turn_off_ac",
+    "metric": "occupancy",
+    "severity": "info",
+    "basis": "learned",
+    "samples": 35,
+    "value": 0,
     "action": "turn_off_ac"
   }
   ```
-- **Response**: `200 OK` on success, `400 Bad Request` if zone or command is empty / malformed, `405 Method Not Allowed` for non-POST.
-- **Side Effect**: Calls `engine.PublishCommand`, sets `z.OverrideUntil = now + 15m`, sets `z.IrState = "OFF"` if `turn_off_ac`, publishes to MQTT.
 
-### Backend ↔ Frontend Recommendations
-- **Endpoint**: `GET /api/recommendations`
-- **Response Schema**:
+### Backend ↔ Frontend Forecast API
+- **Endpoint**: `GET /api/forecast/compare`
+- **Response Schema when no sequence model is available**:
   ```json
   {
-    "report": {
-      "recommendations": [
-        {
-          "id": "vacant_ac:zone-office-a",
-          "zone": "zone-office-a",
-          "label": "Office A",
-          "metric": "occupancy",
-          "severity": "info",
-          "basis": "standard",
-          "title": "Room Vacant but AC may be ON",
-          "message": "Office A is vacant but its AC might still be running. Turn off the AC to save energy.",
-          "value": 0,
-          "unit": "people",
-          "samples": 1,
-          "action": "turn_off_ac",
-          "score": 4.0
-        }
-      ]
-    }
+    "series": [],
+    "lstmPeakMw": 0.0285,
+    "model": "lstm-scalar-only",
+    "status": "insufficient_data"
   }
   ```
-
-### Frontend Action Dispatch
-- **WebSocket Frame**: Text JSON `{"action": "turn_off_ac", "zone": "zone-office-a"}`
-- **HTTP Fallback**: `POST /api/command` with `{"zone": "zone-office-a", "command": "turn_off_ac"}`
+- **UI Render Contract**:
+  - Container element `data-testid="forecast-chart"` must be present.
+  - Inner element `data-testid="forecast-insufficient-data"` rendered with informative text.
+  - Zero `.recharts-line-curve` SVG elements rendered.
 
 ## Code Layout
-- `edge/esp32/src/current_denoiser.h`: Pure C++ two-stage sensor denoiser class (Stage 1 variance subtraction, Stage 2 EMA + deadband).
-- `edge/esp32/src/main.cpp`: ESP32 firmware integrating `CurrentDenoiser`.
-- `edge/esp32/src/node_config.h`: Calibration constants (`STRIP_CAL_A_PER_V = 15.0f`).
-- `edge/esp32/src/camera/camera_config.h`: GPIO definitions (`PIN_CAM_D7 = 5`).
-- `edge/esp32/test/test_denoise.cpp`: Automated C++ test feeding mock noisy ADC data and verifying output stability.
+- `server/simulation/baselines.go`: Statistical baseline engine with `"occupancy"` metric spec.
+- `server/simulation/recommend.go`: Statistical anomaly recommendation engine using learned thresholds.
+- `server/simulation/recommend_occupancy_test.go`: Go unit tests for statistical occupancy recommendations.
+- `server/simulation/dsp.go`: Native Go implementation of `CurrentDenoiser`.
+- `server/simulation/dsp_test.go`: Unit tests for Go DSP denoiser matching C++ calculations.
+- `server/mqtt.go`: Telemetry handler detecting `rawFallback` and routing to `server/simulation/dsp.go`.
+- `server/mqtt_fallback_test.go`: Go unit test verifying edge raw fallback detection and DSP application.
+- `server/forecast.go`: Forecast service returning empty series instead of synthetic splines.
+- `dashboard/src/ForecastChart.jsx`: Frontend chart removing fake cubic spline and rendering insufficient data badge.
+- `dashboard/verify_forecast_chart.js`: Automated Puppeteer test verifying authentic forecast rendering.
+- `edge/esp32/src/node_config.h`: Node configuration including `simulateCpuStrain`.
+- `edge/esp32/src/main.cpp`: ESP32 firmware with CPU strain detection and pass-through fallback streaming.
+- `edge/esp32/test/test_cpu_strain_fallback.cpp`: Off-target C++ test for CPU strain pass-through mode.
 - `edge/esp32/test/run_host_tests.sh`: Host test orchestration script.
-- `server/main.go`: Route registration and package-level `commandHandler`.
-- `server/command_recommendation_test.go`: Unit tests for telemetry injection, recommendation engine outputs, and `/api/command` routing.
-- `server/simulation/engine.go`: Zone simulation engine command normalization and actuation.
-- `dashboard/src/AiInsightsPanel.jsx`: Desktop AI insights panel with action button rendering.
-- `dashboard/src/MobileAIScreen.jsx`: Mobile AI screen with action button rendering.
-- `dashboard/src/useDigitalTwin.js`: Digital twin hook with dual-transport override dispatch.
-- `dashboard/verify_ai_actions.js`: Headless Puppeteer test runner verifying mounting, rendering, and action execution.

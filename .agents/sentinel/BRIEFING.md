@@ -1,7 +1,7 @@
-# BRIEFING — 2026-09-05T22:28:00Z
+# BRIEFING — 2026-09-06T03:54:00Z
 
 ## Mission
-Refine firmware algorithms (denoising ADC), wire Go backend to React dashboard, and process telemetry into actionable recommendations with manual UI overrides and autonomous execution.
+Replace heuristic occupancy recommendation rule in backend with a genuine statistical model, remove synthetic forecast curve in frontend, implement edge compute-offloading fallback for ESP32/Pico with raw streaming to backend, and audit hardware compatibility.
 
 ## 🔒 My Identity
 - Archetype: sentinel
@@ -22,6 +22,14 @@ Refine firmware algorithms (denoising ADC), wire Go backend to React dashboard, 
 - Victory Auditor: to be spawned on victory claim
 - Victory Auditor (Current): fdc0e9f6-722b-45c5-9157-78ad60fcb20d
 - Victory Auditor Workspace: /Users/nguyenhoangkhoi/Documents/econ/.agents/teamwork_preview_victory_auditor_5
+- Active Orchestrator (Current): 65a62d05-8ea5-448e-96c9-f6b82735e13e
+- Active Orchestrator Workspace: /Users/nguyenhoangkhoi/Documents/econ/.agents/teamwork_preview_orchestrator_6
+- Victory Auditor: to be spawned on victory claim
+- Active Orchestrator (Current): 46861b31-5e22-4119-b325-3e31aadb5071
+- Active Orchestrator Workspace: /Users/nguyenhoangkhoi/Documents/econ/.agents/teamwork_preview_orchestrator_7
+- Victory Auditor: to be spawned on victory claim
+- Victory Auditor (Current): 2e5bdc35-6a3f-4c82-aded-f60bcf7dc8fa
+- Victory Auditor Workspace: /Users/nguyenhoangkhoi/Documents/econ/.agents/teamwork_preview_victory_auditor_7
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -29,39 +37,31 @@ Refine firmware algorithms (denoising ADC), wire Go backend to React dashboard, 
 - Must not write code, analyze problems, or make technical decisions
 
 ## User Context
-- **Last user request**: Refine firmware algorithms (denoising sensor data), wire Go backend components to React dashboard, process telemetry into actionable recommendations with manual overrides & autonomous execution.
+- **Last user request**: Replace heuristic occupancy recommendation with genuine statistical model, remove synthetic forecast curve in frontend, implement edge compute offload fallback for ESP32/Pico, and audit hardware compatibility.
 - **Pending clarifications**: none
-- **Delivered results**: Complete implementation and independently verified C++ firmware denoising, Go backend recommendation engine & /api/command override routing, and React dashboard UI integration.
+- **Delivered results**: Full implementation, verification, and confirmed victory audit of R1 (Genuine Occupancy AI Model), R2 (Authentic Forecast Chart), R3 (Edge Compute Offload Fallback), and R4 (Hardware Compatibility Audit).
 
 ## Project Status
 - **Phase**: complete
-- **Routing Decision**: General (`teamwork_preview_orchestrator`) — multi-component IoT system across edge firmware (C++), backend (Go), and frontend dashboard (React) with full team requested.
-- **Active Orchestrator**: 67528c6b-aa5d-47b9-8e69-5b22e9afb51d (`/Users/nguyenhoangkhoi/Documents/econ/.agents/teamwork_preview_orchestrator_5`)
+- **Routing Decision**: General (`teamwork_preview_orchestrator`) — full team requested for multi-component IoT system across backend (Go), frontend (React), and edge firmware (ESP32/Pico).
+- **Active Orchestrator**: 46861b31-5e22-4119-b325-3e31aadb5071 (`/Users/nguyenhoangkhoi/Documents/econ/.agents/teamwork_preview_orchestrator_7`)
+- **Victory Auditor**: 2e5bdc35-6a3f-4c82-aded-f60bcf7dc8fa (`/Users/nguyenhoangkhoi/Documents/econ/.agents/teamwork_preview_victory_auditor_7`)
 - **Monitoring Crons**: Cleaned up / cancelled.
+- **Subagents**: Cleaned up (kill_all).
 
 ## Victory Audit Status
 - **Triggered**: yes
 - **Verdict**: VICTORY CONFIRMED
-- **Auditor**: fdc0e9f6-722b-45c5-9157-78ad60fcb20d
+- **Auditor**: 2e5bdc35-6a3f-4c82-aded-f60bcf7dc8fa
 - **Audit Findings**:
   - Phase A (Timeline): PASS — reconstructed complete chronological artifact and commit history without anomalies.
-  - Phase B (Integrity): PASS — zero hardcoded bypasses, genuine mathematical signal processing, strict Go input validation & HTTP caps, authentic React UI mounting with WebSocket/HTTP fallback.
-  - Phase C (Independent Tests): PASS — 100% test pass rate:
-    - Firmware: 28/28 test_denoise checks pass, 53/53 fuzz_denoiser checks pass (0 ghost triggers across 5,000 windows, <2.15% AC load error), run_host_tests.sh exit 0.
-    - Backend: Go unit tests and -race passed with 0 data races, 0 deadlocks; vacant telemetry generated turn_off_ac; /api/command manual override accepted with 15m latch.
-    - Frontend: 23/23 Puppeteer tests pass in headless Chrome; buttons rendered and wired; Vite production build succeeds in 5.25s.
+  - Phase B (Integrity): PASS — zero hardcoded test bypasses, genuine mathematical models, strict data fidelity.
+  - Phase C (Independent Tests): PASS — 100% test pass rate across Go backend (unit + adversarial + MQTT fallback), C++ edge firmware (all 326 host test assertions + 36 CPU strain tests), and React dashboard (4/4 Puppeteer suites).
 - **Retry count**: 0
 
 ## Artifact Index
 - `/Users/nguyenhoangkhoi/Documents/econ/.agents/ORIGINAL_REQUEST.md` — Authoritative record of user requests
 - `/Users/nguyenhoangkhoi/Documents/econ/ORIGINAL_REQUEST.md` — Root copy of original user requests
-- `/Users/nguyenhoangkhoi/Documents/econ/.agents/teamwork_preview_orchestrator_5` — Final Orchestrator workspace
-- `/Users/nguyenhoangkhoi/Documents/econ/.agents/teamwork_preview_victory_auditor_5` — Victory Auditor workspace
-- `edge/esp32/src/current_denoiser.h` — Hardened C++ current denoiser algorithm
-- `edge/esp32/test/test_denoise.cpp`, `edge/esp32/test/fuzz_denoiser.cpp` — Firmware verification test harnesses
-- `server/command_recommendation_test.go` — Backend recommendation and command override test suite
-- `server/simulation/recommend.go` — Backend recommendation engine
-- `server/main.go` — `/api/command` endpoint with validation & latching
-- `dashboard/src/AiInsightsPanel.jsx`, `dashboard/src/MobileAIScreen.jsx` — React dashboard UI components
-- `dashboard/src/useDigitalTwin.js` — WebSocket/HTTP dual-transport hook
-- `dashboard/verify_ai_actions.js` — Automated Puppeteer UI verification suite
+- `/Users/nguyenhoangkhoi/Documents/econ/.agents/teamwork_preview_orchestrator_7` — Orchestrator workspace
+- `/Users/nguyenhoangkhoi/Documents/econ/.agents/teamwork_preview_victory_auditor_7` — Victory Auditor workspace
+- `/Users/nguyenhoangkhoi/Documents/econ/.agents/sentinel/handoff.md` — Sentinel handoff report

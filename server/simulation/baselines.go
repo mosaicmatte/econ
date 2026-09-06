@@ -79,6 +79,9 @@ var metricSpecs = map[string]metricSpec{
 	// Live plug draw (kW): a sudden climb above the after-hours norm is phantom load the
 	// sweep should be catching.
 	"plugKw": {minSigma: 0.3, zAlert: 3.0, hiIsBad: true, action: "", unit: "kW", label: "plug load"},
+	// Occupancy: room headcount learned normal. An occupancy significantly below the zone's
+	// learned pattern at this hour indicates vacancy or under-utilization with active HVAC.
+	"occupancy": {minSigma: 0.5, zAlert: 1.5, hiIsBad: false, standardHi: 0.0, action: "turn_off_ac", unit: "people", label: "occupancy"},
 }
 
 // MetricSpecPublic is the JSON-facing view of a metricSpec — everything a downloaded copy
@@ -172,6 +175,20 @@ func baselineKey(zone, metric string) string { return zone + "\x1f" + metric }
 func (b *Baselines) Observe(zone, metric string, value float64, now time.Time) {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return
+	}
+	// Clamp metric observations to physical bounds to prevent EWMA variance
+	// explosion from corrupted sensor spikes or telemetry anomalies.
+	switch metric {
+	case "occupancy":
+		value = math.Max(0.0, math.Min(value, 500.0))
+	case "co2":
+		value = math.Max(0.0, math.Min(value, 10000.0))
+	case "temp":
+		value = math.Max(-20.0, math.Min(value, 80.0))
+	case "buildingLoadMw":
+		value = math.Max(0.0, math.Min(value, 500.0))
+	case "plugKw":
+		value = math.Max(0.0, math.Min(value, 5000.0))
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()

@@ -1,25 +1,33 @@
 # Sentinel Handoff / Final Status Report
 
 ## Observation
-- Received user request to refine firmware algorithms (denoise sensor data), wire Go backend components to React dashboard, and process incoming telemetry into actionable recommendations with manual UI action overrides and autonomous execution capabilities.
-- Acceptance criteria required:
-  1. Automated C++ test feeding mock noisy ADC data into denoising algorithm and verifying output stability.
-  2. Go unit tests verifying anomalous telemetry generates correct recommendations (e.g. `turn_off_ac`) and `/api/command` accepts and routes manual overrides.
-  3. Automated frontend tests confirming UI components mount and expose manual recommendation buttons.
+- Received user request to:
+  1. Replace heuristic occupancy recommendation rule in the backend with a genuine statistical model (R1).
+  2. Remove synthetic cubic spline forecast curve in frontend, honestly reflecting absence of data if no model forecast is available (R2).
+  3. Implement compute-offloading fallback for ESP32/Pico edge hardware to stream raw unprocessed sensor data to backend when strained, with server-side DSP (R3).
+  4. Perform hardware compatibility audit verifying backend models, compute-offloading logic, and frontend telemetry consumption match physical hardware constraints (R4).
+- Project root: `/Users/nguyenhoangkhoi/Documents/econ`
+- Integrity mode: `benchmark`
 
 ## Logic Chain
-- Routing Decision: General (`teamwork_preview_orchestrator`) selected for multi-tier full-stack project across edge C++ firmware, Go backend, and React dashboard.
 - Logged verbatim request in `ORIGINAL_REQUEST.md` (root and `.agents/`).
+- Routing Decision: General (`teamwork_preview_orchestrator`) selected for multi-tier full-stack project across edge C++ firmware, Go backend, and React dashboard.
 - Orchestrator coordinated specialist subagents to implement, review, and challenge:
-  - M1 Firmware Refinement (`edge/esp32/src/current_denoiser.h`, `edge/esp32/test/test_denoise.cpp`, `edge/esp32/test/fuzz_denoiser.cpp`)
-  - M2 Backend Integration (`server/simulation/recommend.go`, `server/main.go`, `server/command_recommendation_test.go`)
-  - M3 Frontend Dashboard (`dashboard/src/AiInsightsPanel.jsx`, `dashboard/src/MobileAIScreen.jsx`, `dashboard/src/useDigitalTwin.js`, `dashboard/verify_ai_actions.js`)
-- Following challenger hardening and unconditional internal gate approval, Orchestrator submitted a victory claim.
-- Sentinel spawned independent Victory Auditor (`teamwork_preview_victory_auditor`, `fdc0e9f6-722b-45c5-9157-78ad60fcb20d`) with zero shared context from the implementation swarm.
+  - M1 Backend Occupancy AI (`server/simulation/baselines.go`, `server/simulation/recommend.go`, `server/simulation/recommend_occupancy_test.go`, `server/simulation/adversarial_challenger1_test.go`).
+  - M2 Authentic Forecast Chart (`dashboard/src/ForecastChart.jsx`, `server/forecast.go`, `dashboard/verify_forecast_chart.js`).
+  - M3 Edge Compute Offload Fallback (`edge/esp32/src/main.cpp`, `node_config.h`, `edge/esp32/test/test_cpu_strain_fallback.cpp`, `server/mqtt.go`, `server/simulation/dsp.go`, `server/mqtt_fallback_test.go`).
+  - R4 Hardware Compatibility Audit (`TEST_READY.md`, `edge/esp32/test/test_adversarial_r4_challenger2.cpp`).
+- Internal Verification Gate:
+  - Reviewer 1 & 2: APPROVE
+  - Challenger 1: APPROVE (after addressing zero-mean vacancy edge case and variance bounds clamping)
+  - Challenger 2: APPROVE
+  - Forensic Auditor: CLEAN
+- Orchestrator claimed completion.
+- Sentinel spawned independent Victory Auditor (`teamwork_preview_victory_auditor`, `2e5bdc35-6a3f-4c82-aded-f60bcf7dc8fa`) with zero shared context.
 - Victory Auditor executed independent 3-phase verification:
-  - Phase A: Timeline reconstruction — PASS
-  - Phase B: Integrity & anti-cheating audit — PASS (zero hardcoding, genuine math, strict validation)
-  - Phase C: Independent test execution — PASS (100% test pass rate across firmware, backend `go test -race`, and frontend Puppeteer)
+  - Phase A: Timeline & provenance audit — PASS (zero anomalies)
+  - Phase B: Source code integrity audit — PASS (zero hardcoded bypasses, genuine mathematical models, strict domain clamping)
+  - Phase C: Scratch test execution — PASS (100% test pass rate across Go backend, C++ edge firmware, and Puppeteer dashboard)
 - Verdict: **VICTORY CONFIRMED**.
 - Cleanup: Cancelled monitoring crons and terminated all subagents per protocol.
 
@@ -31,6 +39,6 @@
 - Final completion ready to be reported.
 
 ## Verification Method
-- Firmware: `edge/esp32/test/run_host_tests.sh`, `test_denoise` (28/28), `fuzz_denoiser` (53/53 across 5,000 stress windows with 0 ghost triggers).
-- Backend: `go test -race -v -run "TestAnomalousTelemetry|TestCommandHandler|TestAdversarial" .` (0 data races, 0 deadlocks across 100 concurrent HTTP requests), `go test -race -count=1 ./...` (passed).
-- Frontend: `node verify_ai_actions.js` (23/23 tests in headless Chrome), `npm run build` (production Vite build passes).
+- Firmware: `edge/esp32/test/run_host_tests.sh` (all suites pass, exit code 0), `test_cpu_strain_fallback.cpp` (36/36 pass), `test_adversarial_r4_challenger2.cpp` (36/36 pass).
+- Backend: `cd server && go test -v -count=1 ./...` (all packages PASS), `TestMQTTFallback` (4/4 pass), `TestOccupancy` (6/6 pass), `TestAdversarial_` (all pass).
+- Frontend: `cd dashboard && npm run build && node verify_forecast_chart.js` (4/4 suites pass in headless Chrome).

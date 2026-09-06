@@ -29,6 +29,8 @@ export default function ForecastChart({
   plausible = true,
   plausibility = null,
 }) {
+  const lstmPeak = lstmPeakMw != null && Number.isFinite(lstmPeakMw) ? lstmPeakMw : null;
+
   const chartData = useMemo(() => {
     // 1. If explicit object series [{ t, mw, hi }] is passed
     if (Array.isArray(series) && series.length > 0 && typeof series[0] === 'object' && series[0] !== null && 't' in series[0]) {
@@ -45,24 +47,12 @@ export default function ForecastChart({
       }));
     }
 
-    // 3. Fallback synthesis from LSTM peak or live load if series is unavailable
-    const curLoad = liveLoadMw && liveLoadMw > 0 ? liveLoadMw : 0.024;
-    const peak = lstmPeakMw && lstmPeakMw > 0 ? lstmPeakMw : curLoad * 1.15;
-    const horizonSteps = 12;
-    const step = stepMinutes > 0 ? stepMinutes : 5;
+    // 3. When series is empty, null, or undefined, return an empty array.
+    // Do NOT fabricate synthetic cubic spline curves or sine waves.
+    return [];
+  }, [series, upperBand, stepMinutes]);
 
-    return Array.from({ length: horizonSteps }, (_, i) => {
-      const t = (i + 1) / horizonSteps;
-      const smooth = t * t * (3 - 2 * t);
-      const val = +(curLoad + (peak - curLoad) * smooth).toFixed(4);
-      const hi = +(val * 1.12).toFixed(4);
-      return {
-        t: `+${(i + 1) * step}m`,
-        mw: val,
-        hi,
-      };
-    });
-  }, [series, upperBand, stepMinutes, liveLoadMw, lstmPeakMw]);
+  const hasGenuineSeries = Array.isArray(chartData) && chartData.length > 0;
 
   const peakOfSeries = useMemo(() => {
     return chartData.reduce((m, d) => Math.max(m, d.mw || 0), 0);
@@ -73,13 +63,12 @@ export default function ForecastChart({
     : chartData.reduce((m, d) => Math.max(m, d.hi || 0), 0);
 
   const hasUpper = chartData.some((d) => d.hi != null);
-  const lstmPeak = lstmPeakMw != null && Number.isFinite(lstmPeakMw) ? lstmPeakMw : null;
   const engineLabel = (engine || 'timesfm').toUpperCase();
   const stepMin = stepMinutes > 0 ? stepMinutes : 5;
 
   // SVG sparkline path for ultra-compact fallback / pure SVG query detection
   const svgSparkline = useMemo(() => {
-    if (!chartData || chartData.length === 0) return null;
+    if (!hasGenuineSeries) return null;
     const vals = chartData.map((d) => d.mw);
     const minVal = Math.min(...vals);
     const maxVal = Math.max(...vals, lstmPeak || 0);
@@ -100,7 +89,106 @@ export default function ForecastChart({
     const lstmY = lstmPeak != null ? (H - ((lstmPeak - minVal) / rng) * (H - 4) - 2).toFixed(2) : null;
 
     return { pts, hiPts, lstmY, W, H, minVal, maxVal };
-  }, [chartData, hasUpper, lstmPeak]);
+  }, [chartData, hasUpper, lstmPeak, hasGenuineSeries]);
+
+  // When series is empty, null, or undefined: render honest insufficient data state with 0 curves
+  if (!hasGenuineSeries) {
+    return (
+      <div
+        data-testid="forecast-chart"
+        className="forecast-chart-container forecast-chart"
+        style={{
+          marginTop: '6px',
+          width: '100%',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '4px',
+        }}
+      >
+        <div
+          data-testid="forecast-insufficient-data"
+          style={{
+            padding: compact ? '10px 12px' : '16px 14px',
+            borderRadius: '6px',
+            background: 'rgba(255, 255, 255, 0.02)',
+            border: '1px dashed var(--border-glass, rgba(255, 255, 255, 0.12))',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            textAlign: 'center',
+            minHeight: compact ? '64px' : `${height || 100}px`,
+            boxSizing: 'border-box',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <AlertTriangle size={15} style={{ color: 'var(--accent-yellow, #eab308)', flexShrink: 0 }} />
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                color: 'var(--text-secondary, #94a3b8)',
+                letterSpacing: '0.02em',
+              }}
+            >
+              Insufficient data — awaiting model telemetry
+            </span>
+          </div>
+          <div
+            style={{
+              fontSize: '10px',
+              color: 'var(--text-muted, #64748b)',
+              maxWidth: '380px',
+              lineHeight: 1.4,
+            }}
+          >
+            {lstmPeak != null
+              ? 'Sequence trajectory unavailable. Foundation model requires ≥ 8 recorded load samples.'
+              : 'Time-series forecast unavailable. Both LSTM and TimesFM awaiting historical load telemetry.'}
+          </div>
+
+          {lstmPeak != null && (
+            <div
+              data-testid="forecast-lstm-scalar-badge"
+              style={{
+                marginTop: '2px',
+                padding: '4px 10px',
+                borderRadius: '4px',
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <span
+                style={{
+                  fontSize: '9px',
+                  color: 'var(--text-secondary, #94a3b8)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                LSTM Predicted Peak (Scalar Reference)
+              </span>
+              <span
+                style={{
+                  fontFamily: 'monospace',
+                  fontWeight: 600,
+                  fontSize: '11px',
+                  color: 'var(--accent-red, #ef4444)',
+                }}
+              >
+                {powerMw(lstmPeak)}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

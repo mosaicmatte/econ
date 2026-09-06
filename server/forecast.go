@@ -680,7 +680,8 @@ func BuildForecastGraph(engine *simulation.Engine, horizon int) *simulation.Fore
 	return generateFallbackForecast(engine, horizon)
 }
 
-// generateLstmTrajectory synthesizes a continuous projection trajectory from current load to the LSTM peak.
+// generateLstmTrajectory returns an honest persistence payload for the horizon rather than synthesizing
+// fake cubic spline curves (smooth = t*t*(3-2*t)), preserving the LSTM predicted peak in LstmPeakMw.
 func generateLstmTrajectory(engine *simulation.Engine, peakMw float64, horizon int) []float64 {
 	if horizon <= 0 {
 		horizon = 12
@@ -696,17 +697,18 @@ func generateLstmTrajectory(engine *simulation.Engine, peakMw float64, horizon i
 	if curLoad <= 0 {
 		curLoad = 0.025
 	}
+	// Honest persistence baseline: do NOT fabricate a cubic Hermite spline curve.
+	// The LSTM regressor predicts only a scalar peak, not a multi-step curve.
 	series := make([]float64, horizon)
+	val := math.Round(curLoad*10000) / 10000
 	for i := 0; i < horizon; i++ {
-		t := float64(i+1) / float64(horizon)
-		smooth := t * t * (3 - 2*t)
-		val := curLoad + (peakMw-curLoad)*smooth
-		series[i] = math.Round(val*10000) / 10000
+		series[i] = val
 	}
 	return series
 }
 
-// generateFallbackForecast creates a plausible forecast curve based on engine load history or physics baseline.
+// generateFallbackForecast creates an honest baseline payload based on engine load history or physics baseline
+// without synthesizing fake sinusoidal or spline curves.
 func generateFallbackForecast(engine *simulation.Engine, horizon int) *simulation.ForecastGraphData {
 	if horizon <= 0 {
 		horizon = 12
@@ -721,6 +723,10 @@ func generateFallbackForecast(engine *simulation.Engine, horizon int) *simulatio
 		curLoad = 0.025
 	}
 
+	val := math.Round(curLoad*10000) / 10000
+	upVal := math.Round(val*1.15*10000) / 10000
+	lowVal := math.Round(val*0.90*10000) / 10000
+
 	series := make([]float64, horizon)
 	upperBand := make([]float64, horizon)
 	quantiles := make(map[string][]float64)
@@ -728,26 +734,16 @@ func generateFallbackForecast(engine *simulation.Engine, horizon int) *simulatio
 	q5 := make([]float64, horizon)
 	q9 := make([]float64, horizon)
 
-	peak := curLoad
-	peakUpper := curLoad * 1.15
+	peak := val
+	peakUpper := upVal
 
+	// Honest persistence baseline: do NOT synthesize sine waves or fake fluctuations.
 	for i := 0; i < horizon; i++ {
-		stepFactor := 1.0 + 0.06*math.Sin(float64(i+1)/float64(horizon)*math.Pi)
-		val := math.Round(curLoad*stepFactor*10000) / 10000
 		series[i] = val
 		q5[i] = val
-		lowVal := math.Round(val*0.90*10000) / 10000
 		q1[i] = lowVal
-		upVal := math.Round(val*1.15*10000) / 10000
 		upperBand[i] = upVal
 		q9[i] = upVal
-
-		if val > peak {
-			peak = val
-		}
-		if upVal > peakUpper {
-			peakUpper = upVal
-		}
 	}
 	quantiles["q1"] = q1
 	quantiles["q5"] = q5
