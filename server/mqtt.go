@@ -24,23 +24,29 @@ import (
 // genuinely measured temperature (DHT22 / RP2040 sensor); firmware running with
 // simulated placeholder sensors leaves it false so fake temps never pin the physics.
 type telemetryMsg struct {
-	Zone        string   `json:"zone"`
-	Occupancy   *int     `json:"occupancy"`
-	Occupancy2  *int     `json:"occupancy_2"`
-	Temperature *float64 `json:"temperature"`
-	Humidity    *float64 `json:"humidity"`
-	Co2         *float64 `json:"co2"`
-	PlugW       *float64 `json:"plugW"`   // measured plug-circuit watts (SCT-013 clamp)
-	SupplyC     *float64 `json:"supplyC"` // measured AC supply-air temperature (DS18B20)
-	AcW         *float64 `json:"acW"`     // measured air-conditioner power (2nd SCT-013)
-	Lux         *float64 `json:"lux"`     // measured ambient illuminance (BH1750)
-	StripW      *float64 `json:"stripW"`  // measured power-strip draw in watts (ACS712)
-	Source      string   `json:"source"`
-	TempReal    bool     `json:"tempReal"`
-	AcReal      *bool    `json:"acReal"` // nil = firmware predates the field
-	CameraEvent *string `json:"cameraEvent"`
-	PirState    *bool   `json:"pirState"`
-	IrState     *string `json:"irState"`
+	Zone            string   `json:"zone"`
+	Occupancy       *int     `json:"occupancy"`
+	Occupancy2      *int     `json:"occupancy_2"`
+	Temperature     *float64 `json:"temperature"`
+	Humidity        *float64 `json:"humidity"`
+	Co2             *float64 `json:"co2"`
+	PlugW           *float64 `json:"plugW"`   // measured plug-circuit watts (SCT-013 clamp)
+	SupplyC         *float64 `json:"supplyC"` // measured AC supply-air temperature (DS18B20)
+	AcW             *float64 `json:"acW"`     // measured air-conditioner power (2nd SCT-013)
+	Lux             *float64 `json:"lux"`     // measured ambient illuminance (BH1750)
+	StripW          *float64 `json:"stripW"`  // measured power-strip draw in watts (ACS712)
+	CircuitBreakerW *float64 `json:"circuitBreakerW,omitempty"`
+	CbW             *float64 `json:"cbW,omitempty"`
+	CircuitBreaker  *float64 `json:"circuit_breaker,omitempty"`
+	ZoneCB          *float64 `json:"zoneCB,omitempty"`
+	Mock            *bool    `json:"mock,omitempty"`
+	Simulated       *bool    `json:"simulated,omitempty"`
+	Source          string   `json:"source"`
+	TempReal        bool     `json:"tempReal"`
+	AcReal          *bool    `json:"acReal"` // nil = firmware predates the field
+	CameraEvent     *string  `json:"cameraEvent"`
+	PirState        *bool    `json:"pirState"`
+	IrState         *string  `json:"irState"`
 
 	// RawFallback signals that the microcontroller is under heavy CPU strain and has
 	// offloaded raw ADC samples to the backend for server-side DSP denoising.
@@ -53,6 +59,24 @@ type telemetryMsg struct {
 	// load itself. A pointer because nil ("firmware predates runtime config") must stay
 	// distinct from 0 ("configured, never changed from the compiled defaults").
 	CfgRev *uint32 `json:"cfgRev"`
+}
+
+func (msg telemetryMsg) isMock() bool {
+	if msg.Mock != nil && *msg.Mock {
+		return true
+	}
+	if msg.Simulated != nil && *msg.Simulated {
+		return true
+	}
+	src := strings.ToLower(strings.TrimSpace(msg.Source))
+	switch src {
+	case "mock", "sim", "simulation", "synthetic", "test":
+		return true
+	}
+	if msg.Temperature != nil && !msg.TempReal {
+		return true
+	}
+	return false
 }
 
 // startMQTT connects the Go engine to the MQTT broker so it (a) ingests real telemetry
@@ -153,6 +177,13 @@ func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 		registry.observeMalformed(topicSuffix(topic), err)
 		return
 	}
+
+	// In Real Mode, strictly reject mock payloads without mutating zone state, registry, or DB.
+	if engine != nil && engine.IsRealMode() && msg.isMock() {
+		log.Printf("[mqtt] REJECTED mock telemetry payload on %s in Real Mode: source=%q tempReal=%v", topic, msg.Source, msg.TempReal)
+		return
+	}
+
 	suffix := topicSuffix(topic)
 
 	// Prefer an explicit zone id/name in the payload; fall back to the topic suffix.
@@ -180,24 +211,38 @@ func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 	// case is invisible downstream and is a common bring-up mistake.
 	registry.observe(suffix, msg, payload)
 	if engine != nil {
-		engine.IngestTelemetry(ref, suffix, simulation.Measurement{
-			Occupancy:  msg.Occupancy,
-			Occupancy2: msg.Occupancy2,
-			Temp:       msg.Temperature,
-			Humidity:   msg.Humidity,
-			Co2:        msg.Co2,
-			PlugW:      msg.PlugW,
-			Source:     msg.Source,
-			SupplyC:    msg.SupplyC,
-			AcW:        msg.AcW,
-			Lux:        msg.Lux,
-			TempReal:   msg.TempReal,
-			AcReal:     msg.AcReal,
-			CameraEvent: msg.CameraEvent,
-			PirState:    msg.PirState,
-			IrState:     msg.IrState,
+		cb := msg.CircuitBreakerW
+		if cb == nil {
+			cb = msg.CbW
+		}
+		if cb == nil {
+			cb = msg.CircuitBreaker
+		}
+		if cb == nil {
+			cb = msg.ZoneCB
+		}
 
-			StripW:     msg.StripW,
+		engine.IngestTelemetry(ref, suffix, simulation.Measurement{
+			Occupancy:       msg.Occupancy,
+			Occupancy2:      msg.Occupancy2,
+			Temp:            msg.Temperature,
+			Humidity:        msg.Humidity,
+			Co2:             msg.Co2,
+			PlugW:           msg.PlugW,
+			StripW:          msg.StripW,
+			CircuitBreakerW: cb,
+			CbW:             cb,
+			Source:          msg.Source,
+			SupplyC:         msg.SupplyC,
+			AcW:             msg.AcW,
+			Lux:             msg.Lux,
+			TempReal:        msg.TempReal,
+			AcReal:          msg.AcReal,
+			CameraEvent:     msg.CameraEvent,
+			PirState:        msg.PirState,
+			IrState:         msg.IrState,
+			Mock:            msg.Mock,
+			Simulated:       msg.Simulated,
 		})
 	}
 	occ := -1

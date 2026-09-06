@@ -158,6 +158,8 @@ func (r *deviceRegistry) observe(topicSuffix string, msg telemetryMsg, raw []byt
 	track("humidity", msg.Humidity)
 	track("co2", msg.Co2)
 	track("plugW", msg.PlugW)
+	track("circuitBreakerW", msg.CircuitBreakerW)
+	track("cbW", msg.CbW)
 	track("supplyC", msg.SupplyC)
 	track("acW", msg.AcW)
 	track("lux", msg.Lux)
