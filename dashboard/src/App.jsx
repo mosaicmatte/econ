@@ -694,6 +694,36 @@ function App() {
 		              👁 VISION: {hardwareNodes[selectedZone].detectedProtocol}
 		            </span>
 		          )}
+                  {hardwareNodes[selectedZone].pirState !== undefined && hardwareNodes[selectedZone].pirState !== null && (
+                    <span style={{ 
+                      fontSize: '9px', fontWeight: 'bold', color: hardwareNodes[selectedZone].pirState ? 'var(--accent-red)' : 'var(--accent-green)', 
+                      border: `1px solid ${hardwareNodes[selectedZone].pirState ? 'var(--accent-red)' : 'var(--accent-green)'}`, padding: '2px 6px', 
+                      borderRadius: '4px', backgroundColor: hardwareNodes[selectedZone].pirState ? 'rgba(239, 68, 68, 0.1)' : 'rgba(74, 222, 128, 0.1)',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                    }}>
+                      🏃‍♂️ PIR RD-04: {hardwareNodes[selectedZone].pirState ? 'MOTION DETECTED' : 'CLEAR'}
+                    </span>
+                  )}
+                  {hardwareNodes[selectedZone].cameraEvent && (
+                    <span style={{ 
+                      fontSize: '9px', fontWeight: 'bold', color: 'var(--accent-yellow)', 
+                      border: '1px solid var(--accent-yellow)', padding: '2px 6px', 
+                      borderRadius: '4px', backgroundColor: 'rgba(234, 179, 8, 0.1)',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                    }}>
+                      📷 OV7670: {hardwareNodes[selectedZone].cameraEvent}
+                    </span>
+                  )}
+                  {hardwareNodes[selectedZone].irState && (
+                    <span style={{ 
+                      fontSize: '9px', fontWeight: 'bold', color: 'var(--accent-blue)', 
+                      border: '1px solid var(--accent-blue)', padding: '2px 6px', 
+                      borderRadius: '4px', backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                    }}>
+                      📡 IR Blaster: {hardwareNodes[selectedZone].irState}
+                    </span>
+                  )}
 		          {/* [GEMINI IMPLEMENTATION END] */}
 		        </div>
 		      )}
@@ -765,7 +795,12 @@ function App() {
                 <span style={{ fontSize: '10px', color: 'var(--text-secondary)', alignSelf: 'center' }}>MANUAL VETO:</span>
                 <button onClick={() => sendManualOverride('LIGHTS_OFF;SETPOINT=26.0', selectedZone)} style={{ flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent-blue)', color: 'var(--accent-blue)', fontSize: '10px', padding: '6px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold' }}>FORCE OFF</button>
                 <button onClick={() => sendManualOverride('LIGHTS_ON;SETPOINT=20.0', selectedZone)} style={{ flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent-red)', color: 'var(--accent-red)', fontSize: '10px', padding: '6px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold' }}>MAX COOL</button>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-secondary)', alignSelf: 'center' }}>IR BLASTER:</span>
                 <button onClick={() => sendManualOverride('IR_SEND:NEC:0xFF00FF:32', selectedZone)} title="Universal IR Blaster Test" style={{ flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent-green)', color: 'var(--accent-green)', fontSize: '10px', padding: '6px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold' }}>IR FAN</button>
+                <button onClick={() => sendManualOverride('IR_SEND:AC:ON', selectedZone)} title="Turn AC ON" style={{ flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent-blue)', color: 'var(--accent-blue)', fontSize: '10px', padding: '6px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold' }}>AC ON</button>
+                <button onClick={() => sendManualOverride('IR_SEND:AC:OFF', selectedZone)} title="Turn AC OFF" style={{ flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent-red)', color: 'var(--accent-red)', fontSize: '10px', padding: '6px', cursor: 'pointer', borderRadius: '4px', fontWeight: 'bold' }}>AC OFF</button>
               </div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                 <span style={{ fontSize: '10px', color: 'var(--text-secondary)', alignSelf: 'center' }}>IR PROTOCOL:</span>

@@ -36,6 +36,10 @@ type telemetryMsg struct {
 	Source      string   `json:"source"`
 	TempReal    bool     `json:"tempReal"`
 	AcReal      *bool    `json:"acReal"` // nil = firmware predates the field
+	CameraEvent *string `json:"cameraEvent"`
+	PirState    *bool   `json:"pirState"`
+	IrState     *string `json:"irState"`
+
 	// CfgRev is the node's runtime-configuration revision (edge/esp32/src/node_config.h).
 	// It matters because a calibration change alters what plugW and acW MEAN: a step in
 	// those series after a recalibration is otherwise indistinguishable from a step in the
@@ -143,6 +147,10 @@ func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 			Lux:        msg.Lux,
 			TempReal:   msg.TempReal,
 			AcReal:     msg.AcReal,
+			CameraEvent: msg.CameraEvent,
+			PirState:    msg.PirState,
+			IrState:     msg.IrState,
+
 			StripW:     msg.StripW,
 		})
 	}

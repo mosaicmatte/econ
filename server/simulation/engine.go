@@ -106,6 +106,10 @@ type ZoneSim struct {
 	HwLuxAt    time.Time
 	HwCo2At    time.Time // when HwCo2 arrived; zero = no NDIR sensor has ever reported
 	HwOnline   bool      // broker LWT verdict from econ/status/<topic>
+	CameraEvent  *string
+	PirState     *bool
+	IrState      *string
+
 	// Automated Plug Load Control (see plugs.go). PlugStandbyW is sized from the zone's
 	// real floor area at build time; PlugShed flips when the after-hours sweep cuts the
 	// zone's switchable sockets. HwPlugW/HwPlugAt carry a live SCT-013 clamp reading,
@@ -624,6 +628,10 @@ type Measurement struct {
 	// (firmware older than the field) must stay distinct from a node that positively
 	// says its IR control is absent.
 	AcReal *bool
+	CameraEvent *string
+	PirState    *bool
+	IrState     *string
+
 }
 
 // IngestTelemetry ingests one sample from the CV/edge layer (MQTT) and marks the zone
@@ -708,6 +716,16 @@ func (e *Engine) IngestTelemetry(zoneRef, topicSuffix string, m Measurement) {
 		z.HwAcW = *m.AcW
 		z.HwAcAt = time.Now()
 	}
+	if m.CameraEvent != nil {
+		z.CameraEvent = m.CameraEvent
+	}
+	if m.PirState != nil {
+		z.PirState = m.PirState
+	}
+	if m.IrState != nil {
+		z.IrState = m.IrState
+	}
+
 	if m.Lux != nil {
 		z.HwLux = *m.Lux
 		z.HwLuxAt = time.Now()
@@ -930,6 +948,16 @@ func (e *Engine) actuate() {
 			lightStr = "ON"
 		}
 		cmd := fmt.Sprintf("LIGHTS_%s;SETPOINT=%.1f", lightStr, desiredSp)
+
+		// Automatically apply turn_off_ac recommendation if AutoPilot is on and zone is vacant
+		if vacant || (z.PirState != nil && !*z.PirState) {
+			if z.IrState == nil || *z.IrState != "OFF" {
+				cmd = "HVAC_SET:OFF"
+				// If we override cmd to just turn off the AC, we might still want to turn off lights
+				cmd = fmt.Sprintf("LIGHTS_%s;%s", lightStr, cmd)
+			}
+		}
+
 		if z.DetectedProtocol != "" {
 			cmd = fmt.Sprintf("PROTOCOL=%s;%s", z.DetectedProtocol, cmd)
 		}
@@ -954,6 +982,13 @@ func (e *Engine) SetAutoPilot(on bool) {
 		log.Printf("[autopilot] %v", on)
 	}
 	e.AutoPilot = on
+}
+
+// Actuate runs the occupancy-driven optimizer step under e.mu.
+func (e *Engine) Actuate() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.actuate()
 }
 
 // hwStaleAfter bounds how long a measured temperature keeps pinning a zone: past it the
@@ -1339,7 +1374,7 @@ func (e *Engine) Recommendations(topN int) RecommendationReport {
 		label := strings.TrimPrefix(id, "zone-")
 		zr := ZoneReading{
 			Zone: id, Label: label, Type: z.Type,
-			Temp: z.Temp, Setpoint: z.Setpoint, Occupancy: z.Occupancy,
+			Temp: z.Temp, Setpoint: z.Setpoint, Occupancy: z.Occupancy, CameraEvent: z.CameraEvent, PirState: z.PirState, IrState: z.IrState,
 		}
 		if z.HwCo2 > 0 && z.co2Fresh() {
 			zr.Co2 = z.HwCo2
@@ -1531,6 +1566,13 @@ func (e *Engine) BaselineCoverage() (established, learning int) {
 		return 0, 0
 	}
 	return e.baselines.Coverage()
+}
+
+// ObserveBaseline records an observation into the engine's learned baseline model.
+func (e *Engine) ObserveBaseline(zone, metric string, val float64, at time.Time) {
+	if e.baselines != nil {
+		e.baselines.Observe(zone, metric, val, at)
+	}
 }
 
 // roomConditions gathers every room's current physical drivers for the learned dynamics
@@ -1727,6 +1769,9 @@ type HardwareNode struct {
 	AcControlKnown bool `json:"acControlKnown"`
 	// [GEMINI IMPLEMENTATION START]
 	DetectedProtocol string `json:"detectedProtocol"`
+	PirState         *bool   `json:"pirState"`
+	CameraEvent      *string `json:"cameraEvent"`
+	IrState          *string `json:"irState"`
 	// [GEMINI IMPLEMENTATION END]
 }
 
@@ -1782,6 +1827,9 @@ func (e *Engine) HardwareStatus() []HardwareNode {
 			AcControlKnown: z.HwAcRealSeen,
 			// [GEMINI IMPLEMENTATION START]
 			DetectedProtocol: z.DetectedProtocol,
+			PirState:         z.PirState,
+			CameraEvent:      z.CameraEvent,
+			IrState:          z.IrState,
 			// [GEMINI IMPLEMENTATION END]
 		})
 	}
@@ -2870,7 +2918,10 @@ func applyCommandToZone(z *ZoneSim, cmd string) {
 				z.Setpoint = v
 			}
 		case strings.HasPrefix(tok, "HVAC_SET:"):
-			if v, err := strconv.ParseFloat(tok[len("HVAC_SET:"):], 64); err == nil {
+			if tok == "HVAC_SET:OFF" || strings.ToUpper(tok) == "HVAC_SET:OFF" {
+				off := "OFF"
+				z.IrState = &off
+			} else if v, err := strconv.ParseFloat(tok[len("HVAC_SET:"):], 64); err == nil {
 				z.Setpoint = v
 			}
 		}
@@ -2890,6 +2941,9 @@ func normalizeOverride(action string, z *ZoneSim) string {
 	switch strings.ToLower(a) {
 	case "purge": // emergency air flush: lights off, drive cooling hard
 		return "LIGHTS_OFF;SETPOINT=18.0"
+	case "turn_off_ac":
+		return "HVAC_SET:OFF"
+
 	case "cool": // max cool while occupied
 		return "LIGHTS_ON;SETPOINT=20.0"
 	case "reset": // hand back to the zone's nominal occupied setpoint

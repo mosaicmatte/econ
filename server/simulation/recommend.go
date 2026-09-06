@@ -31,6 +31,10 @@ type ZoneReading struct {
 	Occupancy int
 	Co2       float64 // ppm; only meaningful when Co2Live
 	Co2Live   bool    // a fresh NDIR sensor is measuring this zone right now
+	CameraEvent *string
+	PirState    *bool
+	IrState     *string
+
 }
 
 // Recommendation is one ranked, actionable insight. The structured fields (Baseline,
@@ -177,6 +181,22 @@ func (b *Baselines) Recommend(readings []ZoneReading, loadMw float64, now time.T
 	// Whole-building load: the automation-grade signal, surfaced as an advisory with the
 	// pre-cool action when the live load is running far above the building's own learned
 	// normal for this hour.
+	// Turn off AC if no one is in the room (based on PIR or CV occupancy)
+	for _, zr := range readings {
+		if zr.Occupancy == 0 || (zr.PirState != nil && !*zr.PirState) {
+			// If we know the IR state is not OFF, or we don't know but we want to ensure it is off
+			if zr.IrState == nil || *zr.IrState != "OFF" {
+				recs = append(recs, Recommendation{
+					Id: "vacant_ac:" + zr.Zone, Zone: zr.Zone, Label: zr.Label, Metric: "occupancy",
+					Severity: "info", Basis: "standard",
+					Title: "Room Vacant but AC may be ON",
+					Message: fmt.Sprintf("%s is vacant but its AC might still be running. Turn off the AC to save energy.", zr.Label),
+					Value: 0, Unit: "people", Samples: 1, Action: "turn_off_ac", Score: 4.0,
+				})
+			}
+		}
+	}
+
 	if spec, ok := metricSpecs["buildingLoadMw"]; ok && loadMw > 0 {
 		if sc := b.score("GLOBAL", "buildingLoadMw", loadMw, now, spec); sc.mature && sc.z >= spec.zAlert {
 			sev := "info"

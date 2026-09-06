@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/gorilla/websocket"
 )
@@ -97,26 +99,7 @@ func main() {
 	})
 
 	// 4b. Hardware Inspector Manual Commands: allows direct human overrides from the device view.
-	http.HandleFunc("/api/command", func(w http.ResponseWriter, r *http.Request) {
-		if corsPreflight(w, r) {
-			return
-		}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		if r.Method != "POST" {
-			http.Error(w, "POST only", http.StatusMethodNotAllowed)
-			return
-		}
-		var payload struct {
-			Zone    string `json:"zone"`
-			Command string `json:"command"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		engine.PublishCommand(payload.Command, payload.Zone)
-		w.WriteHeader(http.StatusOK)
-	})
+	http.HandleFunc("/api/command", commandHandler(engine))
 
 
 
@@ -349,4 +332,78 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, engine *simulation.
 			engine.SetScenario(strMsg)
 		}()
 	}
+}
+
+var validZoneRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
+
+func isSupportedCommand(cmd string) bool {
+	upper := strings.ToUpper(cmd)
+	if strings.HasPrefix(upper, "LIGHTS_") || strings.HasPrefix(upper, "SETPOINT=") || strings.HasPrefix(upper, "HVAC_SET:") {
+		return true
+	}
+	lower := strings.ToLower(cmd)
+	switch lower {
+	case "turn_off_ac", "cool", "purge", "precool", "reset":
+		return true
+	default:
+		return false
+	}
+}
+
+// commandHandler handles manual command overrides from the UI or external callers.
+// Supports both "command" and "action" fields in the request JSON payload.
+func commandHandler(engine *simulation.Engine) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if corsPreflight(w, r) {
+			return
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Enforce request body size limit (4KB maximum)
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+
+		var payload struct {
+			Zone    string `json:"zone"`
+			Command string `json:"command"`
+			Action  string `json:"action"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(payload.Command) == "" && strings.TrimSpace(payload.Action) != "" {
+			payload.Command = strings.TrimSpace(payload.Action)
+		} else {
+			payload.Command = strings.TrimSpace(payload.Command)
+		}
+		payload.Zone = strings.TrimSpace(payload.Zone)
+		if payload.Zone == "" || payload.Command == "" {
+			http.Error(w, "zone and command/action are required", http.StatusBadRequest)
+			return
+		}
+
+		// Validate zone identifier syntax (alphanumeric, hyphen, underscore, max 64 chars)
+		if !validZoneRegex.MatchString(payload.Zone) {
+			http.Error(w, "invalid zone identifier", http.StatusBadRequest)
+			return
+		}
+
+		// Validate command matches supported verbs or prefixes
+		if !isSupportedCommand(payload.Command) {
+			http.Error(w, "unsupported command", http.StatusBadRequest)
+			return
+		}
+
+		engine.PublishCommand(payload.Command, payload.Zone)
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// CommandHandler is an exported alias for commandHandler.
+func CommandHandler(engine *simulation.Engine) http.HandlerFunc {
+	return commandHandler(engine)
 }

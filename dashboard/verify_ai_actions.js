@@ -197,6 +197,8 @@ class MockSimulationEngine {
         return 'LIGHTS_OFF;SETPOINT=18.0';
       case 'cool':
         return 'LIGHTS_ON;SETPOINT=20.0';
+      case 'turn_off_ac':
+        return 'HVAC_SET:OFF';
       case 'reset': {
         const sp = zone ? zone.baseSetpoint : 24.0;
         return `LIGHTS_ON;SETPOINT=${sp.toFixed(1)}`;
@@ -336,6 +338,23 @@ class MockSimulationEngine {
           action: 'precool',
           kind: 'anomaly',
           etaSec: 0
+        },
+        {
+          id: 'vacant_ac:zone-server-room-lvl1',
+          zone: 'zone-server-room-lvl1',
+          label: 'Server Room Level 1',
+          metric: 'occupancy',
+          severity: 'info',
+          basis: 'standard',
+          title: 'Room Vacant but AC may be ON',
+          message: 'Server Room Level 1 is vacant but its AC might still be running. Turn off the AC to save energy.',
+          value: 0,
+          unit: 'people',
+          samples: 1,
+          action: 'turn_off_ac',
+          score: 4.0,
+          kind: 'anomaly',
+          etaSec: 0
         }
       ],
       model: {
@@ -384,7 +403,7 @@ async function runVerification() {
   await harness.test('GET /api/recommendations returns valid schema, learned baselines, and remediation actions', () => {
     const report = engine.getRecommendations();
     harness.assert(Array.isArray(report.recommendations), 'recommendations is an array');
-    harness.assertEqual(report.recommendations.length, 3, 'contains 3 recommendations');
+    harness.assertEqual(report.recommendations.length, 4, 'contains 4 recommendations');
     harness.assert(report.model && typeof report.model === 'object', 'model metadata object present');
     harness.assertEqual(report.model.matureAfter, 20, 'model matureAfter matches specification');
 
@@ -413,6 +432,11 @@ async function runVerification() {
     const precoolRec = report.recommendations.find(r => r.action === 'precool');
     harness.assert(precoolRec != null, 'precool recommendation present');
     harness.assertEqual(precoolRec.zone, 'GLOBAL', 'precool target zone is GLOBAL');
+
+    const turnOffRec = report.recommendations.find(r => r.action === 'turn_off_ac');
+    harness.assert(turnOffRec != null, 'turn_off_ac action recommendation present');
+    harness.assertEqual(turnOffRec.metric, 'occupancy', 'turn_off_ac recommendation metric is occupancy');
+    harness.assertEqual(turnOffRec.action, 'turn_off_ac', 'recommendation action contains turn_off_ac');
   });
 
   await harness.test('GET /api/precool returns window status and timestamp', () => {
@@ -501,6 +525,19 @@ async function runVerification() {
     const lastMqtt = engine.publishedMqtt[engine.publishedMqtt.length - 1];
     harness.assertEqual(lastMqtt.topic, 'econ/commands/zone_1', 'MQTT topic matches econ/commands/zone_1');
     harness.assertEqual(lastMqtt.payload, 'LIGHTS_ON;SETPOINT=24.0', 'MQTT payload matches normalized command');
+  });
+
+  await harness.test('Action "turn_off_ac" normalizes to HVAC_SET:OFF, latches override, and publishes MQTT', () => {
+    const targetZone = 'zone-server-room-lvl1';
+    const res = engine.publishCommand('turn_off_ac', targetZone);
+    harness.assertEqual(res.cmd, 'HVAC_SET:OFF', 'turn_off_ac normalized to HVAC_SET:OFF');
+
+    const zoneState = engine.zones[targetZone];
+    harness.assert(zoneState.overrideUntil > Date.now(), '15-minute human veto override latched');
+
+    const lastMqtt = engine.publishedMqtt[engine.publishedMqtt.length - 1];
+    harness.assertEqual(lastMqtt.topic, 'econ/commands/zone_server', 'MQTT topic matches econ/commands/zone_server');
+    harness.assertEqual(lastMqtt.payload, 'HVAC_SET:OFF', 'MQTT payload matches HVAC_SET:OFF');
   });
 
   // ----------------------------------------------------------------------------
@@ -596,6 +633,16 @@ async function runVerification() {
                 </div>
               </div>
 
+              <!-- Recommendation 4: Vacant Room AC Off -->
+              <div class="card" id="rec-card-vacant">
+                <span class="badge" style="border: 1px solid var(--accent-blue); color: var(--accent-blue);">ASHRAE STD</span>
+                <div class="card-title" style="color: var(--accent-blue);">Room Vacant but AC may be ON</div>
+                <p>Server Room Level 1 is vacant but its AC might still be running. Turn off the AC to save energy.</p>
+                <div style="display: flex; justify-content: flex-end;">
+                  <button class="btn btn-turn-off-ac" id="btn-turn-off-ac" onclick="handleAction('turn_off_ac', 'zone-server-room-lvl1', this)">TURN OFF AC</button>
+                </div>
+              </div>
+
               <!-- Micro-HUD Manual Veto Section -->
               <div class="card" id="micro-hud">
                 <div class="card-title">MICRO-TELEMETRY: NORTH WEST OFFICE</div>
@@ -623,7 +670,7 @@ async function runVerification() {
                 btn.innerText = '✓ OPEN UNTIL 15:30:00';
                 btn.disabled = true;
                 btn.classList.add('engaged');
-              } else if (action === 'purge' || action === 'cool') {
+              } else if (action === 'purge' || action === 'cool' || action === 'turn_off_ac') {
                 btn.innerText = '✓ ENGAGED';
                 btn.disabled = true;
                 btn.classList.add('engaged');
@@ -642,6 +689,12 @@ async function runVerification() {
 
       const tempBadge = await page.$eval('#rec-card-temp .badge', el => el.innerText);
       harness.assertEqual(tempBadge, 'PREDICTED · 12min', 'Prediction badge rendered with time to breach');
+
+      const vacantCardText = await page.$eval('#rec-card-vacant .card-title', el => el.innerText);
+      harness.assertEqual(vacantCardText, 'Room Vacant but AC may be ON', 'Vacant room card rendered');
+
+      const turnOffBtnText = await page.$eval('#btn-turn-off-ac', el => el.innerText);
+      harness.assertEqual(turnOffBtnText, 'TURN OFF AC', 'TURN OFF AC button rendered');
 
       await page.close();
     });
@@ -813,6 +866,132 @@ async function runVerification() {
       await page.close();
     });
 
+    await harness.test('Clicking "TURN OFF AC" button dispatches manual override, latches engaged UI state, and sets override latch', async () => {
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1440, height: 900 });
+
+      await page.setContent(`
+        <html><body>
+          <button id="btn-turn-off-ac" onclick="window.wsMsg = { action: 'turn_off_ac', zone: 'zone-server-room-lvl1' }; this.innerText = '✓ ENGAGED'; this.disabled = true;">TURN OFF AC</button>
+        </body></html>
+      `);
+
+      await page.click('#btn-turn-off-ac');
+
+      const btnText = await page.$eval('#btn-turn-off-ac', el => el.innerText);
+      const btnDisabled = await page.$eval('#btn-turn-off-ac', el => el.disabled);
+      const wsMsg = await page.evaluate(() => window.wsMsg);
+
+      harness.assertEqual(btnText, '✓ ENGAGED', 'button text updated to ✓ ENGAGED');
+      harness.assertEqual(btnDisabled, true, 'button disabled after firing');
+      harness.assertEqual(wsMsg.action, 'turn_off_ac', 'WebSocket message action is turn_off_ac');
+      harness.assertEqual(wsMsg.zone, 'zone-server-room-lvl1', 'WebSocket message zone matches target');
+
+      const res = engine.publishCommand(wsMsg.action, wsMsg.zone);
+      harness.assertEqual(res.cmd, 'HVAC_SET:OFF', 'command normalized to HVAC_SET:OFF');
+      const targetZone = engine.zones[wsMsg.zone];
+      harness.assert(targetZone.overrideUntil > Date.now(), 'human override latched for 15 minutes');
+
+      await page.close();
+    });
+
+    await harness.test('Dual-transport fallback routes manual override to POST /api/command when WebSocket is offline', async () => {
+      let receivedPayload = null;
+      const page = await browser.newPage();
+      await page.setRequestInterception(true);
+
+      page.on('request', interceptedReq => {
+        if (interceptedReq.url().includes('/api/command')) {
+          if (interceptedReq.method() === 'OPTIONS') {
+            interceptedReq.respond({
+              status: 200,
+              headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type',
+              },
+            });
+            return;
+          }
+          if (interceptedReq.method() === 'POST') {
+            try {
+              const body = interceptedReq.postData();
+              const parsed = JSON.parse(body);
+              receivedPayload = parsed;
+              const cmd = parsed.command || parsed.action;
+              const result = engine.publishCommand(cmd, parsed.zone);
+              interceptedReq.respond({
+                status: 200,
+                contentType: 'application/json',
+                headers: {
+                  'Access-Control-Allow-Origin': '*',
+                  'Access-Control-Allow-Headers': 'Content-Type',
+                },
+                body: JSON.stringify({ ok: true, cmd: result.cmd }),
+              });
+            } catch (err) {
+              interceptedReq.respond({
+                status: 400,
+                contentType: 'application/json',
+                headers: { 'Access-Control-Allow-Origin': '*' },
+                body: JSON.stringify({ error: err.message }),
+              });
+            }
+            return;
+          }
+        }
+        interceptedReq.continue();
+      });
+
+      await page.setContent(`
+        <html><body>
+          <button id="btn-fallback-action" onclick="sendManualOverride('turn_off_ac', 'zone-server-room-lvl1')">TURN OFF AC</button>
+          <script>
+            const API_BASE = 'http://dashboard.local';
+            const wsRef = { current: null }; // offline WebSocket
+            window.lastTransport = null;
+            window.sendManualOverride = function(action, zoneId = 'GLOBAL') {
+              if (wsRef.current && wsRef.current.readyState === 1) {
+                window.lastTransport = 'ws';
+                wsRef.current.send(JSON.stringify({ action, zone: zoneId }));
+              } else {
+                window.lastTransport = 'http';
+                return fetch(API_BASE + '/api/command', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ zone: zoneId, command: action, action: action }),
+                }).then(r => r.json()).then(data => {
+                  window.fetchResult = data;
+                }).catch(err => {
+                  window.fetchError = err.message;
+                  console.error('[econ] manual override fallback failed:', err);
+                });
+              }
+            };
+          </script>
+        </body></html>
+      `);
+
+      await page.click('#btn-fallback-action');
+      await page.waitForFunction(() => window.fetchResult != null, { timeout: 3000 });
+
+      const transport = await page.evaluate(() => window.lastTransport);
+      const fetchResult = await page.evaluate(() => window.fetchResult);
+
+      harness.assertEqual(transport, 'http', 'dispatched via HTTP fallback when WebSocket is offline');
+      harness.assert(receivedPayload != null, 'server received POST /api/command payload');
+      harness.assertEqual(receivedPayload.zone, 'zone-server-room-lvl1', 'payload zone matches target');
+      harness.assertEqual(receivedPayload.command, 'turn_off_ac', 'payload command matches turn_off_ac');
+      harness.assertEqual(receivedPayload.action, 'turn_off_ac', 'payload action matches turn_off_ac');
+      harness.assertEqual(fetchResult.ok, true, 'server responded with ok: true');
+      harness.assertEqual(fetchResult.cmd, 'HVAC_SET:OFF', 'server response confirmed normalized command');
+
+      const targetZone = engine.zones['zone-server-room-lvl1'];
+      harness.assert(targetZone.overrideUntil > Date.now(), 'human override latched on zone via HTTP fallback');
+
+      await page.close();
+    });
+
     // ----------------------------------------------------------------------------
     // SUITE 4: Mobile Screen (MobileAIScreen) Interactivity Verification
     // ----------------------------------------------------------------------------
@@ -917,7 +1096,7 @@ async function runVerification() {
   harness.suite('Edge Firmware Protocol Invariants');
 
   await harness.test('Normalized override verbs comply with ESP32 command parser rules', () => {
-    const verbs = ['purge', 'cool', 'reset', 'LIGHTS_OFF;SETPOINT=26.0', 'LIGHTS_ON;SETPOINT=20.0'];
+    const verbs = ['purge', 'cool', 'reset', 'turn_off_ac', 'LIGHTS_OFF;SETPOINT=26.0', 'LIGHTS_ON;SETPOINT=20.0'];
     for (const v of verbs) {
       const norm = engine.normalizeOverride(v, engine.zones['zone-north-west-office-lvl4']);
       const tokens = norm.split(';');

@@ -160,12 +160,19 @@ export default function MobileAIScreen({
     // in σ against the zone's own normal for the hour (ASHRAE 1000 ppm floor while a
     // sensor is still learning). Replaces the old co2 > 1000 / temp > deadband rules; the
     // action is the real remediation the model chose, dispatched over the same websocket.
-    const recLabels = { purge: 'PURGE ZONE', cool: 'FLOOD COOLING', precool: 'ACTIVATE PRE-COOLING' };
+    const recLabels = {
+      purge: 'PURGE ZONE',
+      cool: 'FLOOD COOLING',
+      precool: 'ACTIVATE PRE-COOLING',
+      turn_off_ac: 'TURN OFF AC',
+      reset: 'RESET TO BASELINE',
+    };
     recommendations.forEach((rec) => {
       const accent = rec.severity === 'critical' ? '#FF3B30' : rec.severity === 'warning' ? '#F5C242' : '#4A90E2';
       const icon = rec.metric === 'co2' ? <Wind size={20} color={accent} />
         : rec.metric === 'temp' ? <ThermometerSnowflake size={20} color={accent} />
         : rec.metric === 'buildingLoadMw' ? <TrendingDown size={20} color={accent} />
+        : rec.metric === 'occupancy' ? <Zap size={20} color={accent} />
         : <Activity size={20} color={accent} />;
       const label = recLabels[rec.action];
       out.push({

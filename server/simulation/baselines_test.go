@@ -88,7 +88,13 @@ func TestRecommendLearnedVsStandardBasis(t *testing.T) {
 	// Cold start: no baseline yet, but 1200 > 1000 ppm → standard-basis recommendation.
 	cold := NewBaselines()
 	rep := cold.Recommend(reading, 2.0, at, 10)
-	if len(rep.Recommendations) != 1 || rep.Recommendations[0].Basis != "standard" {
+	var hasCo2 bool
+	for _, rec := range rep.Recommendations {
+		if rec.Metric == "co2" && rec.Basis == "standard" {
+			hasCo2 = true
+		}
+	}
+	if !hasCo2 {
 		t.Fatalf("cold start must fall back to the ASHRAE standard, got %+v", rep.Recommendations)
 	}
 
@@ -101,7 +107,16 @@ func TestRecommendLearnedVsStandardBasis(t *testing.T) {
 	if len(rep.Recommendations) == 0 {
 		t.Fatal("a 1200 ppm reading against a learned 600 normal must be recommended")
 	}
-	r := rep.Recommendations[0]
+	var r Recommendation
+	for _, rec := range rep.Recommendations {
+		if rec.Metric == "co2" {
+			r = rec
+			break
+		}
+	}
+	if r.Metric == "" {
+		t.Fatal("missing co2 recommendation")
+	}
 	if r.Basis != "learned" {
 		t.Fatalf("an established baseline must produce a learned-basis recommendation, got %q", r.Basis)
 	}
