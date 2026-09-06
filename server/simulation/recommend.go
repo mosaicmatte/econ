@@ -15,7 +15,9 @@ package simulation
 
 import (
 	"fmt"
+	"math"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -23,18 +25,17 @@ import (
 // handed to the (independently-locked) baseline model for scoring — so the recommendation
 // path never holds both locks at once.
 type ZoneReading struct {
-	Zone      string
-	Label     string
-	Type      string
-	Temp      float64
-	Setpoint  float64
-	Occupancy int
-	Co2       float64 // ppm; only meaningful when Co2Live
-	Co2Live   bool    // a fresh NDIR sensor is measuring this zone right now
+	Zone        string
+	Label       string
+	Type        string
+	Temp        float64
+	Setpoint    float64
+	Occupancy   int
+	Co2         float64 // ppm; only meaningful when Co2Live
+	Co2Live     bool    // a fresh NDIR sensor is measuring this zone right now
 	CameraEvent *string
 	PirState    *bool
 	IrState     *string
-
 }
 
 // Recommendation is one ranked, actionable insight. The structured fields (Baseline,
@@ -178,25 +179,52 @@ func (b *Baselines) Recommend(readings []ZoneReading, loadMw float64, now time.T
 		}
 	}
 
-	// Whole-building load: the automation-grade signal, surfaced as an advisory with the
-	// pre-cool action when the live load is running far above the building's own learned
-	// normal for this hour.
-	// Turn off AC if no one is in the room (based on PIR or CV occupancy)
-	for _, zr := range readings {
-		if zr.Occupancy == 0 || (zr.PirState != nil && !*zr.PirState) {
-			// If we know the IR state is not OFF, or we don't know but we want to ensure it is off
-			if zr.IrState == nil || *zr.IrState != "OFF" {
-				recs = append(recs, Recommendation{
-					Id: "vacant_ac:" + zr.Zone, Zone: zr.Zone, Label: zr.Label, Metric: "occupancy",
-					Severity: "info", Basis: "standard",
-					Title: "Room Vacant but AC may be ON",
-					Message: fmt.Sprintf("%s is vacant but its AC might still be running. Turn off the AC to save energy.", zr.Label),
-					Value: 0, Unit: "people", Samples: 1, Action: "turn_off_ac", Score: 4.0,
-				})
+	// Occupancy / AC: learned statistical baseline for room occupancy. If a zone is
+	// statistically vacant at this hour (z <= -1.5) while its AC is active, recommend
+	// turning off the AC. When still warming up (N < 20), fall back to standard zero check.
+	if spec, ok := metricSpecs["occupancy"]; ok {
+		for _, zr := range readings {
+			// Only consider turning off AC if the AC is running or state is unknown (not explicitly "OFF")
+			if zr.IrState != nil && strings.EqualFold(*zr.IrState, "OFF") {
+				continue
+			}
+
+			sc := b.score(zr.Zone, "occupancy", float64(zr.Occupancy), now, spec)
+			if sc.mature {
+				if zr.Occupancy <= 0 || (zr.PirState != nil && !*zr.PirState) || sc.z <= -spec.zAlert {
+					sev := "info"
+					if sc.z <= -2.5 {
+						sev = "warning"
+					}
+					recs = append(recs, Recommendation{
+						Id: "vacant_ac:" + zr.Zone, Zone: zr.Zone, Label: zr.Label, Metric: "occupancy",
+						Severity: sev, Basis: "learned",
+						Title: "Unusual Vacancy with AC Active",
+						Message: fmt.Sprintf("%s has occupancy of %d — %.1fσ below its learned %s normal of %.1f±%.1f people (learned from %d samples). Turn off the AC to save energy.",
+							zr.Label, zr.Occupancy, math.Abs(sc.z), hourLabel(sc.hour), sc.mean, sc.std, sc.count),
+						Value: float64(zr.Occupancy), Unit: "people", Baseline: sc.mean, Sigma: sc.std, Deviation: sc.z,
+						Samples: sc.count, Hour: sc.hour, Action: spec.action, Score: 3.5 + math.Abs(sc.z),
+					})
+				}
+			} else {
+				// Cold-start fallback: when baseline is not yet mature, fall back to standard
+				// vacancy check (occupancy == 0 or PIR inactive) with Basis: "standard"
+				if zr.Occupancy <= 0 || (zr.PirState != nil && !*zr.PirState) {
+					recs = append(recs, Recommendation{
+						Id: "vacant_ac:" + zr.Zone, Zone: zr.Zone, Label: zr.Label, Metric: "occupancy",
+						Severity: "info", Basis: "standard",
+						Title:   "Room Vacant but AC may be ON",
+						Message: fmt.Sprintf("%s is vacant but its AC might still be running. Turn off the AC to save energy.", zr.Label),
+						Value:   float64(zr.Occupancy), Unit: "people", Samples: sc.count, Action: spec.action, Score: 4.0,
+					})
+				}
 			}
 		}
 	}
 
+	// Whole-building load: the automation-grade signal, surfaced as an advisory with the
+	// pre-cool action when the live load is running far above the building's own learned
+	// normal for this hour.
 	if spec, ok := metricSpecs["buildingLoadMw"]; ok && loadMw > 0 {
 		if sc := b.score("GLOBAL", "buildingLoadMw", loadMw, now, spec); sc.mature && sc.z >= spec.zAlert {
 			sev := "info"

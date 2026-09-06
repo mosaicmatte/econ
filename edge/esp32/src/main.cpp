@@ -667,9 +667,23 @@ static CurrentDenoiser stripDenoiser([]() {
   return c;
 }());
 
+// CPU strain detection and raw pass-through fallback state
+static bool gCpuStrainDetected = false;
+static unsigned long gLastDspDurationUs = 0;
+const unsigned long DSP_TIME_BUDGET_US = 15000; // 15 ms DSP execution budget
+
+const int MAX_RAW_STRIP_SAMPLES = 60;
+static int gRawStripSamples[MAX_RAW_STRIP_SAMPLES];
+static int gRawStripSampleCount = 0;
+
+inline bool isCpuStrained() {
+  return gCfg.simulateCpuStrain || gCpuStrainDetected;
+}
+
 // True-RMS current over ~100 ms (≈5 mains cycles at 50 Hz) for ACS712 power strip sensor.
 // Denoised via CurrentDenoiser: Stage 1 dynamic DC offset & variance subtraction (0.5 divider),
 // Stage 2 inter-window EMA with deadband and zero-snapping.
+// When CPU strain is detected or simulated, bypasses local DSP and captures raw decimated samples.
 float readStripAmps() {
   int n = 0;
   const int MAX_SAMPLES = 1200;
@@ -678,8 +692,37 @@ float readStripAmps() {
   while (millis() - start < 100 && n < MAX_SAMPLES) {
     sampleBuf[n++] = analogRead(STRIP_ADC_PIN);
   }
+
+  // Starvation guard (< 100 samples in window)
+  if (n < 100) {
+    return -1.0f;
+  }
+
+  // Compute offload pass-through mode: if CPU is strained (simulated or measured),
+  // skip local DSP execution and capture decimated raw ADC samples for backend offload.
+  if (isCpuStrained()) {
+    const int TARGET_RAW = 30;
+    gRawStripSampleCount = 0;
+    int count = (n < TARGET_RAW) ? n : TARGET_RAW;
+    for (int i = 0; i < count; ++i) {
+      int idx = (count > 1) ? (i * (n - 1) / (count - 1)) : 0;
+      gRawStripSamples[gRawStripSampleCount++] = sampleBuf[idx];
+    }
+    return -2.0f; // Pass-through mode active
+  }
+
+  // Normal mode: run local DSP and measure execution timing
+  unsigned long dspStart = micros();
   stripDenoiser.setCal(gCfg.stripCalAPerV);
-  return stripDenoiser.processWindow(sampleBuf, n);
+  float amps = stripDenoiser.processWindow(sampleBuf, n);
+  unsigned long dspDuration = micros() - dspStart;
+  gLastDspDurationUs = dspDuration;
+  if (dspDuration > DSP_TIME_BUDGET_US) {
+    gCpuStrainDetected = true;
+    Serial.printf("[dsp] CPU strain detected: %lu us > %lu us budget (switching to offload next cycle)\n",
+                  dspDuration, DSP_TIME_BUDGET_US);
+  }
+  return amps;
 }
 #endif
 
@@ -758,6 +801,16 @@ void handleCommand(const String& msg) {
     else if (tok == "PLUG_ON")  setPlug(true);
     else if (tok == "PLUG_OFF") setPlug(false);
 #endif
+#if USE_STRIP
+    else if (tok == "CPU_STRAIN:HIGH") {
+      gCpuStrainDetected = true;
+      Serial.println("[strain] CPU strain forced HIGH via command (fallback active)");
+    }
+    else if (tok == "CPU_STRAIN:NORMAL") {
+      gCpuStrainDetected = false;
+      Serial.println("[strain] CPU strain returned to NORMAL via command");
+    }
+#endif
 
     if (sep == -1) break;
     start = sep + 1;
@@ -816,7 +869,11 @@ void onMessage(char* topic, byte* payload, unsigned int len) {
 // or failed its read is omitted, so the engine keeps modelling it rather than trusting an
 // invented number.
 void readAndPublish() {
-  StaticJsonDocument<256> doc;
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ == 8
+  StaticJsonDocument<1536> doc; // Scaled for 64-bit host test shims (32-byte slots)
+#else
+  StaticJsonDocument<768> doc;  // 768 bytes for physical 32-bit ESP32 hardware (16-byte slots)
+#endif
   doc["zone"]   = ZONE_LABEL;
   doc["source"] = "esp32";
   // Configuration revision. A calibration change alters the MEANING of plugW/acW, so a
@@ -912,7 +969,15 @@ void readAndPublish() {
 #endif
 #if USE_STRIP
   float stripAmps = readStripAmps();
-  if (stripAmps >= 0) {
+  if (isCpuStrained() || stripAmps == -2.0f) {
+    doc["rawFallback"] = true;
+    JsonArray rawArr = doc.createNestedArray("rawStripSamples");
+    for (int i = 0; i < gRawStripSampleCount; ++i) {
+      rawArr.add(gRawStripSamples[i]);
+    }
+    Serial.printf("[strip] offload pass-through: rawFallback=true (%d raw samples streamed)\n",
+                  gRawStripSampleCount);
+  } else if (stripAmps >= 0) {
     doc["stripW"] = round(stripAmps * gCfg.plugMainsV * 10) / 10.0;
   } else {
     Serial.println("[strip] ADC window starved -> omitted");
@@ -949,7 +1014,7 @@ void readAndPublish() {
   doc["acReal"] = false;
 #endif
 
-  char buf[288];
+  char buf[768];
   size_t n = serializeJson(doc, buf);
   client.publish(TELEMETRY_TOPIC, buf, n);
   Serial.printf("[mqtt] pub %s -> %s\n", TELEMETRY_TOPIC, buf);
@@ -1116,6 +1181,7 @@ void setup() {
 
   setupWifi();
   client.setServer(MQTT_HOST, MQTT_PORT);
+  client.setBufferSize(768);
   client.setCallback(onMessage);
 
 #if USE_CAMERA

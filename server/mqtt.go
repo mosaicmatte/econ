@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"math"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"econ/simulation"
@@ -39,6 +41,11 @@ type telemetryMsg struct {
 	CameraEvent *string `json:"cameraEvent"`
 	PirState    *bool   `json:"pirState"`
 	IrState     *string `json:"irState"`
+
+	// RawFallback signals that the microcontroller is under heavy CPU strain and has
+	// offloaded raw ADC samples to the backend for server-side DSP denoising.
+	RawFallback     *bool `json:"rawFallback"`
+	RawStripSamples []int `json:"rawStripSamples"`
 
 	// CfgRev is the node's runtime-configuration revision (edge/esp32/src/node_config.h).
 	// It matters because a calibration change alters what plugW and acW MEAN: a step in
@@ -114,6 +121,30 @@ func startMQTT(engine *simulation.Engine) {
 	}()
 }
 
+var (
+	fallbackDenoisersMu sync.Mutex
+	fallbackDenoisers   = make(map[string]*simulation.CurrentDenoiser)
+)
+
+func getFallbackDenoiser(key string) *simulation.CurrentDenoiser {
+	fallbackDenoisersMu.Lock()
+	defer fallbackDenoisersMu.Unlock()
+	d, ok := fallbackDenoisers[key]
+	if !ok {
+		cfg := simulation.DefaultCurrentDenoiseConfig()
+		d = simulation.NewCurrentDenoiser(cfg)
+		fallbackDenoisers[key] = d
+	}
+	return d
+}
+
+// ResetFallbackDenoisers clears cached fallback denoiser states (for unit tests).
+func ResetFallbackDenoisers() {
+	fallbackDenoisersMu.Lock()
+	defer fallbackDenoisersMu.Unlock()
+	fallbackDenoisers = make(map[string]*simulation.CurrentDenoiser)
+}
+
 func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 	debugLog("received MQTT telemetry on topic %s (bytes=%d)", topic, len(payload))
 	var msg telemetryMsg
@@ -124,15 +155,30 @@ func handleTelemetry(engine *simulation.Engine, topic string, payload []byte) {
 	}
 	suffix := topicSuffix(topic)
 
-	// Hardware inspector (TEMPORARY, devices.go). Observed before the engine binds the
-	// message, so a node publishing to a topic no zone matches still shows up — that
-	// case is invisible downstream and is a common bring-up mistake.
-	registry.observe(suffix, msg, payload)
 	// Prefer an explicit zone id/name in the payload; fall back to the topic suffix.
 	ref := msg.Zone
 	if ref == "" {
 		ref = suffix
 	}
+
+	// Compute offload fallback: if edge node flagged rawFallback, run server-side DSP denoiser
+	// before storing telemetry into zone state and DB.
+	if msg.RawFallback != nil && *msg.RawFallback && len(msg.RawStripSamples) > 0 {
+		denoiser := getFallbackDenoiser(ref)
+		amps := denoiser.ProcessWindow(msg.RawStripSamples)
+		if amps >= 0 {
+			mainsV := 230.0 // Nominal single-phase mains voltage
+			w := math.Round(amps*mainsV*10.0) / 10.0
+			msg.StripW = &w
+			log.Printf("[mqtt] offload fallback applied for zone %s: %d raw samples -> %.3f A (%.1f W)",
+				ref, len(msg.RawStripSamples), amps, w)
+		}
+	}
+
+	// Hardware inspector (TEMPORARY, devices.go). Observed before the engine binds the
+	// message, so a node publishing to a topic no zone matches still shows up — that
+	// case is invisible downstream and is a common bring-up mistake.
+	registry.observe(suffix, msg, payload)
 	if engine != nil {
 		engine.IngestTelemetry(ref, suffix, simulation.Measurement{
 			Occupancy:  msg.Occupancy,

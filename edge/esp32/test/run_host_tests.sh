@@ -41,6 +41,9 @@ c++ -std=c++17 -Wall -I "$JSON" -I src -I test test/empirical_fuzz_test.cpp -o "
 c++ -std=c++17 -Wall -I "$JSON" -I src -I test test/empirical_payload_test.cpp -o "$TMP_DIR/payloadtest"
 "$TMP_DIR/payloadtest"
 
+c++ -std=c++17 -Wall -Wextra -I "$JSON" -I src -I test test/test_cpu_strain_fallback.cpp -o "$TMP_DIR/cpustraintest"
+"$TMP_DIR/cpustraintest"
+
 python3 test/verify_strip_power.py
 
 echo ""
